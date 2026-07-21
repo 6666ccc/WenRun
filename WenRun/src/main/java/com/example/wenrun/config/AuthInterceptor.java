@@ -25,7 +25,10 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         String apiKey = request.getHeader("X-Api-Key");
-        if (StringUtils.hasText(apiKey) && apiKey.equals(aiServiceProperties.getApiKey())) {
+        String configuredApiKey = aiServiceProperties.getApiKey();
+        if (StringUtils.hasText(apiKey)
+                && StringUtils.hasText(configuredApiKey)
+                && apiKey.equals(configuredApiKey)) {
             String userIdHeader = request.getHeader("X-User-Id");
             if (StringUtils.hasText(userIdHeader)) {
                 UserContext.setUserId(Long.parseLong(userIdHeader));

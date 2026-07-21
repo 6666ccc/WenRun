@@ -15,6 +15,12 @@ public class AiServiceProperties {
     /** FastAPI 根地址，如 http://127.0.0.1:8000 */
     private String baseUrl = "http://127.0.0.1:8000";
 
+    /**
+     * 服务间调用预共享密钥。
+     * 对应配置项 {@code ai.service.api-key}，用于请求头 {@code X-Api-Key}。
+     */
+    private String apiKey = "";
+
     /** 聊天接口路径，对应 FastAPI POST /v1/chat */
     private String chatPath = "/v1/chat";
 

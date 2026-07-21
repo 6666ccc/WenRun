@@ -1,5 +1,6 @@
 package com.example.wenrun.service.impl;
 
+import com.example.wenrun.common.constant.AccountType;
 import com.example.wenrun.common.constant.BizStatus;
 import com.example.wenrun.common.context.UserContext;
 import com.example.wenrun.common.exception.BusinessException;
@@ -10,6 +11,7 @@ import com.example.wenrun.entity.ChargeOrder;
 import com.example.wenrun.entity.ExamRequest;
 import com.example.wenrun.entity.MedicalItem;
 import com.example.wenrun.entity.OutpatientVisit;
+import com.example.wenrun.entity.Patient;
 import com.example.wenrun.entity.Prescription;
 import com.example.wenrun.entity.Registration;
 import com.example.wenrun.mapper.ChargeDetailMapper;
@@ -17,6 +19,7 @@ import com.example.wenrun.mapper.ChargeOrderMapper;
 import com.example.wenrun.mapper.ExamRequestMapper;
 import com.example.wenrun.mapper.MedicalItemMapper;
 import com.example.wenrun.mapper.OutpatientVisitMapper;
+import com.example.wenrun.mapper.PatientMapper;
 import com.example.wenrun.mapper.PrescriptionMapper;
 import com.example.wenrun.mapper.RegistrationMapper;
 import com.example.wenrun.service.ChargeService;

@@ -2,22 +2,21 @@ package com.example.wenrun.ai.controller;
 
 import com.example.wenrun.ai.config.AiServiceProperties;
 import com.example.wenrun.ai.dto.ChatRequestDTO;
+import com.example.wenrun.ai.dto.JavaChatRequestDTO;
 import com.example.wenrun.ai.exception.AiServiceException;
 import com.example.wenrun.ai.service.AiChatService;
 import com.example.wenrun.ai.vo.ChatResponseVO;
+import com.example.wenrun.ai.vo.JavaChatResponseVO;
 import com.example.wenrun.common.Result;
-import com.example.wenrun.common.constant.AccountType;
-import com.example.wenrun.config.AuthTokenStore;
+import com.example.wenrun.config.JwtProperties;
 import com.example.wenrun.entity.ChatMessage;
 import com.example.wenrun.entity.Patient;
-import com.example.wenrun.entity.Staff;
-import com.example.wenrun.entity.SysRole;
 import com.example.wenrun.entity.SysUser;
 import com.example.wenrun.mapper.ChatMessageMapper;
 import com.example.wenrun.mapper.PatientMapper;
-import com.example.wenrun.mapper.StaffMapper;
 import com.example.wenrun.mapper.SysUserMapper;
-import com.example.wenrun.service.support.LoginAssembler;
+import com.example.wenrun.util.JwtUtil;
+import com.nimbusds.jwt.JWTClaimsSet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +32,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
@@ -87,7 +85,11 @@ public class AiChatController {
                     if (event == null || event.getType() == null) return;
                     try {
                         if ("error".equals(event.getType())) {
-                            String errorContent = Objects.requireNonNullElse(event.getContent(), "AI 流式服务异常");
+                            // 显式分支，避免 requireNonNullElse 触发 Eclipse @NonNull 空安全告警
+                            String errorContent = event.getContent();
+                            if (errorContent == null) {
+                                errorContent = "AI 流式服务异常";
+                            }
                             emitter.send(SseEmitter.event().name("error").data(errorContent));
                             emitter.completeWithError(new AiServiceException(errorContent));
                             completed[0] = true;
@@ -124,7 +126,14 @@ public class AiChatController {
                 }
             } catch (Exception ex) {
                 log.warn("AI 流式聊天失败: {}", ex.getMessage());
-                try { emitter.send(SseEmitter.event().name("error").data(Objects.requireNonNullElse(ex.getMessage(), "AI 流式聊天失败"))); } catch (IOException ignored) {}
+                String errorMessage = ex.getMessage();
+                if (errorMessage == null) {
+                    errorMessage = "AI 流式聊天失败";
+                }
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(errorMessage));
+                } catch (IOException ignored) {
+                }
                 emitter.completeWithError(ex);
             }
         });
