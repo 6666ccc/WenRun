@@ -5,7 +5,7 @@ from app.agent.graph.nodes.chat_node import chat_node
 from app.agent.graph.nodes.tool_node import tool_node
 from app.agent.graph.nodes.knowledge_node import knowledge_node
 from app.agent.graph.nodes.intent_judgment_node import intent_judgment_node
-from app.schemas import State
+from app.agent.graph.states import State
 
 
 def route_by_intent(state: State) -> str:
