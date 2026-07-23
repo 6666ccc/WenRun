@@ -19,32 +19,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 
-/**
- * JWT 工具类 —— 基于 Nimbus JOSE + JWT 库。
- *
- * <h3>职责</h3>
- * <ul>
- *   <li>签发 JWT Access Token（HS256 签名）</li>
- *   <li>验证 JWT 签名、过期时间</li>
- *   <li>从 JWT 中解析业务 Claims（用户身份信息）</li>
- * </ul>
- *
- * <h3>JWT Payload 结构</h3>
- * <pre>{@code
- * {
- *   "sub": "123",          // 用户 ID
- *   "jti": "uuid",         // JWT ID（用于登出黑名单）
- *   "iat": 1719900000,
- *   "exp": 1720504800,
- *   "username": "doctor1",
- *   "account_type": "staff",
- *   "portal_type": "admin",
- *   "roles": ["ROLE_DOCTOR"],
- *   "staff_id": 456,
- *   "patient_id": 789
- * }
- * }</pre>
- */
+
 public final class JwtUtil {
 
     /** HS256 算法标识 */

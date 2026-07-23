@@ -1,95 +1,161 @@
-# WenRun AI 化项目 TODO
+# 患者端多 Agent Graph 设计（TODO）
 
-> 目标：把当前“在线医院 + AI 助手”项目，从功能演示型系统推进到更接近市场需求的企业级 AI 业务系统。
+## 总览
 
-## P0 - 架构与安全底座
+三个专科 Agent：
 
-- [ ] 明确三端服务职责边界：React 只负责交互，Java 负责业务主系统与鉴权，Python AI 服务负责模型编排与工具调用。
-- [ ] 补充系统架构图，说明 `React -> Java /api -> Python AI -> Java 工具接口 -> MySQL/Qdrant` 的调用链。
-- [ ] 统一环境变量管理，避免在 `application.yml` 中保留生产不可用的明文数据库密码、JWT secret、API key。
-- [ ] 为 Java 后端增加 `dev/test/prod` profile，区分本地开发、测试和部署配置。
-- [ ] 为 AI 服务增加请求级 trace id，并在 Java 与 Python 日志中透传，方便排查跨服务问题。
-- [ ] 明确 AI 服务失败时的降级策略：AI 不可用时，挂号、缴费、处方等核心业务流程仍可正常使用。
-- [ ] 梳理所有 AI 可调用工具接口，标注只读、草稿、敏感写操作三类权限。
-- [ ] 敏感操作必须加入人工确认机制，例如创建挂号、取消预约、提交处方、支付相关操作。
+| Agent | 意图标签 | 职责 |
+|------|---------|------|
+| 知识问答 | `knowledge` | 医疗知识 / 就诊须知 / 科普（RAG） |
+| 院内信息 | `hospital_info` | 地址导航、科室位置、师资与医生介绍 |
+| Tool | `tool` | 挂载业务工具（查号源、挂号等），写操作需确认 |
 
-## P0 - 医疗 AI 风险控制
+拓扑：`Router`（起步）→ 后续可加 Handoffs。
 
-- [ ] 在 AI 输出中明确定位为“辅助建议”，避免表达为最终诊断或治疗结论。
-- [ ] 医生端 AI 建议必须经过医生确认后才能进入病历、处方或检查申请。
-- [ ] 患者端导诊结果应提供科室建议、风险提示和就医建议，不直接给出确定诊断。
-- [ ] 增加 AI 回复审计表，记录用户输入、模型输出、工具调用、确认人、确认时间。
-- [ ] 增加敏感信息脱敏策略，避免日志中直接输出身份证号、手机号、完整病历内容、access token。
-- [ ] 为模型输出增加安全规则：急症、危重症、儿童、孕产妇、药物过敏等场景优先提示线下就医或医生确认。
+---
 
-## P1 - AI 业务闭环
+## 详细流程图
 
-- [ ] 将 AI 助手从普通聊天升级为任务型助手，优先支持“查挂号、查缴费、查处方、查科室、查医生排班”。
-- [ ] 患者端实现智能导诊：根据症状描述推荐科室和可预约医生。
-- [ ] 患者端实现挂号草稿：AI 只生成建议与草稿，由用户点击确认后提交。
-- [ ] 患者端实现缴费查询：AI 可以解释待缴费项目、金额和支付状态。
-- [ ] 医生端实现问诊摘要：根据患者描述和历史记录生成结构化摘要。
-- [ ] 医生端实现病历草稿：生成主诉、现病史、初步建议，但必须由医生编辑确认。
-- [ ] 医生端实现处方辅助检查：提示过敏史、重复用药、库存不足等风险。
-- [ ] 增加 AI 对话上下文管理，区分患者会话、医生会话和系统任务会话。
+```mermaid
+flowchart TD
+  START([用户消息进入<br/>POST /chat]) --> auth[鉴权 / 注入上下文<br/>user_id · patient_id · token]
 
-## P1 - Java 后端工程治理
+  auth --> guard{安全护栏}
 
-- [ ] 为核心业务接口补充单元测试和集成测试，优先覆盖登录、挂号、收费、处方、AI 转发接口。
-- [ ] 统一 API 错误码和错误消息，确保前端和 AI 服务能稳定处理异常。
-- [ ] 为 AI 转发接口增加超时、重试、熔断或明确错误返回。
-- [ ] 梳理 `AuthInterceptor` 的权限规则，将硬编码路径规则迁移为更易维护的配置或注解方案。
-- [ ] 为重要业务操作增加操作日志，例如挂号创建、支付、处方创建、发药。
-- [ ] 检查 MyBatis XML SQL，补齐必要索引和分页查询性能优化。
+  %% —— 安全护栏分支 ——
+  guard -->|危急症状关键词<br/>胸痛/大出血/意识不清等| emergency[急诊引导节点<br/>固定话术 + 建议立即就医/人工]
+  guard -->|违规/越权请求| reject[拒绝节点<br/>说明原因后结束]
+  guard -->|通过| load_mem[加载会话状态<br/>messages · active_agent · slots]
 
-## P1 - Python AI 服务工程治理
+  load_mem --> router[意图路由节点<br/>规则优先 + LLM 兜底]
 
-- [ ] 为 LangGraph 路由节点增加单元测试，覆盖意图识别、工具调用、HITL 中断与恢复。
-- [ ] 为 Java 工具调用封装统一错误处理，避免工具异常直接暴露给用户。
-- [ ] 为 AI 服务增加健康检查细分：模型连接、Java 后端连接、Qdrant 连接。
-- [ ] 明确无记忆模式下的行为，Qdrant 不可用时不应阻塞普通对话或业务查询。
-- [ ] 增加模型配置文档，说明 `MODEL_NAME`、`OPENAI_BASE_URL`、`EMBEDDING_MODEL`、`QDRANT_COLLECTION` 的作用。
-- [ ] 对工具调用结果做最小化返回，避免把多余患者隐私数据传给模型。
+  %% —— 路由出口 ——
+  router -->|knowledge| kb_prep[知识问答 · 准备<br/>改写查询 / 构造检索 query]
+  router -->|hospital_info| info_prep[院内信息 · 准备<br/>解析院区/科室/医生实体]
+  router -->|tool| tool_prep[Tool · 准备<br/>解析办事意图与槽位]
+  router -->|clarify / 低置信| clarify[追问澄清节点<br/>问清意图后回到路由]
+  router -->|跨域复合意图<br/>如科普+挂号| multi[多跳编排<br/>按顺序调用多个 Agent]
 
-## P1 - 前端产品体验
+  %% —— 知识问答 Agent ——
+  kb_prep --> kb_retrieve[知识库检索 RAG<br/>向量检索 + 可选重排]
+  kb_retrieve --> kb_gen[知识问答 Agent<br/>基于检索结果生成回答<br/>附免责声明]
+  kb_gen --> reply
 
-- [ ] 优化 AI 助手页面，区分“问诊咨询”“业务办理”“记录查询”三类入口。
-- [ ] AI 回复中展示结构化结果，例如推荐科室、可挂号医生、待缴费订单，而不是只展示长文本。
-- [ ] 对需要用户确认的 AI 操作提供明确确认界面，展示操作内容、风险提示和取消入口。
-- [ ] 增加加载、失败、重试、超时状态，避免用户误以为系统卡死。
-- [ ] 根据患者端和医生端角色展示不同 AI 能力，避免患者看到医生专用操作。
-- [ ] 保留传统表单入口，AI 作为增强能力，不替代所有基础流程。
+  %% —— 院内信息 Agent ——
+  info_prep --> info_retrieve[结构化检索<br/>科室/医生/地址/师资目录]
+  info_retrieve --> info_gen[院内信息 Agent<br/>整理地址/导航/简介]
+  info_gen --> reply
 
-## P2 - 部署与可观测性
+  %% —— Tool Agent ——
+  tool_prep --> tool_agent[Tool Agent<br/>create_agent + tools]
+  tool_agent --> tool_loop{是否还有 tool_calls?}
+  tool_loop -->|是 · 只读工具| exec_read[执行只读工具<br/>查号源/查医生/查账单等]
+  exec_read --> tool_agent
+  tool_loop -->|是 · 写操作工具<br/>挂号/取消/支付| hitl{写操作需用户确认?}
+  tool_loop -->|否 · 已得到最终答案| reply
 
-- [ ] 增加 Docker Compose，统一启动 MySQL、Java、Python AI、Qdrant 和前端。
-- [ ] 增加 `.env.example` 总入口，说明三个子项目分别需要哪些配置。
-- [ ] 增加启动文档，包含数据库初始化、后端启动、AI 服务启动、前端启动。
-- [ ] 增加基础监控指标：请求量、错误率、AI 响应耗时、工具调用次数、模型调用成本。
-- [ ] 增加日志分级策略，开发环境可输出调试信息，生产环境默认不输出敏感数据。
-- [ ] 增加接口冒烟测试脚本，验证登录、健康检查、AI 聊天、挂号查询链路。
+  hitl -->|需要确认<br/>pending_action 未确认| confirm[待确认卡片<br/>返回前端展示摘要]
+  hitl -->|已确认 / 或配置为免确认| exec_write[执行写工具<br/>调用 Java 业务 API]
+  exec_write --> tool_agent
 
-## P2 - 数据与文档
+  confirm --> WAIT([等待用户下一轮确认<br/>checkpointer 保留状态])
+  WAIT -->|用户确认| exec_write
+  WAIT -->|用户取消| cancel_act[取消待办<br/>清理 pending_action]
+  cancel_act --> reply
 
-- [ ] 统一项目命名，清理文档中的 `HuiLiao/慧疗` 历史命名，统一为 `WenRun/问诊`。
-- [ ] 更新 `项目索引.md`，确保技术栈描述与当前 `pom.xml`、AI 服务代码一致。
-- [ ] 整理数据库脚本顺序，明确首次初始化应执行哪些 SQL，迁移脚本应按什么顺序执行。
-- [ ] 补充演示账号说明，区分管理员、医生、收银员、药师、患者。
-- [ ] 补充 API 文档，至少覆盖登录、挂号、缴费、AI 助手和 HITL resume。
-- [ ] 增加市场化说明文档，解释“传统 Java 医院系统 AI 化改造”的架构价值和适用场景。
+  %% —— 多跳 ——
+  multi --> kb_prep
+  multi --> info_prep
+  multi --> tool_prep
 
-## P3 - 可选增强
+  %% —— 统一出口 ——
+  clarify --> router
+  emergency --> END([结束本轮])
+  reject --> END
+  reply[统一回复节点<br/>拼装 reply · citations · actions] --> persist[落库/更新 checkpointer<br/>写回 messages]
+  persist --> END
+```
 
-- [ ] 增加 RAG 知识库，用于医院制度、科室介绍、常见问题、用药说明。
-- [ ] 增加医生工作台 AI 快捷指令，例如“总结这个患者”“生成复诊建议”“解释检查结果”。
-- [ ] 增加患者随访提醒能力，根据就诊记录生成复诊和用药提醒草稿。
-- [ ] 增加多模型适配层，支持不同 OpenAI-compatible 服务或本地模型。
-- [ ] 增加模型输出质量评估集，用固定病例和业务问题回归测试 AI 回复质量。
-- [ ] 增加权限可视化页面，展示不同角色可以访问的业务模块和 AI 工具。
+---
 
-## 推荐推进顺序
+## 节点职责清单
 
-1. 先补齐安全、审计、人工确认和降级策略。
-2. 再把 AI 助手做成能完成真实业务闭环的任务型助手。
-3. 然后做 Docker Compose、启动文档和冒烟测试，提升项目可交付性。
-4. 最后再做 RAG、多模型、质量评估等增强能力。
+### 1. `auth` — 鉴权与上下文注入
+- [ ] 从 Header / Java 网关解析用户身份
+- [ ] 注入 `user_id`、`patient_id`（无档案则后续 Tool 引导建档）
+- [ ] 失败则直接 401，不进入 Graph
+
+### 2. `guard` — 安全护栏
+- [ ] 危急症状词表拦截 → `emergency`
+- [ ] 越权/敏感操作拦截 → `reject`
+- [ ] 医疗免责：知识问答路径强制 disclaimer
+
+### 3. `router` — 意图路由
+- [ ] 输出：`knowledge` | `hospital_info` | `tool` | `clarify`
+- [ ] 规则优先（关键词），低置信再用 LLM 分类
+- [ ] 复合意图可走 `multi`（第一版可降级为追问主意图）
+
+### 4. `kb_*` — 知识问答 Agent
+- [ ] 检索医疗知识库（Qdrant 等）
+- [ ] 仅基于检索片段回答，拒绝对无依据的确诊表述
+- [ ] 返回：`reply` + 可选 `citations`
+
+### 5. `info_*` — 院内信息 Agent
+- [ ] 查院区地址、楼层导航、科室简介、医生/师资介绍
+- [ ] 数据源：结构化目录 API 或专用知识集合
+- [ ] 不做挂号/缴费等写操作
+
+### 6. `tool_*` — Tool Agent
+- [ ] 使用 `create_agent(model, tools=[...])`
+- [ ] 只读工具可直接执行
+- [ ] 写操作进入 HITL：`pending_action` → 前端确认卡片 → 再执行
+- [ ] 工具结果回灌 messages，直到无 tool_calls
+
+### 7. `clarify` / `reply` / `persist`
+- [ ] `clarify`：一次只问一个关键缺失信息，然后回到 `router`
+- [ ] `reply`：统一对外结构 `{ reply, intent, actions?, citations? }`
+- [ ] `persist`：会话与 `pending_action` 写入 checkpointer
+
+---
+
+## State 字段（对应 `agent/graph/states.py`）
+
+```text
+messages          # 对话历史
+user_id           # 登录用户
+patient_id        # 就诊人（可空）
+intent            # knowledge | hospital_info | tool | clarify | emergency
+active_agent      # 当前专科
+slots             # 办事槽位：科室/日期/医生等
+rag_docs          # 知识库命中
+hospital_facts    # 院内信息命中
+pending_action    # 待确认写操作 {tool, args, summary}
+tool_results      # 最近工具返回
+safe_flags        # 护栏命中标记
+```
+
+---
+
+## 文件落地（对应现有目录）
+
+```text
+AI/app/agent/graph/
+  states.py      # State 定义
+  nodes.py       # auth / guard / router / kb / info / tool / hitl / reply
+  workflow.py    # StateGraph 组装与条件边
+AI/app/chain/qa.py   # 可先作为知识问答核心，再拆出 info / tool
+AI/app/router/chat.py  # 入口改为调用 workflow.invoke / astream
+```
+
+---
+
+## 实现顺序建议
+
+1. [ ] 定义 `states.py` + 空壳 `workflow`（router 先写死规则）
+2. [ ] 接通知识问答（现有 `qa.py` + RAG 可后补）
+3. [ ] 接通院内信息检索（mock 数据亦可）
+4. [ ] Tool Agent：先挂只读工具
+5. [ ] HITL：写操作确认卡片
+6. [ ] checkpointer 多轮会话
+7. [ ] 危急护栏与免责声明打磨
+```
