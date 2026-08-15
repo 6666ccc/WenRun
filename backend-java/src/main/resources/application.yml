@@ -1,0 +1,50 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: WenRun
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/wenrun?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 123456789
+
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: com.wenrun.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+ai:
+  service:
+    base-url: http://127.0.0.1:8000
+    chat-path: /v1/chat
+    chat-stream-path: /v1/chat/stream
+    health-path: /health
+    api-key: wenrun-ai-internal-key-2026 
+    connect-timeout: 5s
+    read-timeout: 120s
+    stream-read-timeout: 10m
+    knowledge-ingest-path: /v1/knowledge/ingest
+    knowledge-delete-path: /v1/knowledge/{knowledgeBase}/{documentId}
+
+  knowledge:
+    storage:
+      root: ./data/knowledge
+      max-file-size: 20MB
+    tasks:
+      core-pool-size: 2
+      max-pool-size: 4
+      queue-capacity: 100
+      stale-after: 30m
+
+logging:
+  level:
+    com.wenrun: debug

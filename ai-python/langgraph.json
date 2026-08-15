@@ -1,0 +1,5 @@
+{
+  "graphs": {
+    "hospital": "./app/graphs/hospital/graph.py:app"
+  }
+}

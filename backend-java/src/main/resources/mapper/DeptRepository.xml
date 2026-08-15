@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.DeptRepository">
+    <select id="selectAll" resultType="com.wenrun.entity.Dept">
+        SELECT * FROM dept
+        <where>
+            <if test="status != null">AND status = #{status}</if>
+        </where>
+        ORDER BY id
+    </select>
+    <select id="selectById" resultType="com.wenrun.entity.Dept">
+        SELECT * FROM dept WHERE id = #{id}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO dept (dept_code, dept_name, parent_id, status)
+        VALUES (#{deptCode}, #{deptName}, #{parentId}, #{status})
+    </insert>
+    <update id="updateById">
+        UPDATE dept
+        <set>
+            <if test="deptName != null">dept_name = #{deptName},</if>
+            <if test="parentId != null">parent_id = #{parentId},</if>
+            <if test="status != null">status = #{status},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+</mapper>

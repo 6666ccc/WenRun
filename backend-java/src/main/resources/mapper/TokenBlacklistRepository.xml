@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.TokenBlacklistRepository">
+    <insert id="insert">
+        INSERT INTO oauth_token_blacklist (jti, expires_at) VALUES (#{jti}, #{expiresAt})
+    </insert>
+    <select id="existsByJti" resultType="int">
+        SELECT COUNT(1) FROM oauth_token_blacklist WHERE jti = #{jti}
+    </select>
+    <delete id="deleteExpired">
+        DELETE FROM oauth_token_blacklist WHERE expires_at &lt; #{now}
+    </delete>
+</mapper>

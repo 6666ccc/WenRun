@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.ScheduleRepository">
+    <select id="selectList" resultType="com.wenrun.vo.ScheduleVO">
+        SELECT sc.id, sc.dept_id AS deptId, d.dept_name AS deptName,
+               sc.staff_id AS staffId, st.name AS staffName,
+               sc.work_date AS workDate, sc.time_period AS timePeriod,
+               sc.total_count AS totalCount, sc.remaining_count AS remainingCount,
+               sc.register_fee AS registerFee
+        FROM schedule sc
+        LEFT JOIN dept d ON d.id = sc.dept_id
+        LEFT JOIN staff st ON st.id = sc.staff_id
+        <where>
+            <if test="deptId != null">AND sc.dept_id = #{deptId}</if>
+            <if test="workDate != null">AND sc.work_date = #{workDate}</if>
+            <if test="staffId != null">AND sc.staff_id = #{staffId}</if>
+        </where>
+        ORDER BY sc.work_date, sc.id
+    </select>
+    <select id="selectById" resultType="com.wenrun.entity.Schedule">
+        SELECT * FROM schedule WHERE id = #{id}
+    </select>
+    <select id="selectByIdForUpdate" resultType="com.wenrun.entity.Schedule">
+        SELECT * FROM schedule WHERE id = #{id} FOR UPDATE
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO schedule (dept_id, staff_id, work_date, time_period, total_count, remaining_count, register_fee)
+        VALUES (#{deptId}, #{staffId}, #{workDate}, #{timePeriod}, #{totalCount}, #{remainingCount}, #{registerFee})
+    </insert>
+    <update id="updateById">
+        UPDATE schedule
+        <set>
+            <if test="totalCount != null">total_count = #{totalCount},</if>
+            <if test="remainingCount != null">remaining_count = #{remainingCount},</if>
+            <if test="registerFee != null">register_fee = #{registerFee},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+    <update id="decrementRemaining">
+        UPDATE schedule SET remaining_count = remaining_count - 1
+        WHERE id = #{id} AND remaining_count > 0
+    </update>
+    <update id="incrementRemaining">
+        UPDATE schedule SET remaining_count = remaining_count + 1 WHERE id = #{id}
+    </update>
+</mapper>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.RegistrationRepository">
+    <select id="selectList" resultType="com.wenrun.vo.RegistrationVO">
+        SELECT r.id, r.reg_no AS regNo, r.patient_id AS patientId, p.name AS patientName,
+        r.schedule_id AS scheduleId,
+        r.dept_id AS deptId, d.dept_name AS deptName,
+        r.staff_id AS staffId, s.name AS staffName,
+        sc.work_date AS workDate, sc.time_period AS timePeriod,
+        r.reg_time AS regTime, r.reg_fee AS regFee, r.status,
+        r.registrant_user_id AS registrantUserId, ru.real_name AS registrantUserName
+        FROM registration r
+        LEFT JOIN patient p ON p.id = r.patient_id
+        LEFT JOIN dept d ON d.id = r.dept_id
+        LEFT JOIN staff s ON s.id = r.staff_id
+        LEFT JOIN schedule sc ON sc.id = r.schedule_id
+        LEFT JOIN sys_user ru ON ru.id = r.registrant_user_id
+        <where>
+            <if test="userId != null">
+                AND (p.user_id = #{userId} OR r.registrant_user_id = #{userId})
+            </if>
+            <if test="patientId != null">AND r.patient_id = #{patientId}</if>
+            <if test="registrantUserId != null">AND r.registrant_user_id = #{registrantUserId}</if>
+            <if test="staffId != null">AND r.staff_id = #{staffId}</if>
+            <if test="status != null">AND r.status = #{status}</if>
+        </where>
+        ORDER BY r.reg_time DESC
+    </select>
+    <select id="selectById" resultType="com.wenrun.entity.Registration">
+        SELECT * FROM registration WHERE id = #{id}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO registration (reg_no, patient_id, schedule_id, dept_id, staff_id, reg_time, reg_fee, status,
+        cashier_id, registrant_user_id)
+        VALUES (#{regNo}, #{patientId}, #{scheduleId}, #{deptId}, #{staffId}, #{regTime}, #{regFee}, #{status},
+        #{cashierId}, #{registrantUserId})
+    </insert>
+    <update id="updateStatus">
+        UPDATE registration SET status = #{status} WHERE id = #{id}
+    </update>
+    <select id="countActiveByPatientAndSchedule" resultType="int">
+        SELECT COUNT(*) FROM registration
+        WHERE patient_id = #{patientId}
+          AND schedule_id = #{scheduleId}
+          AND status = #{status}
+    </select>
+
+</mapper>

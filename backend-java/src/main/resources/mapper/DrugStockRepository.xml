@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.DrugStockRepository">
+    <select id="selectList" resultType="com.wenrun.vo.DrugStockVO">
+        SELECT d.id AS drugId, d.drug_code AS drugCode, d.drug_name AS drugName,
+               d.spec, d.unit, s.quantity, s.warn_quantity AS warnQuantity,
+               (s.quantity &lt;= s.warn_quantity) AS lowStock
+        FROM drug_stock s
+        JOIN drug d ON d.id = s.drug_id
+        <where>
+            <if test="lowStockOnly != null and lowStockOnly">
+                AND s.quantity &lt;= s.warn_quantity
+            </if>
+        </where>
+        ORDER BY s.quantity
+    </select>
+    <select id="selectByDrugId" resultType="com.wenrun.entity.DrugStock">
+        SELECT * FROM drug_stock WHERE drug_id = #{drugId}
+    </select>
+    <select id="selectByDrugIdForUpdate" resultType="com.wenrun.entity.DrugStock">
+        SELECT * FROM drug_stock WHERE drug_id = #{drugId} FOR UPDATE
+    </select>
+    <insert id="insert">
+        INSERT INTO drug_stock (drug_id, quantity, warn_quantity) VALUES (#{drugId}, #{quantity}, #{warnQuantity})
+    </insert>
+    <update id="deductQuantity">
+        UPDATE drug_stock SET quantity = quantity - #{qty}
+        WHERE drug_id = #{drugId} AND quantity >= #{qty}
+    </update>
+    <select id="countLowStock" resultType="long">
+        SELECT COUNT(*) FROM drug_stock WHERE quantity &lt;= warn_quantity
+    </select>
+</mapper>

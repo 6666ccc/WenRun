@@ -1,4 +1,4 @@
-# ===== Python (AI) =====
+# ===== Python (ai-python) =====
 .venv/
 venv/
 __pycache__/
@@ -13,7 +13,7 @@ __pycache__/
 dist/
 build/
 
-# ===== Java / Maven (WenRun) =====
+# ===== Java / Maven (backend-java) =====
 target/
 HELP.md
 .mvn/wrapper/maven-wrapper.jar
@@ -22,7 +22,7 @@ HELP.md
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-# ===== Node / React (wenrun-react) =====
+# ===== Node / Vue (frontend) =====
 node_modules/
 dist-ssr
 *.local

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.ChargeDetailRepository">
+    <select id="selectByOrderId" resultType="com.wenrun.entity.ChargeDetail">
+        SELECT * FROM charge_detail WHERE charge_order_id = #{orderId}
+    </select>
+    <select id="countByBiz" resultType="int">
+        SELECT COUNT(*) FROM charge_detail cd
+        JOIN charge_order co ON co.id = cd.charge_order_id
+        WHERE cd.biz_type = #{bizType} AND cd.biz_id = #{bizId} AND co.pay_status = 1
+    </select>
+    <insert id="insertBatch">
+        INSERT INTO charge_detail (charge_order_id, biz_type, biz_id, item_name, amount)
+        VALUES
+        <foreach collection="details" item="d" separator=",">
+            (#{d.chargeOrderId}, #{d.bizType}, #{d.bizId}, #{d.itemName}, #{d.amount})
+        </foreach>
+    </insert>
+</mapper>

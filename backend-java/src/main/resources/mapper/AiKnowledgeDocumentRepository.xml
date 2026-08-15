@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.AiKnowledgeDocumentRepository">
+
+    <resultMap id="BaseResultMap" type="com.wenrun.ai.knowledge.entity.AiKnowledgeDocument">
+        <id column="id" property="id"/>
+        <result column="document_id" property="documentId"/>
+        <result column="knowledge_base" property="knowledgeBase"/>
+        <result column="original_name" property="originalName"/>
+        <result column="storage_path" property="storagePath"/>
+        <result column="content_type" property="contentType"/>
+        <result column="file_size" property="fileSize"/>
+        <result column="file_sha256" property="fileSha256"/>
+        <result column="status" property="status"/>
+        <result column="chunk_count" property="chunkCount"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="uploaded_by" property="uploadedBy"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="completed_at" property="completedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, document_id, knowledge_base, original_name, storage_path, content_type,
+        file_size, file_sha256, status, chunk_count, error_message, uploaded_by,
+        created_at, updated_at, completed_at, deleted_at
+    </sql>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_knowledge_documents (
+            document_id, knowledge_base, original_name, storage_path, content_type,
+            file_size, file_sha256, status, chunk_count, error_message, uploaded_by,
+            created_at, updated_at, completed_at, deleted_at
+        ) VALUES (
+            #{documentId}, #{knowledgeBase}, #{originalName}, #{storagePath}, #{contentType},
+            #{fileSize}, #{fileSha256}, #{status}, #{chunkCount}, #{errorMessage}, #{uploadedBy},
+            #{createdAt}, #{updatedAt}, #{completedAt}, #{deletedAt}
+        )
+    </insert>
+
+    <select id="selectByDocumentIdAndKnowledgeBase" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM ai_knowledge_documents
+        WHERE document_id = #{documentId}
+          AND knowledge_base = #{knowledgeBase}
+          AND status != 'DELETED'
+        LIMIT 1
+    </select>
+
+    <select id="countActiveByDigest" resultType="int">
+        SELECT COUNT(*)
+        FROM ai_knowledge_documents
+        WHERE knowledge_base = #{knowledgeBase}
+          AND file_sha256 = #{fileSha256}
+          AND status != 'DELETED'
+    </select>
+
+    <select id="countByFilter" resultType="long">
+        SELECT COUNT(*)
+        FROM ai_knowledge_documents
+        WHERE knowledge_base = #{knowledgeBase}
+          AND status != 'DELETED'
+        <if test="status != null">
+          AND status = #{status}
+        </if>
+    </select>
+
+    <select id="selectPageByFilter" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM ai_knowledge_documents
+        WHERE knowledge_base = #{knowledgeBase}
+          AND status != 'DELETED'
+        <if test="status != null">
+          AND status = #{status}
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{pageSize} OFFSET #{offset}
+    </select>
+
+    <update id="updateStatus">
+        UPDATE ai_knowledge_documents
+        SET status = #{status},
+            chunk_count = #{chunkCount},
+            error_message = #{errorMessage},
+            completed_at = #{completedAt},
+            deleted_at = #{deletedAt},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE document_id = #{documentId}
+          AND knowledge_base = #{knowledgeBase}
+          AND status != 'DELETED'
+    </update>
+
+    <select id="selectStaleProcessing" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM ai_knowledge_documents
+        WHERE status = 'PROCESSING'
+          AND updated_at &lt; #{before}
+        ORDER BY updated_at ASC
+    </select>
+</mapper>

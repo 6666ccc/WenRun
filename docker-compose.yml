@@ -1,0 +1,77 @@
+services:
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-wenrun}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456789}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docs/SQL/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
+      - ./docs/SQL/seed.sql:/docker-entrypoint-initdb.d/2-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-123456789}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend-java:
+    build:
+      context: ./backend-java
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/wenrun?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-123456789}
+      AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-python:8000}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ai-python:
+        condition: service_started
+
+  ai-python:
+    build:
+      context: ./ai-python
+    ports:
+      - "8000:8000"
+    environment:
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-wenrun}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-}
+      DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      BACKEND_PROXY_TARGET: http://backend-java:8080
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    depends_on:
+      - backend-java
+
+volumes:
+  mysql-data:
+  qdrant-data:

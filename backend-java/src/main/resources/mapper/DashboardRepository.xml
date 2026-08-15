@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.DashboardRepository">
+    <select id="countTodayRegistrations" resultType="long">
+        SELECT COUNT(*) FROM registration WHERE DATE(reg_time) = CURDATE()
+    </select>
+    <select id="countTodayVisits" resultType="long">
+        SELECT COUNT(*) FROM outpatient_visit WHERE DATE(visit_time) = CURDATE()
+    </select>
+    <select id="countTodayPaidCharges" resultType="long">
+        SELECT COUNT(*) FROM charge_order WHERE pay_status = 1 AND DATE(pay_time) = CURDATE()
+    </select>
+    <select id="sumTodayRevenue" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(paid_amount), 0) FROM charge_order
+        WHERE pay_status = 1 AND DATE(pay_time) = CURDATE()
+    </select>
+    <select id="countPendingDispense" resultType="long">
+        SELECT COUNT(*) FROM prescription WHERE status = 2
+    </select>
+</mapper>
