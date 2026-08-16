@@ -1,11 +1,14 @@
-from pydantic import BaseModel, Field
 from typing import Literal
 
+from pydantic import BaseModel, Field
+
+
 class IntentResult(BaseModel):
-    intent: Literal["chat", "tool", "knowledge"] = Field(
+    intent: Literal["chat", "hospital", "medical"] = Field(
         description=(
-            "chat=闲聊问候；"
-            "tool=挂号/查号源/查账单等办事；"
-            "knowledge=医疗知识/症状科普/就诊须知"
+            "chat=问候、闲聊、倾听、情绪陪伴；"
+            "hospital=医院信息、科室、医资、挂号及其他院内办事；"
+            "混合“医院信息 + 办事”属于 hospital；"
+            "medical=疾病、症状、日常护理、健康科普"
         )
     )

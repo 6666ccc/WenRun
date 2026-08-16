@@ -26,4 +26,6 @@ public interface RegistrationRepository {
     int countActiveByPatientAndSchedule(@Param("patientId") Long patientId,
                                         @Param("scheduleId") Long scheduleId,
                                         @Param("status") Integer status);
+
+    Registration selectByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
 }

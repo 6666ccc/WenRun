@@ -159,3 +159,66 @@ AI/app/router/chat.py  # 入口改为调用 workflow.invoke / astream
 6. [ ] checkpointer 多轮会话
 7. [ ] 危急护栏与免责声明打磨
 ```
+
+---
+
+## 上线前问题清单（2026-08-16 项目审查）
+
+> 当前结论：核心测试通过，但以下问题未解决前不建议上线。优先修复 P0/P1。
+
+### P0 — 认证授权与患者数据隔离
+
+- [ ] **补齐认证上下文中的账号类型和角色**
+  - `AuthInterceptor` 当前只写入 `userId`，未调用 `UserContext.setAccountType(...)`；患者隔离逻辑因此可能退化为“非患者账号”分支。
+  - 相关文件：`backend-java/src/main/java/com/wenrun/config/AuthInterceptor.java`、`backend-java/src/main/java/com/wenrun/common/context/UserContext.java`、`backend-java/src/main/java/com/wenrun/service/impl/PatientServiceImpl.java`、`backend-java/src/main/java/com/wenrun/service/impl/ChargeServiceImpl.java`
+- [ ] **为所有业务接口增加显式 RBAC/数据范围校验**
+  - 患者、医生、管理员、收费员、药师的读写权限需要分开；当前科室/医生/排班/药品/诊疗项目等 CRUD 控制器没有统一角色保护。
+  - 重点：`backend-java/src/main/java/com/wenrun/controller/DeptController.java`、`StaffController.java`、`ScheduleController.java`、`DrugController.java`、`MedicalItemController.java`
+- [ ] **修复患者/挂号/就诊/处方/收费的越权访问**
+  - 不要信任请求体中的 `patientId/userId/staffId`；必须从当前登录用户和服务端关联关系推导。
+  - `RegistrationServiceImpl` 的注册、退号、列表，`CurrentStaffSupport.assertOwnsStaff(...)`，以及就诊/处方/检查接口需要增加患者/医生数据范围校验。
+- [ ] **移除实体类直接作为更新入参**
+  - `PatientController` 当前接收 `Patient` 实体，`PatientRepository.xml` 可更新 `user_id`，存在账号/患者档案重绑定风险；改用白名单 DTO。
+
+### P1 — 默认部署与密钥安全
+
+- [ ] **删除生产默认密码和默认密钥**
+  - `docker-compose.yml` 中 MySQL root 默认密码 `123456789`，AI delegation secret 有开发默认值；`backend-java/src/main/resources/application.yml` 也写死 DB 密码。
+- [ ] **隔离基础设施端口**
+  - MySQL 和 Qdrant 不应直接映射到公网；Qdrant 需要 API Key/TLS/内网隔离；镜像版本不能使用 `latest`。
+- [ ] **清理/隔离演示账号**
+  - `docs/SQL/seed.sql` 暴露已知管理员账号密码说明；前端 Login 页面提示的 `patient01/password` 与 seed 数据不一致。演示凭据只能进入开发配置，生产 seed 禁止固定密码。
+
+### P1 — AI 默认启动链路与可观测性
+
+- [ ] **将 AI_SERVICE_API_KEY、DashScope、数据库等关键配置设为必填**
+  - 当前 compose 默认 `AI_SERVICE_API_KEY` 为空，Java 不发送 `X-Api-Key`，Python 会拒绝请求，默认 AI 聊天不可用。
+- [ ] **增加真正的 readiness healthcheck**
+  - `ai-python/app/api/routes/health.py` 当前无条件返回 `ok`；应检查 Qdrant、LLM 配置/连通性，并让 Java/Compose 依赖 readiness 而非 `service_started`。
+- [ ] **补充容器启动冒烟测试**
+  - 需要在具备 Docker 的环境执行 `docker compose config`、启动四个服务并验证登录、AI 流式聊天、挂号确认、删除会话等链路。
+
+### P1 — 患者隐私
+
+- [ ] **按用户隔离并清理 AI 本地会话**
+  - `frontend/src/composables/useAssistant.js` 使用全局 `wenrun_ai_sessions`；退出登录没有清理，会导致同一浏览器不同用户看到前一用户的问诊信息。
+  - 按 `userId` 命名空间，退出时清理；敏感会话优先改为服务端存储并设置生命周期。
+
+### P2 — 发布与数据迁移
+
+- [ ] **改造生产镜像**
+  - 前端使用 `npm run build` + Nginx/静态服务器；Java 使用打包后的 jar；不要在生产容器运行 Vite dev server 或 `spring-boot:run`。
+- [ ] **引入正式数据库迁移机制**
+  - 当前 `docs/SQL/migrations/2026-08-16-registration-idempotency.sql` 不会被 Compose 自动执行；已有数据库可能缺少 `idempotency_key`。引入 Flyway/Liquibase 或可靠的一次性迁移流程。
+- [ ] **补齐越权和跨用户隐私测试**
+  - 至少覆盖患者读取其他患者、患者修改患者档案、患者调用医生/管理员写接口、跨用户会话访问等场景。
+
+### 审查验证记录
+
+- Python：80 passed
+- Frontend：12 passed，构建成功，lint 通过
+- Java：Maven 测试通过
+- Python compileall：通过
+- Ruff：未执行，当前环境未安装
+- Docker Compose：未执行，当前环境未安装 Docker CLI
+- 当前工作区已有未提交改动；`git diff --check` 仅发现 `backend-java/src/main/resources/application.yml:32` 尾随空格。

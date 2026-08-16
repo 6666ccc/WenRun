@@ -31,4 +31,21 @@
             #{conversationId}, #{userId}, #{role}, #{content}
         )
     </insert>
+
+    <select id="existsByConversationIdAndUserId" resultType="boolean">
+        SELECT COUNT(1) > 0
+        FROM chat_messages
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+    </select>
+
+    <select id="existsByConversationId" resultType="boolean">
+        SELECT COUNT(1) > 0
+        FROM chat_messages
+        WHERE conversation_id = #{conversationId}
+    </select>
+
+    <delete id="deleteByConversationId">
+        DELETE FROM chat_messages WHERE conversation_id = #{conversationId}
+    </delete>
 </mapper>

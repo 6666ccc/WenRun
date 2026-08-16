@@ -8,13 +8,85 @@ export function taskFromChatEvent(event) {
   return toTask(event?.task)
 }
 
-/**
- * 流式 AI 对话（SSE）。
- * @param {{ message: string, conversationId?: string }} payload
- * @param {{ onEvent?: (event) => void, onToken?: (chunk) => void, onDone?: (reply) => void, signal?: AbortSignal }} handlers
- */
-export async function chatStream(payload, handlers = {}) {
-  const { onEvent, onToken, onDone, signal } = handlers
+function applyChatEvent(raw, acc, handlers) {
+  const event = normalizeChatEvent(raw)
+  handlers.onEvent?.(event)
+  if (event.type === 'status') {
+    handlers.onStatus?.(event.content)
+    return null
+  }
+  if (event.type === 'token' && event.content) {
+    acc.reply += event.content
+    handlers.onToken?.(event.content)
+    return null
+  }
+  if (event.type === 'citation') {
+    const incoming = Array.isArray(event.sources) && event.sources.length ? event.sources : [event]
+    for (const source of incoming) {
+      acc.sources.push(source)
+      handlers.onCitation?.(source)
+    }
+    return null
+  }
+  if (event.type === 'interrupt') {
+    handlers.onInterrupt?.(event.interrupt)
+    return { status: 'pending', interrupt: event.interrupt }
+  }
+  if (event.type === 'done') {
+    const done = {
+      reply: event.reply || event.content || acc.reply,
+      intent: event.intent || acc.intent,
+      sources: event.sources || acc.sources,
+    }
+    handlers.onDone?.(done)
+    return { status: 'completed', ...done }
+  }
+  if (event.type === 'error') {
+    const message = event.message || event.content || 'AI 服务异常'
+    const error = { code: event.code, message }
+    handlers.onError?.(error)
+    const thrown = new Error(message)
+    thrown.code = event.code
+    throw thrown
+  }
+  return null
+}
+
+function finishStream(acc, handlers) {
+  if (acc.reply) {
+    const done = { reply: acc.reply, intent: acc.intent, sources: acc.sources }
+    handlers.onDone?.(done)
+    return { status: 'completed', ...done }
+  }
+  throw new Error('流式响应意外结束')
+}
+
+export async function consumeChatEvents(events, handlers = {}) {
+  const acc = { reply: '', sources: [], intent: null }
+  for (const raw of events) {
+    const result = applyChatEvent(raw, acc, handlers)
+    if (result) return result
+  }
+  return finishStream(acc, handlers)
+}
+
+function parseSseChunk(part, onEvent) {
+  const line = part
+    .split('\n')
+    .map((item) => item.trim())
+    .find((item) => item.startsWith('data:'))
+  if (!line) return
+  const raw = line.slice(5).trim()
+  if (!raw) return
+  try {
+    onEvent(JSON.parse(raw))
+  } catch {
+    // ignore malformed SSE payloads
+  }
+}
+
+async function streamRequest(url, payload, handlers = {}) {
+  const { signal } = handlers
   const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' }
   const { getToken } = await import('../request.js')
   const token = getToken()
@@ -23,7 +95,7 @@ export async function chatStream(payload, handlers = {}) {
     headers['X-Token'] = token
   }
 
-  const res = await fetch('/api/ai/chat/stream', {
+  const res = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
@@ -48,61 +120,46 @@ export async function chatStream(payload, handlers = {}) {
 
   const decoder = new TextDecoder()
   let buffer = ''
-  let fullReply = ''
+  const acc = { reply: '', sources: [], intent: null }
+  let terminal = null
 
-  while (true) {
+  const handleEvent = (event) => {
+    if (terminal) return
+    terminal = applyChatEvent(event, acc, handlers)
+  }
+
+  while (!terminal) {
     const { done, value } = await reader.read()
     if (done) break
-
     buffer += decoder.decode(value, { stream: true })
     const parts = buffer.split('\n\n')
     buffer = parts.pop() || ''
-
     for (const part of parts) {
-      const line = part
-        .split('\n')
-        .map((l) => l.trim())
-        .find((l) => l.startsWith('data:'))
-      if (!line) continue
-
-      const raw = line.slice(5).trim()
-      if (!raw) continue
-
-      let event
-      try {
-        event = JSON.parse(raw)
-      } catch {
-        continue
-      }
-
-      event = normalizeChatEvent(event)
-      onEvent?.(event)
-
-      if (event.type === 'error') {
-        throw new Error(event.content || 'AI 服务异常')
-      }
-      if (event.type === 'token' && event.content) {
-        fullReply += event.content
-        onToken?.(event.content)
-      }
-      if (event.type === 'done') {
-        const reply = event.reply || fullReply
-        onDone?.(reply)
-        return reply
-      }
+      parseSseChunk(part, handleEvent)
+      if (terminal) break
     }
   }
-
-  if (fullReply) {
-    onDone?.(fullReply)
-    return fullReply
+  if (!terminal && buffer.trim()) {
+    parseSseChunk(buffer, handleEvent)
   }
-
-  throw new Error('流式响应意外结束')
+  if (terminal) return terminal
+  return finishStream(acc, handlers)
 }
 
-/** 非流式对话（保留兼容） */
+export function chatStream(payload, handlers = {}) {
+  return streamRequest('/api/ai/chat/stream', payload, handlers)
+}
+
+export function resumeStream(payload, handlers = {}) {
+  return streamRequest('/api/ai/chat/resume/stream', payload, handlers)
+}
+
+export async function deleteConversation(conversationId) {
+  const { default: request } = await import('../request.js')
+  return request.delete(`/api/ai/conversations/${encodeURIComponent(conversationId)}`)
+}
+
 export async function chat(message) {
-  const { default: request } = await import('../request')
+  const { default: request } = await import('../request.js')
   return request.post('/api/ai/chat', { message })
 }

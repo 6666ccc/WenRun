@@ -1,29 +1,16 @@
-"""
-这是一个聊天节点，用于处理聊天相关的任务
-"""
+"""谈心聊天节点。"""
 
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_agent
+from typing import TYPE_CHECKING
+
+from app.graphs.hospital.nodes import ai_message, invoke_reply_agent
 from app.graphs.hospital.state import State
-import os
+
+if TYPE_CHECKING:
+    from app.graphs.hospital.graph import GraphDependencies
 
 
+def build_chat_node(deps: "GraphDependencies"):
+    def chat(state: State) -> dict:
+        return {"messages": [ai_message(invoke_reply_agent(deps.chat_agent, state))]}
 
-model = ChatOpenAI(
-    model=os.getenv("DASHSCOPE_CHAT_MODEL"),
-    base_url=os.getenv("DASHSCOPE_BASE_URL"),
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
-)
-
-agent = create_agent(
-    model=model,
-    system_prompt="你的主要任务是和患者进行聊天, 必须要有耐心和同理心。",
-)
-
-
-def chat_node(state: State) -> dict:
-    last = state["messages"][-1]
-    response = agent.invoke({
-        "messages": [{"role": "user", "content": last.content}]
-    })
-    return {"messages": [response["messages"][-1]]}  # 只追加助手回复
+    return chat

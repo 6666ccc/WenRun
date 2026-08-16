@@ -1,17 +1,19 @@
 package com.wenrun.config;
 
+import com.wenrun.ai.tools.interceptor.DelegatedJwtInterceptor;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import org.springframework.beans.factory.annotation.Value;
 
 @Configuration
 @RequiredArgsConstructor
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final AuthInterceptor authInterceptor;
+    private final DelegatedJwtInterceptor delegatedJwtInterceptor;
 
     @Value("${wenrun.cors.allowed-origins:http://localhost:3000,http://127.0.0.1:3000}")
     private String allowedOrigins;
@@ -33,7 +35,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns(
                         "/api/health",
                         "/api/auth/login",
-                        "/api/auth/register"
-                );
+                        "/api/auth/register",
+                        "/api/internal/ai-tools/**");
+        registry.addInterceptor(delegatedJwtInterceptor)
+                .addPathPatterns("/api/internal/ai-tools/**");
     }
 }

@@ -17,8 +17,8 @@ spring:
     password: 123456789
 
 mybatis:
-  mapper-locations: classpath:mapper/**/*.xml
-  type-aliases-package: com.wenrun.entity
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.wenrun.entity,com.wenrun.ai.knowledge.entity
   configuration:
     map-underscore-to-camel-case: true
 
@@ -27,13 +27,18 @@ ai:
     base-url: http://127.0.0.1:8000
     chat-path: /v1/chat
     chat-stream-path: /v1/chat/stream
+    chat-resume-stream-path: /v1/chat/resume/stream
     health-path: /health
-    api-key: wenrun-ai-internal-key-2026 
+    api-key: ${AI_SERVICE_API_KEY:} 
     connect-timeout: 5s
     read-timeout: 120s
     stream-read-timeout: 10m
     knowledge-ingest-path: /v1/knowledge/ingest
     knowledge-delete-path: /v1/knowledge/{knowledgeBase}/{documentId}
+
+  delegation:
+    secret: ${AI_DELEGATION_SECRET}
+    expiry-seconds: ${AI_DELEGATION_EXPIRY_SECONDS:300}
 
   knowledge:
     storage:

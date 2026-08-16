@@ -39,6 +39,9 @@ services:
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-123456789}
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-python:8000}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:-}
+      AI_DELEGATION_SECRET: ${AI_DELEGATION_SECRET:-dev-ai-delegation-secret-key-32chars}
+      AI_DELEGATION_EXPIRY_SECONDS: ${AI_DELEGATION_EXPIRY_SECONDS:-300}
     depends_on:
       mysql:
         condition: service_healthy
@@ -53,10 +56,18 @@ services:
     environment:
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-wenrun}
+      QDRANT_HOSPITAL_COLLECTION: ${QDRANT_HOSPITAL_COLLECTION:-wenrun_hospital_custom}
+      QDRANT_MEDICAL_COLLECTION: ${QDRANT_MEDICAL_COLLECTION:-wenrun_medical_general}
+      QDRANT_MEMORY_COLLECTION: ${QDRANT_MEMORY_COLLECTION:-wenrun_conversation_memory}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-}
       DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:-}
+      AI_JAVA_BASE_URL: ${AI_JAVA_BASE_URL:-http://backend-java:8080}
+      AI_CHECKPOINT_PATH: ${AI_CHECKPOINT_PATH:-/data/checkpoints.sqlite}
+    volumes:
+      - ai-checkpoint:/data
     depends_on:
       qdrant:
         condition: service_healthy
@@ -75,3 +86,4 @@ services:
 volumes:
   mysql-data:
   qdrant-data:
+  ai-checkpoint:

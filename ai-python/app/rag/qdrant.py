@@ -1,24 +1,21 @@
-"""这个是用于连接Qdrant向量数据库的工具"""
-import os
-from qdrant_client import QdrantClient
-from langchain_openai import OpenAIEmbeddings
+"""Qdrant client and vector-store factories. Never connect at import time."""
+
 from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
 
-qdrantClient = QdrantClient(
-  url= os.getenv("QDRANT_URL")
-)
+from app.core.config import Settings
+from app.rag.collections import COLLECTIONS, KnowledgeBase
 
 
-#提供向量模型信息
-embeddings = OpenAIEmbeddings(
-  model = os.getenv("EMBEDDING_MODEL"),
-  api_key= os.getenv("DASHSCOPE_API_KEY"),
-  base_url= os.getenv("DASHSCOPE_BASE_URL")
-)
+def get_qdrant_client(settings: Settings) -> QdrantClient:
+    return QdrantClient(url=settings.qdrant_url)
 
-#构建向量数据库连接消费商店实体
-store = QdrantVectorStore(
-  client= qdrantClient,
-  collection_name= os.getenv("QDRANT_COLLECTION"),
-  embedding= embeddings
-)
+
+def get_vector_store(settings: Settings, base: KnowledgeBase, embeddings) -> QdrantVectorStore:
+    if not isinstance(base, KnowledgeBase):
+        raise TypeError("get_vector_store accepts KnowledgeBase only")
+    return QdrantVectorStore(
+        client=get_qdrant_client(settings),
+        collection_name=COLLECTIONS[base],
+        embedding=embeddings,
+    )

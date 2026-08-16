@@ -1,6 +1,5 @@
 package com.wenrun.config;
 
-import com.wenrun.ai.config.AiServiceProperties;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
@@ -15,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 覆盖当前 AuthInterceptor：API Key 放行、Token 校验、OPTIONS 放行。
+ * 覆盖当前 AuthInterceptor：患者 UUID Token 校验、OPTIONS 放行；API Key 不能绕过。
  */
 class AuthInterceptorTest {
 
@@ -27,9 +26,7 @@ class AuthInterceptorTest {
     @BeforeEach
     void setUp() {
         authTokenStore = new AuthTokenStore();
-        AiServiceProperties aiServiceProperties = new AiServiceProperties();
-        aiServiceProperties.setApiKey(API_KEY);
-        interceptor = new AuthInterceptor(authTokenStore, aiServiceProperties);
+        interceptor = new AuthInterceptor(authTokenStore);
     }
 
     @AfterEach
@@ -44,13 +41,15 @@ class AuthInterceptorTest {
     }
 
     @Test
-    void allowsValidApiKey() throws Exception {
+    void rejectsApiKeyForPatientApi() {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/patients");
         request.addHeader("X-Api-Key", API_KEY);
         request.addHeader("X-User-Id", "42");
 
-        assertTrue(interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
-        assertEquals(42L, UserContext.getUserId());
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
+
+        assertEquals(ResultCode.UNAUTHORIZED, exception.getCode());
     }
 
     @Test

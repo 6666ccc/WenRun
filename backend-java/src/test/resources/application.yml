@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:wenrun;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.wenrun.entity,com.wenrun.ai.knowledge.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+ai:
+  service:
+    api-key: test-internal-api-key
+  delegation:
+    secret: test-ai-delegation-secret-key-32!!
+    expiry-seconds: 300

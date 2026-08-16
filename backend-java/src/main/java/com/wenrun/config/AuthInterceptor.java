@@ -1,6 +1,5 @@
 package com.wenrun.config;
 
-import com.wenrun.ai.config.AiServiceProperties;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
@@ -16,23 +15,10 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class AuthInterceptor implements HandlerInterceptor {
 
     private final AuthTokenStore authTokenStore;
-    private final AiServiceProperties aiServiceProperties;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
-            return true;
-        }
-
-        String apiKey = request.getHeader("X-Api-Key");
-        String configuredApiKey = aiServiceProperties.getApiKey();
-        if (StringUtils.hasText(apiKey)
-                && StringUtils.hasText(configuredApiKey)
-                && apiKey.equals(configuredApiKey)) {
-            String userIdHeader = request.getHeader("X-User-Id");
-            if (StringUtils.hasText(userIdHeader)) {
-                UserContext.setUserId(Long.parseLong(userIdHeader));
-            }
             return true;
         }
 

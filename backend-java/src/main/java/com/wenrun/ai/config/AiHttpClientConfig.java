@@ -30,9 +30,12 @@ public class AiHttpClientConfig {
         factory.setConnectTimeout(properties.getConnectTimeout());
         factory.setReadTimeout(readTimeout);
 
-        return RestClient.builder()
+        RestClient.Builder builder = RestClient.builder()
                 .baseUrl(properties.getBaseUrl())
-                .requestFactory(factory)
-                .build();
+                .requestFactory(factory);
+        if (properties.getApiKey() != null && !properties.getApiKey().isBlank()) {
+            builder.defaultHeader("X-Api-Key", properties.getApiKey());
+        }
+        return builder.build();
     }
 }

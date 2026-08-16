@@ -18,6 +18,7 @@ public class Registration {
     private Integer status;
     private Long cashierId;
     private Long registrantUserId;
+    private String idempotencyKey;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

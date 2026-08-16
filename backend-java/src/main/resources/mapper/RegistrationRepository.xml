@@ -32,13 +32,16 @@
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO registration (reg_no, patient_id, schedule_id, dept_id, staff_id, reg_time, reg_fee, status,
-        cashier_id, registrant_user_id)
+        cashier_id, registrant_user_id, idempotency_key)
         VALUES (#{regNo}, #{patientId}, #{scheduleId}, #{deptId}, #{staffId}, #{regTime}, #{regFee}, #{status},
-        #{cashierId}, #{registrantUserId})
+        #{cashierId}, #{registrantUserId}, #{idempotencyKey})
     </insert>
     <update id="updateStatus">
         UPDATE registration SET status = #{status} WHERE id = #{id}
     </update>
+    <select id="selectByIdempotencyKey" resultType="com.wenrun.entity.Registration">
+        SELECT * FROM registration WHERE idempotency_key = #{idempotencyKey} LIMIT 1
+    </select>
     <select id="countActiveByPatientAndSchedule" resultType="int">
         SELECT COUNT(*) FROM registration
         WHERE patient_id = #{patientId}

@@ -12,7 +12,7 @@ test('normalizeMode only accepts the two patient experiences', () => {
 })
 
 test('normalizeSessions recovers a safe default after corrupt storage', () => {
-  assert.deepEqual(normalizeSessions('{broken json'), [{ id: 'default', title: '新的问诊', messages: [] }])
+  assert.deepEqual(normalizeSessions('{broken json'), [{ id: 'default', title: '新的问诊', messages: [], pendingInterrupt: null }])
 })
 
 test('toTask only exposes approved patient task types', () => {

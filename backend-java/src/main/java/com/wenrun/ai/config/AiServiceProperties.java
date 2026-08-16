@@ -27,6 +27,9 @@ public class AiServiceProperties {
     /** 流式聊天路径，对应 FastAPI POST /v1/chat/stream */
     private String chatStreamPath = "/v1/chat/stream";
 
+    /** 恢复 interrupt 的流式路径 */
+    private String chatResumeStreamPath = "/v1/chat/resume/stream";
+
     /** Java 集成聊天路径，对应 FastAPI POST /java/chat（LangGraph 路由图） */
     private String javaChatPath = "/java/chat";
 

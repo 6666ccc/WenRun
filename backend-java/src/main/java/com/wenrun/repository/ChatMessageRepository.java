@@ -17,4 +17,11 @@ public interface ChatMessageRepository {
 
     /** 插入一条消息 */
     int insert(ChatMessage message);
+
+    boolean existsByConversationIdAndUserId(@Param("conversationId") String conversationId,
+                                            @Param("userId") Long userId);
+
+    boolean existsByConversationId(@Param("conversationId") String conversationId);
+
+    int deleteByConversationId(@Param("conversationId") String conversationId);
 }

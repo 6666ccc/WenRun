@@ -1,11 +1,13 @@
 package com.wenrun.ai.client;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wenrun.ai.config.AiServiceProperties;
 import com.wenrun.ai.dto.ChatRequestDTO;
+import com.wenrun.ai.dto.ChatResumeRequestDTO;
+import com.wenrun.ai.dto.PythonChatRequestDTO;
 import com.wenrun.ai.exception.AiServiceException;
 import com.wenrun.ai.vo.ChatResponseVO;
 import com.wenrun.ai.vo.ChatStreamEventVO;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
@@ -21,11 +23,6 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
-/**
- * AI 服务客户端，调用 Python FastAPI（/v1/chat 聊天、健康检查）。
- * <p>
- * Java 集成聊天见 {@link JavaAiClient}。
- */
 @Slf4j
 @Component
 public class AiServiceClient {
@@ -50,20 +47,18 @@ public class AiServiceClient {
         this.objectMapper = objectMapper;
     }
 
-    /**
-     * 调用 FastAPI {@code POST /v1/chat}，请求体会夹带用户/患者上下文，响应 {@code {"reply": "..."}}。
-     */
     public ChatResponseVO chat(ChatRequestDTO request) {
-        if (request == null || !StringUtils.hasText(request.getMessage())) {
+        return chat(toPythonRequest(request), null);
+    }
+
+    public ChatResponseVO chat(PythonChatRequestDTO request, String delegationToken) {
+        if (request == null || !StringUtils.hasText(request.message())) {
             throw new AiServiceException("消息不能为空");
         }
-        request.setMessage(request.getMessage().trim());
-
-        log.debug("调用 AI 聊天: POST {}{}", properties.getBaseUrl(), properties.getChatPath());
         try {
-            ChatResponseVO response = aiRestClient.post()
+            ChatResponseVO response = withAuth(aiRestClient.post()
                     .uri(properties.getChatPath())
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_JSON), delegationToken)
                     .body(request)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (req, res) -> {
@@ -86,22 +81,64 @@ public class AiServiceClient {
         }
     }
 
-    /**
-     * 调用 FastAPI {@code POST /v1/chat/stream}，按 SSE 行解析并回调消费者。
-     */
     public void streamChat(ChatRequestDTO request, ChatStreamConsumer consumer) {
-        if (request == null || !StringUtils.hasText(request.getMessage())) {
+        streamChat(toPythonRequest(request), null, consumer);
+    }
+
+    public void streamChat(PythonChatRequestDTO request, String delegationToken, ChatStreamConsumer consumer) {
+        if (request == null || !StringUtils.hasText(request.message())) {
             throw new AiServiceException("消息不能为空");
         }
-        request.setMessage(request.getMessage().trim());
+        postStream(properties.getChatStreamPath(), request, delegationToken, consumer);
+    }
 
-        log.debug("流式调用 AI: POST {}{}", properties.getBaseUrl(), properties.getChatStreamPath());
+    public void resumeStream(ChatResumeRequestDTO request, String delegationToken, ChatStreamConsumer consumer) {
+        if (request == null || !StringUtils.hasText(request.getConversationId())) {
+            throw new AiServiceException("恢复请求不完整");
+        }
+        postStream(properties.getChatResumeStreamPath(), request, delegationToken, consumer);
+    }
+
+    public void deleteConversation(String conversationId) {
         try {
-            aiStreamRestClient.post()
-                    .uri(properties.getChatStreamPath())
+            withAuth(aiRestClient.delete()
+                    .uri("/v1/chat/conversations/{id}", conversationId), null)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException ex) {
+            throw new AiServiceException("无法删除 AI 会话", ex);
+        }
+    }
+
+    public ChatResponseVO chat(String message) {
+        ChatRequestDTO request = new ChatRequestDTO();
+        request.setMessage(message);
+        return chat(request);
+    }
+
+    public boolean isHealthy() {
+        try {
+            Map<String, String> body = withAuth(aiRestClient.get().uri(properties.getHealthPath()), null)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (req, res) -> {
+                        throw new AiServiceException(
+                                "AI 健康检查失败: HTTP " + res.getStatusCode().value());
+                    })
+                    .body(HEALTH_BODY);
+            return body != null && "ok".equalsIgnoreCase(body.get("status"));
+        } catch (RestClientException ex) {
+            log.debug("AI 服务不可用: {}", ex.getMessage());
+            return false;
+        }
+    }
+
+    private void postStream(String path, Object body, String delegationToken, ChatStreamConsumer consumer) {
+        try {
+            withAuth(aiStreamRestClient.post()
+                    .uri(path)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.TEXT_EVENT_STREAM)
-                    .body(request)
+                    .accept(MediaType.TEXT_EVENT_STREAM), delegationToken)
+                    .body(body)
                     .exchange((req, res) -> {
                         if (res.getStatusCode().isError()) {
                             String detail = AiClientSupport.readBody(res.getBody());
@@ -139,29 +176,33 @@ public class AiServiceClient {
         }
     }
 
-    public ChatResponseVO chat(String message) {
-        ChatRequestDTO request = new ChatRequestDTO();
-        request.setMessage(message);
-        return chat(request);
+    private RestClient.RequestBodySpec withAuth(RestClient.RequestBodySpec spec, String delegationToken) {
+        if (StringUtils.hasText(properties.getApiKey())) {
+            spec = spec.header("X-Api-Key", properties.getApiKey());
+        }
+        if (StringUtils.hasText(delegationToken)) {
+            spec = spec.header("X-Delegated-Token", delegationToken);
+        }
+        return spec;
     }
 
-    /**
-     * 探测 FastAPI {@code GET /health}，返回 {@code {"status":"ok"}} 时视为可用。
-     */
-    public boolean isHealthy() {
-        try {
-            Map<String, String> body = aiRestClient.get()
-                    .uri(properties.getHealthPath())
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (req, res) -> {
-                        throw new AiServiceException(
-                                "AI 健康检查失败: HTTP " + res.getStatusCode().value());
-                    })
-                    .body(HEALTH_BODY);
-            return body != null && "ok".equalsIgnoreCase(body.get("status"));
-        } catch (RestClientException ex) {
-            log.debug("AI 服务不可用: {}", ex.getMessage());
-            return false;
+    private RestClient.RequestHeadersSpec<?> withAuth(RestClient.RequestHeadersSpec<?> spec, String delegationToken) {
+        if (StringUtils.hasText(properties.getApiKey())) {
+            spec = spec.header("X-Api-Key", properties.getApiKey());
         }
+        if (StringUtils.hasText(delegationToken)) {
+            spec = spec.header("X-Delegated-Token", delegationToken);
+        }
+        return spec;
+    }
+
+    private static PythonChatRequestDTO toPythonRequest(ChatRequestDTO request) {
+        String message = request.getMessage() == null ? null : request.getMessage().trim();
+        return new PythonChatRequestDTO(
+                message,
+                request.getConversationId(),
+                request.getMemoryEnabled(),
+                new com.wenrun.ai.dto.AiUserContextDTO(null, null)
+        );
     }
 }
