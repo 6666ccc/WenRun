@@ -1,24 +1,27 @@
-# AI — FastAPI + LangChain 最简示例
+# Smart Healthcare AI 服务
 
 ## 安装
 
 ```bash
-pip install -e .
-copy .env.example .env
+pip install -e ".[test]"
+# PowerShell
+Copy-Item ../.env.example .env
+# macOS/Linux
+cp ../.env.example .env
 ```
 
-编辑 `.env`，填入 `OPENAI_API_KEY`。
+编辑 `.env`，填入 DashScope 与内部 API 相关配置。
 
 ## 运行
 
 ```bash
-wenrun-api
+python -m uvicorn app.main:app --reload
 ```
 
-或：
+## 验证
 
 ```bash
-python -m wenrun_ai.API
+python -m pytest
 ```
 
 ## 调用
