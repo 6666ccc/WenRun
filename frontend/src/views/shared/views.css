@@ -600,6 +600,7 @@ select.view-form-input:hover:not(:disabled) {
 .view-schedule-option--selected {
 }
 .view-schedule-option--selected::after {
+}
 
 .view-reg-confirm {
   overflow: hidden;
