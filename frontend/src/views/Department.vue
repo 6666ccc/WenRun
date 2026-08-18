@@ -37,20 +37,20 @@ async function selectDept(dept) {
     <div v-if="!loading && depts.length" class="view-search"><UiIcon name="search" :size="18" /><input v-model="search" class="input" placeholder="搜索科室名称或编码…"></div>
     <UiState :loading="loading" :error="error" :empty="!filtered.length" :empty-text="search ? '未找到匹配的科室' : '暂无科室数据'">
       <div class="vue-dept-grid stagger">
-        <article v-for="dept in filtered" :key="dept.id" class="card view-dept-card" :class="{ 'view-dept-card--active card--accent-top': selected?.id === dept.id }" @click="selectDept(dept)">
+        <button v-for="dept in filtered" :key="dept.id" type="button" class="card view-dept-card" :class="{ 'view-dept-card--active card--accent-top': selected?.id === dept.id }" :aria-expanded="selected?.id === dept.id" @click="selectDept(dept)">
           <h3>{{ dept.deptName }}</h3><p class="text-muted text-sm">{{ dept.deptCode }}</p>
           <div v-if="selected?.id === dept.id" class="vue-staff" @click.stop>
             <div v-if="staffLoading" class="shared-loading"><div class="shared-loading__spinner" /></div>
             <p v-else-if="!staff.length" class="text-muted text-sm">该科室暂无医生</p>
             <div v-else v-for="doctor in staff" :key="doctor.id"><strong>{{ doctor.name }}</strong><span>{{ doctor.title }} · {{ doctor.staffNo }}</span></div>
           </div>
-        </article>
+        </button>
       </div>
     </UiState>
   </AppShell>
 </template>
 
 <style scoped>
-.vue-dept-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}.view-dept-card h3{font-family:var(--font-serif);margin:0 0 4px}.vue-staff{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}.vue-staff>div{padding:9px 14px;background:var(--c-bg);border:1px solid var(--c-border-light);border-radius:var(--radius)}.vue-staff strong,.vue-staff span{display:block}.vue-staff span{font-size:.8rem;color:var(--c-sub)}
+.vue-dept-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}.view-dept-card{width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer}.view-dept-card h3{font-family:var(--font-sans);margin:0 0 4px}.vue-staff{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}.vue-staff>div{padding:9px 14px;background:var(--c-bg);border:1px solid var(--c-border-light);border-radius:var(--radius)}.vue-staff strong,.vue-staff span{display:block}.vue-staff span{font-size:.8rem;color:var(--c-sub)}
 @media(max-width:1023px){.vue-dept-grid{display:flex;flex-direction:column;gap:12px}.vue-staff{flex-direction:column}}
 </style>

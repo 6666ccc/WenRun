@@ -51,7 +51,7 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     @Override
-    public JavaChatResponseVO javaChat(JavaChatRequestDTO dto) {
-        return javaAiClient.chat(dto);
+    public JavaChatResponseVO javaChat(JavaChatRequestDTO dto, String delegationToken) {
+        return javaAiClient.chat(dto, delegationToken);
     }
 }

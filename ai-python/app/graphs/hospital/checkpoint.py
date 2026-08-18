@@ -1,8 +1,8 @@
 import json
-import sqlite3
 from pathlib import Path
 
-from langgraph.checkpoint.sqlite import SqliteSaver
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from app.core.config import Settings
 
@@ -40,6 +40,7 @@ def protect_checkpointer(saver):
     original_aput = getattr(saver, "aput", None)
     original_put_writes = getattr(saver, "put_writes", None)
     original_aput_writes = getattr(saver, "aput_writes", None)
+    original_adelete = getattr(saver, "adelete_thread", None)
 
     def _record(config, checkpoint, metadata):
         persisted.append(
@@ -97,6 +98,11 @@ def protect_checkpointer(saver):
             pass
 
     saver.delete_thread = delete_thread
+    if original_adelete is not None:
+        async def adelete_thread(conversation_id: str) -> None:
+            await original_adelete(conversation_id)
+
+        saver.adelete_thread = adelete_thread
     return saver
 
 
@@ -111,10 +117,10 @@ def _exists(saver, conversation_id: str) -> bool:
         return False
 
 
-def get_checkpointer(settings: Settings):
+async def get_checkpointer(settings: Settings):
     path = Path(settings.checkpoint_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(path), check_same_thread=False)
-    saver = SqliteSaver(connection)
-    saver.setup()
+    connection = await aiosqlite.connect(str(path))
+    saver = AsyncSqliteSaver(connection)
+    await saver.setup()
     return protect_checkpointer(saver)

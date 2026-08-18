@@ -22,8 +22,8 @@ const rows = computed(() => [
 </script>
 
 <template>
-  <section class="agent-interrupt">
-    <small>待确认操作</small>
+  <section class="assistant-interrupt" role="dialog" aria-label="确认挂号">
+    <small>请确认这次挂号</small>
     <h3>{{ interruptSummary(interrupt) }}</h3>
     <dl v-if="rows.length">
       <div v-for="row in rows" :key="row.label">
@@ -31,8 +31,8 @@ const rows = computed(() => [
         <dd>{{ row.value }}</dd>
       </div>
     </dl>
-    <div class="agent-interrupt__actions">
-      <button type="button" :disabled="loading" @click="emit('reject')">拒绝</button>
+    <div class="assistant-interrupt__actions">
+      <button type="button" :disabled="loading" @click="emit('reject')">返回修改</button>
       <button type="button" class="is-primary" :disabled="loading" @click="emit('confirm')">
         {{ loading ? '正在提交…' : '确认挂号' }}
       </button>

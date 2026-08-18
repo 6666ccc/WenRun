@@ -26,8 +26,8 @@ test('toTask keeps payment identifiers for the task sheet', () => {
   })
 })
 
-test('patient entry always starts with the experience selector', () => {
-  assert.equal(patientHomePath(), '/mode-select')
+test('patient entry starts in the unified patient home', () => {
+  assert.equal(patientHomePath(), '/home')
   assert.equal(isPatientPortal({ portalType: 'patient' }), true)
   assert.equal(isPatientPortal({ portalType: 'doctor' }), false)
 })

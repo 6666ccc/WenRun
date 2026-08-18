@@ -17,7 +17,7 @@ export function writeMode(mode, storage = localStorage) {
 }
 
 export function patientHomePath() {
-  return '/mode-select'
+  return '/home'
 }
 
 export function isPatientPortal(user) {

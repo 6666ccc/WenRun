@@ -55,7 +55,7 @@ class ChatService:
             _initial_state(request),
             graph_config(request.conversation_id, runtime.delegation_token),
         )
-        interrupt = self._remember_interrupt(request.conversation_id, result)
+        interrupt = await self._remember_interrupt(request.conversation_id, result)
         return ChatResponse(
             reply=_last_text(result),
             status="pending" if interrupt else "completed",
@@ -94,7 +94,7 @@ class ChatService:
             )
             return
         config = graph_config(request.conversation_id, runtime.delegation_token)
-        self._guard_resume(request, config)
+        await self._guard_resume(request, config)
         command = Command(
             resume={
                 "interruptId": request.interrupt_id,
@@ -109,7 +109,11 @@ class ChatService:
 
     async def delete_conversation(self, conversation_id: str) -> None:
         if self._checkpointer is not None:
-            self._checkpointer.delete_thread(conversation_id)
+            adelete = getattr(self._checkpointer, "adelete_thread", None)
+            if adelete is not None:
+                await adelete(conversation_id)
+            else:
+                self._checkpointer.delete_thread(conversation_id)
         if self._vector_memory is not None:
             await self._vector_memory.delete_memory(conversation_id)
         stale = [key for key, owner in self._interrupt_owners.items() if owner == conversation_id]
@@ -146,25 +150,27 @@ class ChatService:
         except Exception as exc:
             if exc.__class__.__name__ not in _INTERRUPT_ERRORS:
                 raise
-        result = _final_result(self._graph, config, merged)
-        interrupt = self._remember_interrupt(conversation_id, result)
+        result = await _final_result(self._graph, config, merged)
+        interrupt = await self._remember_interrupt(conversation_id, result)
         if interrupt and not result.get("__interrupt__"):
             result = {**result, "__interrupt__": [_Interrupt(interrupt)]}
         async for event in _events_from_result(result, conversation_id):
             yield event
 
-    def _remember_interrupt(self, conversation_id: str, result) -> dict | None:
-        interrupt = _interrupt_payload(result) or _active_interrupt(self._graph, graph_config(conversation_id, None))
+    async def _remember_interrupt(self, conversation_id: str, result) -> dict | None:
+        interrupt = _interrupt_payload(result) or await _active_interrupt(
+            self._graph, graph_config(conversation_id, None)
+        )
         interrupt_id = interrupt.get("interruptId") if interrupt else None
         if interrupt_id:
             self._interrupt_owners[interrupt_id] = conversation_id
         return interrupt
 
-    def _guard_resume(self, request: ResumeRequest, config) -> None:
+    async def _guard_resume(self, request: ResumeRequest, config) -> None:
         owner = self._interrupt_owners.get(request.interrupt_id)
         if owner and owner != request.conversation_id:
             raise ChatServiceError("INTERRUPT_CONVERSATION_MISMATCH", "确认请求与当前会话不匹配")
-        pending = _active_interrupt(self._graph, config)
+        pending = await _active_interrupt(self._graph, config)
         if pending is None:
             if request.interrupt_id in self._resolved_interrupts:
                 raise ChatServiceError("INTERRUPT_ALREADY_RESOLVED", "该确认请求已经处理")
@@ -179,7 +185,7 @@ class _Interrupt:
         self.value = value
 
 
-def create_chat_service(*, settings=None, deps=None, checkpointer=None, vector_memory=None) -> ChatService:
+async def create_chat_service(*, settings=None, deps=None, checkpointer=None, vector_memory=None) -> ChatService:
     from app.core.config import get_settings
     from app.graphs.hospital.checkpoint import get_checkpointer
     from app.graphs.hospital.graph import build_graph
@@ -187,7 +193,7 @@ def create_chat_service(*, settings=None, deps=None, checkpointer=None, vector_m
     from app.services.memory.vector import VectorMemory
 
     settings = settings or get_settings()
-    checkpointer = checkpointer or get_checkpointer(settings)
+    checkpointer = checkpointer or await get_checkpointer(settings)
     if vector_memory is None:
         vector_memory = VectorMemory(store_factory=_memory_store_factory(settings))
     if deps is None:
@@ -196,10 +202,10 @@ def create_chat_service(*, settings=None, deps=None, checkpointer=None, vector_m
     return ChatService(checkpointer=checkpointer, vector_memory=vector_memory, graph=graph)
 
 
-def get_chat_service() -> ChatService:
+async def get_chat_service() -> ChatService:
     global _service
     if _service is None:
-        _service = create_chat_service()
+        _service = await create_chat_service()
     return _service
 
 
@@ -298,11 +304,11 @@ def _event_sources(raw) -> list | None:
     return sources or None
 
 
-def _final_result(graph, config, merged: dict) -> dict:
+async def _final_result(graph, config, merged: dict) -> dict:
     try:
-        snapshot = graph.get_state(config)
+        snapshot = await graph.aget_state(config)
         values = dict(snapshot.values or {})
-        interrupt = _active_interrupt(graph, config)
+        interrupt = await _active_interrupt(graph, config)
         if interrupt:
             values["__interrupt__"] = [_Interrupt(interrupt)]
         if values:
@@ -323,11 +329,11 @@ def _interrupt_payload(result) -> dict | None:
     return value if isinstance(value, dict) else {"value": value}
 
 
-def _active_interrupt(graph, config) -> dict | None:
+async def _active_interrupt(graph, config) -> dict | None:
     if graph is None:
         return None
     try:
-        snapshot = graph.get_state(config)
+        snapshot = await graph.aget_state(config)
     except Exception:
         return None
     interrupts = getattr(snapshot, "interrupts", None) or ()

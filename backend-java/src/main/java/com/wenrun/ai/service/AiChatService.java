@@ -22,5 +22,5 @@ public interface AiChatService {
 
     void deleteConversation(String conversationId);
 
-    JavaChatResponseVO javaChat(JavaChatRequestDTO dto);
+    JavaChatResponseVO javaChat(JavaChatRequestDTO dto, String delegationToken);
 }

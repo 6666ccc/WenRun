@@ -7,11 +7,14 @@ defineProps({
 </script>
 
 <template>
-  <ul v-if="sources.length" class="agent-citations">
-    <li v-for="(source, index) in sources" :key="source.id || index" class="agent-citations__item">
+  <details v-if="sources.length" class="chat-citations">
+    <summary>查看依据（{{ sources.length }}）</summary>
+    <ul>
+    <li v-for="(source, index) in sources" :key="source.id || index">
       <strong>{{ sourceLabel(source) }}</strong>
       <small v-if="sourceLocation(source)">{{ sourceLocation(source) }}</small>
       <p v-if="sourceExcerpt(source)">{{ sourceExcerpt(source) }}</p>
     </li>
-  </ul>
+    </ul>
+  </details>
 </template>

@@ -45,7 +45,7 @@ public class AuthServiceImpl implements AuthService {
         if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
             throw new BusinessException("用户名或密码错误");
         }
-        String token = authTokenStore.createToken(user.getId());
+        String token = authTokenStore.createToken(user.getId(), user.getAccountType());
         List<SysRole> roleList = sysUserMapper.selectRolesByUserId(user.getId());
         SysRole primaryRole = LoginAssembler.pickPrimaryRole(roleList);
         String portalType = LoginAssembler.resolvePortalType(user, primaryRole);
@@ -215,7 +215,7 @@ public class AuthServiceImpl implements AuthService {
         patientService.create(patient);
 
         // 8. 生成 Token 并返回登录信息（注册即登录）
-        String token = authTokenStore.createToken(user.getId());
+        String token = authTokenStore.createToken(user.getId(), user.getAccountType());
         List<SysRole> roleList = sysUserMapper.selectRolesByUserId(user.getId());
         SysRole primaryRole = LoginAssembler.pickPrimaryRole(roleList);
         String portalType = LoginAssembler.resolvePortalType(user, primaryRole);

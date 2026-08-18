@@ -3,6 +3,7 @@ package com.wenrun.ai.controller;
 import com.wenrun.ai.config.AiServiceProperties;
 import com.wenrun.ai.delegation.AiDelegationTokenService;
 import com.wenrun.ai.dto.ChatResumeRequestDTO;
+import com.wenrun.ai.dto.PythonChatRequestDTO;
 import com.wenrun.ai.service.AiChatService;
 import com.wenrun.ai.service.ConversationOwnershipService;
 import com.wenrun.ai.vo.ChatInterruptVO;
@@ -104,6 +105,10 @@ class AiChatControllerTest {
                 .andReturn();
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isOk());
+
+        ArgumentCaptor<PythonChatRequestDTO> captor = ArgumentCaptor.forClass(PythonChatRequestDTO.class);
+        verify(aiChatService).streamChat(captor.capture(), eq("read-token"), any());
+        assertEquals(Boolean.TRUE, captor.getValue().memoryEnabled());
     }
 
     @Test

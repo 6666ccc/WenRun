@@ -10,7 +10,8 @@ import java.util.List;
 @Mapper
 public interface OutpatientVisitRepository {
 
-    List<VisitVO> selectList(@Param("status") Integer status, @Param("staffId") Long staffId);
+    List<VisitVO> selectList(@Param("status") Integer status, @Param("staffId") Long staffId,
+                             @Param("patientId") Long patientId);
 
     OutpatientVisit selectById(@Param("id") Long id);
 

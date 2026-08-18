@@ -74,7 +74,6 @@
             <if test="birthDate != null">birth_date = #{birthDate},</if>
             <if test="idCard != null">id_card = #{idCard},</if>
             <if test="phone != null">phone = #{phone},</if>
-            <if test="userId != null">user_id = #{userId},</if>
             <if test="allergyHistory != null">allergy_history = #{allergyHistory},</if>
             <if test="address != null">address = #{address},</if>
         </set>

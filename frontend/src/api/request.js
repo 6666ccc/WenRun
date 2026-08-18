@@ -4,8 +4,11 @@
  */
 import axios from 'axios'
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+
 const request = axios.create({
-  baseURL: '',           // Vite proxy handles /api → localhost:8080
+  // 本地开发留空走 Vite 代理；部署到独立前端域名时可配置后端 origin。
+  baseURL: API_BASE_URL,
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 })
@@ -44,6 +47,15 @@ request.interceptors.request.use((config) => {
 request.interceptors.response.use(
   (res) => {
     const body = res.data
+    // Spring 业务异常默认仍以 HTTP 200 返回，真正的状态码在统一响应体中。
+    if (body?.code === 401) {
+      setToken(null)
+      localStorage.removeItem('wenrun_user')
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+      return Promise.reject(new Error(body.message || '登录已过期，请重新登录'))
+    }
     if (body && body.code === 200) {
       return body.data
     }
@@ -56,7 +68,9 @@ request.interceptors.response.use(
         // Token 失效 → 清理并跳转登录
         setToken(null)
         localStorage.removeItem('wenrun_user')
-        window.location.href = '/login'
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
         return Promise.reject(new Error('登录已过期，请重新登录'))
       }
       const msg = data?.message || `服务器错误 (${status})`

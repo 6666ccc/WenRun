@@ -24,9 +24,10 @@ public class VisitController {
     /** GET /api/visits — 查询就诊记录列表（医生端自动按当前登录医生过滤） */
     @GetMapping
     public Result<List<VisitVO>> list(@RequestParam(required = false) Integer status,
-                                      @RequestParam(required = false) Long staffId) {
+                                      @RequestParam(required = false) Long staffId,
+                                      @RequestParam(required = false) Long patientId) {
         Long effectiveStaffId = currentStaffSupport.resolveStaffId(staffId);
-        return Result.success(visitService.list(status, effectiveStaffId));
+        return Result.success(visitService.list(status, effectiveStaffId, patientId));
     }
 
     /** GET /api/visits/{id} — 查询就诊详情 */

@@ -55,7 +55,8 @@ async function pay() {
           <h3>选择支付方式</h3>
           <div class="vue-methods"><button v-for="(label,key) in PAY_TYPE_MAP" :key="key" class="view-pay-method" :class="{ 'view-pay-method--active': Number(key) === payType }" @click="payType=Number(key)">{{ label }}</button></div>
           <div v-if="message" class="vue-message" :class="{ success: message.includes('成功') }">{{ message }}</div>
-          <button class="btn btn--accent btn--lg full" :disabled="paying || message.includes('成功')" @click="pay">{{ paying ? '支付中…' : `确认支付 ${formatMoney(charge.totalAmount)}` }}</button>
+          <div v-if="message.includes('成功')" class="payment-success-actions"><RouterLink class="btn btn--primary" to="/payment">查看已缴记录</RouterLink><RouterLink class="btn btn--outline" to="/home">返回首页</RouterLink></div>
+          <button v-if="!message.includes('成功')" class="btn btn--accent btn--lg full" :disabled="paying" @click="pay">{{ paying ? '支付中…' : `确认支付 ${formatMoney(charge.totalAmount)}` }}</button>
         </section>
       </div>
     </UiState>
@@ -63,5 +64,5 @@ async function pay() {
 </template>
 
 <style scoped>
-.vue-detail{display:flex;flex-direction:column;gap:16px;max-width:680px}.vue-detail h2,.vue-detail h3{margin:0 0 12px}.vue-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px}.vue-detail-grid small,.vue-detail-grid strong{display:block}.vue-detail-grid small{color:var(--c-muted)}.amount,.vue-total b{color:var(--c-accent);font-size:1.2rem}.vue-total{display:flex;justify-content:space-between;border-top:2px solid var(--c-border);padding-top:12px}.vue-methods{display:flex;gap:10px;margin-bottom:20px}.vue-message{padding:8px 14px;color:var(--c-danger);background:var(--c-danger-bg);border-radius:var(--radius);margin-bottom:16px}.vue-message.success{color:var(--c-success);background:var(--c-success-bg)}.full{width:100%}
+.vue-detail{display:flex;flex-direction:column;gap:16px;max-width:680px}.vue-detail h2,.vue-detail h3{margin:0 0 12px}.vue-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px}.vue-detail-grid small,.vue-detail-grid strong{display:block}.vue-detail-grid small{color:var(--c-muted)}.amount,.vue-total b{color:var(--c-text);font-size:1.2rem}.vue-total{display:flex;justify-content:space-between;border-top:2px solid var(--c-border);padding-top:12px}.vue-methods{display:flex;gap:10px;margin-bottom:20px}.vue-message{padding:10px 14px;color:var(--c-danger);background:var(--c-danger-bg);border-radius:var(--radius);margin-bottom:16px}.vue-message.success{color:var(--c-success);background:var(--c-success-bg)}.payment-success-actions{display:flex;gap:8px;margin-bottom:12px}.full{width:100%}
 </style>

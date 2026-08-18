@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wenrun.ai.config.AiServiceProperties;
 import com.wenrun.ai.dto.AiUserContextDTO;
 import com.wenrun.ai.dto.ChatResumeRequestDTO;
+import com.wenrun.ai.dto.JavaChatRequestDTO;
 import com.wenrun.ai.dto.PythonChatRequestDTO;
 import com.wenrun.ai.vo.ChatStreamEventVO;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +77,29 @@ class AiServiceClientTest {
         resume.setInterruptId("i-1");
         resume.setApproved(true);
         client.resumeStream(resume, "write-token", event -> { });
+        server.verify();
+    }
+
+    @Test
+    void legacyJavaChatUsesV1ContractAndDelegationToken() {
+        server.expect(once(), requestTo("http://localhost:8000/v1/chat"))
+                .andExpect(header("X-Api-Key", "internal"))
+                .andExpect(header("X-Delegated-Token", "read-token"))
+                .andRespond(withSuccess(
+                        "{\"reply\":\"你好\",\"status\":\"completed\","
+                                + "\"conversationId\":\"c-1\",\"intent\":\"chat\"}",
+                        MediaType.APPLICATION_JSON));
+
+        JavaAiClient legacyClient = new JavaAiClient(client);
+        JavaChatRequestDTO request = new JavaChatRequestDTO();
+        request.setContent("你好");
+        request.setSessionId("c-1");
+        request.setUserId("1");
+
+        var response = legacyClient.chat(request, "read-token");
+
+        assertEquals("你好", response.getFinalOutput());
+        assertEquals("c-1", response.getSessionId());
         server.verify();
     }
 }

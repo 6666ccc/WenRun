@@ -1,6 +1,7 @@
 package com.wenrun.service.impl;
 
 import com.wenrun.common.constant.BizStatus;
+import com.wenrun.common.constant.AccountType;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.util.BizNoUtil;
@@ -33,6 +34,14 @@ public class RegistrationServiceImpl implements RegistrationService {
     //获取用户挂号的信息
     @Override
     public List<RegistrationVO> list(Long patientId, Long userId, Long registrantUserId, Long staffId, Integer status) {
+
+        // 患者端的数据范围由登录态决定，不能信任前端传入的 patientId/userId。
+        if (AccountType.PATIENT.equals(UserContext.getAccountType())) {
+            patientId = currentPatientId();
+            userId = null;
+            registrantUserId = null;
+            staffId = null;
+        }
 
         //获取患者所有的挂号记录
         List<RegistrationVO> registrationVOList = registrationMapper.selectList(
@@ -101,7 +110,11 @@ public class RegistrationServiceImpl implements RegistrationService {
     @Override
     @Transactional
     public Long register(RegistrationCreateDTO dto) {
-        Patient patient = patientMapper.selectById(dto.getPatientId());
+        Long patientId = dto.getPatientId();
+        if (AccountType.PATIENT.equals(UserContext.getAccountType())) {
+            patientId = currentPatientId();
+        }
+        Patient patient = patientMapper.selectById(patientId);
         if (patient == null) {
             throw new BusinessException("患者不存在");
         }
@@ -118,7 +131,7 @@ public class RegistrationServiceImpl implements RegistrationService {
         }
         Registration reg = new Registration();
         reg.setRegNo(BizNoUtil.next("REG"));
-        reg.setPatientId(dto.getPatientId());
+        reg.setPatientId(patientId);
         reg.setScheduleId(schedule.getId());
         reg.setDeptId(schedule.getDeptId());
         reg.setStaffId(schedule.getStaffId());
@@ -145,7 +158,19 @@ public class RegistrationServiceImpl implements RegistrationService {
         if (reg.getStatus() == BizStatus.REG_VISITED) {
             throw new BusinessException("已就诊不能退号");
         }
+        if (AccountType.PATIENT.equals(UserContext.getAccountType())
+                && !reg.getPatientId().equals(currentPatientId())) {
+            throw new BusinessException("无权操作该挂号单");
+        }
         registrationMapper.updateStatus(id, BizStatus.REG_CANCELLED);
         scheduleMapper.incrementRemaining(reg.getScheduleId());
+    }
+
+    private Long currentPatientId() {
+        Patient patient = patientMapper.selectByUserId(UserContext.getUserId());
+        if (patient == null) {
+            throw new BusinessException("患者档案不存在");
+        }
+        return patient.getId();
     }
 }

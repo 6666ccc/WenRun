@@ -1,66 +1,67 @@
 package com.wenrun.ai.client;
 
-import com.wenrun.ai.config.AiServiceProperties;
+import com.wenrun.ai.dto.AiUserContextDTO;
 import com.wenrun.ai.dto.JavaChatRequestDTO;
+import com.wenrun.ai.dto.PythonChatRequestDTO;
 import com.wenrun.ai.exception.AiServiceException;
+import com.wenrun.ai.vo.ChatResponseVO;
 import com.wenrun.ai.vo.JavaChatResponseVO;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
+import java.util.UUID;
 
 /**
  * [Java 集成] 调用 Python FastAPI {@code /java/*} 接口的专用客户端。
  */
-@Slf4j
 @Component
 public class JavaAiClient {
 
-    private final RestClient aiRestClient;
-    private final AiServiceProperties properties;
+    private final AiServiceClient aiServiceClient;
 
-    public JavaAiClient(
-            @Qualifier("aiRestClient") RestClient aiRestClient,
-            AiServiceProperties properties) {
-        this.aiRestClient = aiRestClient;
-        this.properties = properties;
+    public JavaAiClient(AiServiceClient aiServiceClient) {
+        this.aiServiceClient = aiServiceClient;
     }
 
-    /** 调用 {@code POST /java/chat}，走 LangGraph 路由 + Agent。 */
-    public JavaChatResponseVO chat(JavaChatRequestDTO request) {
+    /**
+     * 兼容旧 Java Chat DTO，但统一复用 Python 的 /v1/chat 契约，避免维护一个不存在的 /java/chat 路由。
+     */
+    public JavaChatResponseVO chat(JavaChatRequestDTO request, String delegationToken) {
         validateContent(request != null ? request.getContent() : null, "消息不能为空");
         request.setContent(request.getContent().trim());
-
-        log.debug("[JavaAi] chat: POST {}{}", properties.getBaseUrl(), properties.getJavaChatPath());
-        return postForJavaChatResponse(properties.getJavaChatPath(), request, "Java 集成聊天");
+        String conversationId = StringUtils.hasText(request.getSessionId())
+                ? request.getSessionId()
+                : "java-" + UUID.randomUUID();
+        Long userId = parseUserId(request.getUserId());
+        ChatResponseVO response = aiServiceClient.chat(
+                new PythonChatRequestDTO(
+                        request.getContent(),
+                        conversationId,
+                        true,
+                        new AiUserContextDTO(userId, null)),
+                delegationToken);
+        return toLegacyResponse(request, response, conversationId);
     }
 
-    private JavaChatResponseVO postForJavaChatResponse(String path, Object body, String actionLabel) {
+    private static JavaChatResponseVO toLegacyResponse(
+            JavaChatRequestDTO request, ChatResponseVO response, String conversationId) {
+        JavaChatResponseVO legacy = new JavaChatResponseVO();
+        legacy.setUserInput(request.getContent());
+        legacy.setIntent(response == null ? null : response.getIntent());
+        legacy.setTargetAgent(response == null ? null : response.getIntent());
+        legacy.setFinalOutput(response == null ? null : response.getReply());
+        legacy.setSessionId(response != null && StringUtils.hasText(response.getConversationId())
+                ? response.getConversationId() : conversationId);
+        return legacy;
+    }
+
+    private static Long parseUserId(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
         try {
-            JavaChatResponseVO response = aiRestClient.post()
-                    .uri(path)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (req, res) -> {
-                        String detail = AiClientSupport.readBody(res.getBody());
-                        throw new AiServiceException(
-                                actionLabel + "异常: HTTP " + res.getStatusCode().value()
-                                        + (detail.isEmpty() ? "" : " - " + detail));
-                    })
-                    .body(JavaChatResponseVO.class);
-            if (response == null) {
-                throw new AiServiceException(actionLabel + "返回为空");
-            }
-            return response;
-        } catch (AiServiceException ex) {
-            throw ex;
-        } catch (RestClientException ex) {
-            throw new AiServiceException("无法连接 AI 服务，请确认 FastAPI 已启动", ex);
+            return Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 

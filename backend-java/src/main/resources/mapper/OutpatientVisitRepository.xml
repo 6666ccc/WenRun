@@ -14,6 +14,7 @@
         <where>
             <if test="status != null">AND v.status = #{status}</if>
             <if test="staffId != null">AND v.staff_id = #{staffId}</if>
+            <if test="patientId != null">AND v.patient_id = #{patientId}</if>
         </where>
         ORDER BY v.visit_time DESC
     </select>

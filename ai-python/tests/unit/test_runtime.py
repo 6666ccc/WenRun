@@ -1,3 +1,4 @@
+import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -26,29 +27,31 @@ def _deps():
     )
 
 
-def test_get_chat_service_is_singleton(monkeypatch):
+@pytest.mark.asyncio
+async def test_get_chat_service_is_singleton(monkeypatch):
     from app.services import chat_service as mod
     from app.services.chat_service import ChatService
 
     mod.reset_chat_service()
     created = []
 
-    def fake_create():
+    async def fake_create():
         service = ChatService(graph=object())
         created.append(service)
         return service
 
     monkeypatch.setattr(mod, "create_chat_service", fake_create)
-    first = mod.get_chat_service()
-    second = mod.get_chat_service()
+    first = await mod.get_chat_service()
+    second = await mod.get_chat_service()
     assert first is second
     assert len(created) == 1
     mod.reset_chat_service()
 
 
-def test_create_chat_service_compiles_injected_graph():
+@pytest.mark.asyncio
+async def test_create_chat_service_compiles_injected_graph():
     from app.services.chat_service import create_chat_service
 
-    service = create_chat_service(deps=_deps(), checkpointer=MemorySaver())
+    service = await create_chat_service(deps=_deps(), checkpointer=MemorySaver())
     assert service._graph is not None
     assert service._checkpointer is not None

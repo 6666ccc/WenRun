@@ -12,19 +12,32 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class AuthTokenStore {
 
-    private final Map<String, Long> tokenUserMap = new ConcurrentHashMap<>();
+    private final Map<String, TokenSession> tokenSessionMap = new ConcurrentHashMap<>();
 
     public String createToken(Long userId) {
+        return createToken(userId, null);
+    }
+
+    public String createToken(Long userId, String accountType) {
         String token = UUID.randomUUID().toString().replace("-", "");
-        tokenUserMap.put(token, userId);
+        tokenSessionMap.put(token, new TokenSession(userId, accountType));
         return token;
     }
 
     public Long getUserId(String token) {
-        return tokenUserMap.get(token);
+        TokenSession session = tokenSessionMap.get(token);
+        return session == null ? null : session.userId();
+    }
+
+    public String getAccountType(String token) {
+        TokenSession session = tokenSessionMap.get(token);
+        return session == null ? null : session.accountType();
     }
 
     public void remove(String token) {
-        tokenUserMap.remove(token);
+        tokenSessionMap.remove(token);
+    }
+
+    private record TokenSession(Long userId, String accountType) {
     }
 }

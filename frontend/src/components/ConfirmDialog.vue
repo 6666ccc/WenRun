@@ -1,19 +1,57 @@
 <script setup>
-defineProps({ show: Boolean, title: String, message: String, loading: Boolean })
-defineEmits(['confirm', 'cancel'])
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+
+const props = defineProps({ show: Boolean, title: String, message: String, loading: Boolean })
+const emit = defineEmits(['confirm', 'cancel'])
+const dialog = ref(null)
+let returnFocus = null
+let previousOverflow = ''
+
+function onKeydown(event) {
+  if (!props.show) return
+  if (event.key === 'Escape' && !props.loading) return emit('cancel')
+  if (event.key !== 'Tab') return
+  const focusable = [...dialog.value?.querySelectorAll('button:not([disabled]), [href], input, select, textarea') || []]
+  if (!focusable.length) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+}
+
+watch(() => props.show, async (show) => {
+  if (show) {
+    returnFocus = document.activeElement
+    previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', onKeydown)
+    await nextTick()
+    dialog.value?.querySelector('button:not([disabled])')?.focus()
+  } else {
+    document.removeEventListener('keydown', onKeydown)
+    document.body.style.overflow = previousOverflow
+    returnFocus?.focus?.()
+  }
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  document.body.style.overflow = previousOverflow
+})
 </script>
 
 <template>
-  <div v-if="show" class="shared-dialog-overlay" @click="$emit('cancel')">
-    <div class="shared-dialog" @click.stop>
-      <h3>{{ title || '确认操作' }}</h3>
-      <p>{{ message }}</p>
-      <div class="shared-dialog__actions">
-        <button class="btn btn--ghost" :disabled="loading" @click="$emit('cancel')">取消</button>
-        <button class="btn btn--primary" :disabled="loading" @click="$emit('confirm')">
-          {{ loading ? '处理中…' : '确认' }}
-        </button>
+  <Transition name="fade">
+    <div v-if="show" class="shared-dialog-overlay" role="presentation" @click="!loading && emit('cancel')">
+      <div ref="dialog" class="shared-dialog" role="dialog" aria-modal="true" :aria-label="title || '确认操作'" @click.stop>
+        <h3>{{ title || '确认操作' }}</h3>
+        <p>{{ message }}</p>
+        <div class="shared-dialog__actions">
+          <button class="btn btn--ghost" type="button" :disabled="loading" @click="emit('cancel')">取消</button>
+          <button class="btn btn--primary" type="button" :disabled="loading" @click="emit('confirm')">
+            {{ loading ? '处理中…' : '确认' }}
+          </button>
+        </div>
       </div>
     </div>
-  </div>
+  </Transition>
 </template>

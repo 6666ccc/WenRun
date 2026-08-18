@@ -6,7 +6,7 @@ import { isPatientPortal } from '../features/experience/mode'
 const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: () => import('../views/Login.vue'), meta: { guest: true } },
-  { path: '/mode-select', component: () => import('../views/ModeSelect.vue'), meta: { patient: true } },
+  { path: '/mode-select', redirect: '/home', meta: { patient: true } },
   { path: '/home', component: () => import('../views/Home.vue'), meta: { patient: true } },
   { path: '/user', component: () => import('../views/User.vue'), meta: { patient: true } },
   { path: '/assistant', component: () => import('../views/Assistant.vue'), meta: { patient: true } },
@@ -22,7 +22,7 @@ const router = createRouter({ history: createWebHistory(), routes })
 
 router.beforeEach((to) => {
   const { user, isAuthenticated } = useAuth()
-  if (to.meta.guest && isAuthenticated.value) return homePath(user.value?.portalType)
+  if (to.meta.guest && isAuthenticated.value) return homePath()
   if (!to.meta.guest && !isAuthenticated.value) return '/login'
   if (to.meta.patient && !isPatientPortal(user.value)) return '/login'
   return true

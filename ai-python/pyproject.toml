@@ -15,6 +15,7 @@ dependencies = [
   "pydantic-settings",
   "langgraph",
   "langgraph-checkpoint-sqlite",
+  "aiosqlite",
   "langchain",
   "langchain-core",
   "langchain-openai",

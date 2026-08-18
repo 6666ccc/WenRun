@@ -31,6 +31,7 @@ public class AuthInterceptor implements HandlerInterceptor {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "登录已过期，请重新登录");
         }
         UserContext.setUserId(userId);
+        UserContext.setAccountType(authTokenStore.getAccountType(token));
         return true;
     }
 

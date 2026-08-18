@@ -38,6 +38,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
@@ -107,8 +108,15 @@ public class AiChatController {
         if (userId != null) {
             dto.setUserId(String.valueOf(userId));
         }
+        if (!StringUtils.hasText(dto.getSessionId())) {
+            dto.setSessionId("java-" + UUID.randomUUID());
+        }
+        Long patientId = currentPatientId(userId);
+        String delegationToken = userId == null
+                ? null
+                : delegationTokenService.issueReadToken(userId, patientId, dto.getSessionId());
         saveMessage(dto.getSessionId(), userId, "user", dto.getContent());
-        JavaChatResponseVO result = aiChatService.javaChat(dto);
+        JavaChatResponseVO result = aiChatService.javaChat(dto, delegationToken);
         if (result != null && result.getFinalOutput() != null) {
             saveMessage(dto.getSessionId(), userId, "assistant", result.getFinalOutput());
         }
@@ -210,7 +218,7 @@ public class AiChatController {
         return new PythonChatRequestDTO(
                 dto.getMessage(),
                 dto.getConversationId(),
-                dto.getMemoryEnabled(),
+                dto.getMemoryEnabled() == null ? Boolean.TRUE : dto.getMemoryEnabled(),
                 new AiUserContextDTO(userId, patientId)
         );
     }

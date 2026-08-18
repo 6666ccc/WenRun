@@ -3,7 +3,7 @@ import { chatStream, deleteConversation, listCharges, listRegistrations, resumeS
 import { listVisits } from '../api/modules/consultation'
 import { taskFromChatEvent } from '../api/modules/ai'
 import { buildResumePayload } from '../features/assistant/interrupt'
-import { createSession, normalizeSessions } from '../features/assistant/session'
+import { createMessageId, createSession, normalizeSessions } from '../features/assistant/session'
 import { toTask } from '../features/assistant/task'
 
 const STORAGE_KEY = 'wenrun_ai_sessions'
@@ -75,7 +75,7 @@ export function useAssistant(user) {
       if (last?.role === 'assistant') {
         messages[messages.length - 1] = updater(last)
       } else {
-        messages.push(updater({ role: 'assistant', content: '', sources: [], meta: {} }))
+        messages.push(updater({ id: createMessageId(), role: 'assistant', content: '', sources: [], meta: {} }))
       }
       return { ...session, messages }
     })
@@ -156,7 +156,7 @@ export function useAssistant(user) {
     updateSession(conversationId, (session) => ({
       ...session,
       title: session.messages.length ? session.title : content.slice(0, 18),
-      messages: [...session.messages, { role: 'user', content, sources: [], meta: {} }],
+      messages: [...session.messages, { id: createMessageId(), role: 'user', content, sources: [], meta: {} }],
     }))
     controller = new AbortController()
     replying.value = true

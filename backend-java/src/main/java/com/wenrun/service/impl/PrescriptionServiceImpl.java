@@ -1,6 +1,8 @@
 package com.wenrun.service.impl;
 
 import com.wenrun.common.constant.BizStatus;
+import com.wenrun.common.constant.AccountType;
+import com.wenrun.common.context.UserContext;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.util.BizNoUtil;
@@ -8,6 +10,7 @@ import com.wenrun.dto.PrescriptionCreateDTO;
 import com.wenrun.dto.PrescriptionItemDTO;
 import com.wenrun.entity.Drug;
 import com.wenrun.entity.OutpatientVisit;
+import com.wenrun.entity.Patient;
 import com.wenrun.entity.Prescription;
 import com.wenrun.entity.PrescriptionItem;
 import com.wenrun.repository.DrugRepository;
@@ -44,6 +47,7 @@ public class PrescriptionServiceImpl implements PrescriptionService {
     /** 查询某次就诊下的所有处方 */
     @Override
     public List<PrescriptionVO> listByVisit(Long visitId) {
+        assertVisitReadable(visitId);
         return prescriptionMapper.selectByVisitId(visitId).stream()
                 .map(this::toVo)
                 .toList();
@@ -64,6 +68,7 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         if (rx == null) {
             throw new BusinessException("处方不存在");
         }
+        assertVisitReadable(rx.getVisitId());
         return toVo(rx);
     }
 
@@ -135,5 +140,20 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         }
         vo.setItems(prescriptionItemMapper.selectByPrescriptionId(rx.getId()));
         return vo;
+    }
+
+    private void assertVisitReadable(Long visitId) {
+        OutpatientVisit visit = visitMapper.selectById(visitId);
+        if (visit == null) {
+            throw new BusinessException("就诊记录不存在");
+        }
+        if (AccountType.PATIENT.equals(UserContext.getAccountType())) {
+            Patient patient = patientMapper.selectByUserId(UserContext.getUserId());
+            if (patient == null || !patient.getId().equals(visit.getPatientId())) {
+                throw new BusinessException("无权查看该处方");
+            }
+            return;
+        }
+        currentStaffSupport.assertOwnsStaff(visit.getStaffId());
     }
 }

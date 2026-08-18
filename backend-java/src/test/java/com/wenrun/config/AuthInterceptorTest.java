@@ -1,6 +1,7 @@
 package com.wenrun.config;
 
 import com.wenrun.common.ResultCode;
+import com.wenrun.common.constant.AccountType;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
 import org.junit.jupiter.api.AfterEach;
@@ -54,12 +55,13 @@ class AuthInterceptorTest {
 
     @Test
     void allowsValidToken() throws Exception {
-        String token = authTokenStore.createToken(7L);
+        String token = authTokenStore.createToken(7L, AccountType.PATIENT);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/patients");
         request.addHeader("Authorization", "Bearer " + token);
 
         assertTrue(interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
         assertEquals(7L, UserContext.getUserId());
+        assertEquals(AccountType.PATIENT, UserContext.getAccountType());
     }
 
     @Test
