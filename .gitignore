@@ -34,6 +34,7 @@ lerna-debug.log*
 
 # ===== Environment & Secrets =====
 .env
+backend-java/src/main/resources/application.yml
 application-local.yml
 **/application-local.yml
 .cursor/
