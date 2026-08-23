@@ -1,63 +1,20 @@
-# Smart Healthcare AI 服务
+# 温润诊所 AI 服务骨架
 
-## 安装
+该目录只保留 FastAPI 服务骨架，未实现任何聊天、模型、记忆、Agent、Tool、RAG、向量数据库或 SQLite 能力。
 
-```bash
-pip install -e ".[test]"
-# PowerShell
-Copy-Item ../.env.example .env
-# macOS/Linux
-cp ../.env.example .env
-```
+## 保留的接口
 
-编辑 `.env`，填入模型厂商 API Key 与 Java ↔ Python 服务间共享 Key：
+- `GET /health`：服务存活检查。
+- `POST /v1/chat`、`POST /v1/chat/stream`、`POST /v1/chat/resume/stream`：保留既有路径和请求校验，但会返回 `501 Not Implemented`，避免调用方误以为 AI 能力已可用。
 
-```dotenv
-DASHSCOPE_API_KEY=你的模型厂商APIKey
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DASHSCOPE_CHAT_MODEL=qwen-plus
-EMBEDDING_MODEL=text-embedding-v3
-AI_INTERNAL_API_KEY=与 Java 的 AI_SERVICE_API_KEY 保持一致
-AI_JAVA_BASE_URL=http://localhost:8080
-```
-
-其中 `DASHSCOPE_API_KEY` 只在 Python 进程使用；`AI_INTERNAL_API_KEY` 只用于 Java 调 Python 的 `X-Api-Key` 鉴权。正式 Key 变更时只需更新环境变量并重启对应服务。
+聊天接口仍要求 `X-Api-Key`，其值来自 `AI_INTERNAL_API_KEY` 或 `AI_SERVICE_API_KEY`。
 
 ## 运行
 
 ```bash
+pip install -e ".[test]"
 python -m uvicorn app.main:app --reload
-```
-
-## 验证
-
-```bash
 python -m pytest
 ```
 
-## 调用
-
-```bash
-curl -X POST http://localhost:8000/v1/chat \
-  -H "Content-Type: application/json" \
-  -H "X-Api-Key: ${AI_INTERNAL_API_KEY}" \
-  -d '{"message":"你好","conversationId":"demo-1","memoryEnabled":true}'
-```
-
-## 目录
-
-```text
-ai-python/
-├── app/
-│   ├── api/routes/
-│   ├── api/dependencies/
-│   ├── core/
-│   ├── models/
-│   ├── graphs/hospital/
-│   ├── rag/
-│   ├── services/
-│   └── utils/
-├── langgraph.json
-├── pyproject.toml
-└── requirements.txt
-```
+后续实现请从 `app/api/routes/chat.py` 的占位接口开始，并按需要自行接入模型、会话、工具和知识库。

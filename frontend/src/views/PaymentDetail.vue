@@ -38,25 +38,31 @@ async function pay() {
     <button class="view-back" @click="router.push('/payment')">‹ 返回缴费列表</button>
     <UiState :loading="loading" :error="error" :empty="!charge" empty-text="收费单不存在">
       <div class="vue-detail">
-        <section class="card">
-          <div class="flex-between mb-md"><h2>收费详情</h2><StatusBadge :status="charge.payStatus" :map="PAY_STATUS_MAP" /></div>
+        <section class="clinic-panel">
+          <div class="clinic-panel__head"><h2>收费详情</h2><StatusBadge :status="charge.payStatus" :map="PAY_STATUS_MAP" /></div>
+          <div class="clinic-panel__body">
           <div class="vue-detail-grid">
             <div><small>订单编号</small><strong>{{ charge.orderNo }}</strong></div><div><small>患者</small><strong>{{ charge.patientName }}</strong></div>
             <div><small>创建时间</small><strong>{{ formatDateTime(charge.createTime) }}</strong></div><div><small>支付时间</small><strong>{{ charge.payTime ? formatDateTime(charge.payTime) : '—' }}</strong></div>
             <div><small>总金额</small><strong class="amount">{{ formatMoney(charge.totalAmount) }}</strong></div><div><small>支付方式</small><strong>{{ PAY_TYPE_MAP[charge.payType] || '—' }}</strong></div>
           </div>
+          </div>
         </section>
-        <section class="card">
-          <h3>费用明细</h3>
+        <section class="clinic-panel">
+          <div class="clinic-panel__head"><h3>费用明细</h3></div>
+          <div class="clinic-panel__body">
           <div class="view-table-wrap"><table class="view-table"><thead><tr><th>项目</th><th>金额</th></tr></thead><tbody><tr v-for="detail in charge.details" :key="detail.id"><td>{{ detail.itemName }}</td><td>{{ formatMoney(detail.amount) }}</td></tr></tbody></table></div>
           <div class="vue-total"><strong>合计</strong><b>{{ formatMoney(charge.totalAmount) }}</b></div>
+          </div>
         </section>
-        <section v-if="charge.payStatus === 0" class="card card--accent-top">
-          <h3>选择支付方式</h3>
+        <section v-if="charge.payStatus === 0" class="clinic-panel">
+          <div class="clinic-panel__head"><h3>选择支付方式</h3></div>
+          <div class="clinic-panel__body">
           <div class="vue-methods"><button v-for="(label,key) in PAY_TYPE_MAP" :key="key" class="view-pay-method" :class="{ 'view-pay-method--active': Number(key) === payType }" @click="payType=Number(key)">{{ label }}</button></div>
           <div v-if="message" class="vue-message" :class="{ success: message.includes('成功') }">{{ message }}</div>
           <div v-if="message.includes('成功')" class="payment-success-actions"><RouterLink class="btn btn--primary" to="/payment">查看已缴记录</RouterLink><RouterLink class="btn btn--outline" to="/home">返回首页</RouterLink></div>
           <button v-if="!message.includes('成功')" class="btn btn--accent btn--lg full" :disabled="paying" @click="pay">{{ paying ? '支付中…' : `确认支付 ${formatMoney(charge.totalAmount)}` }}</button>
+          </div>
         </section>
       </div>
     </UiState>

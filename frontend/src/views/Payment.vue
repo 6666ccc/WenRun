@@ -33,8 +33,9 @@ onMounted(async () => {
         <div class="view-pay-summary__item"><div class="view-pay-summary__label">待缴金额</div><div class="view-pay-summary__value">{{ formatMoney(pendingTotal) }}</div></div>
         <div class="view-pay-summary__item"><div class="view-pay-summary__label">已缴费</div><div class="view-pay-summary__value success">{{ paid.length }}</div></div>
       </div>
-      <section v-if="pending.length" class="vue-pay-section">
-        <h2>待缴费 ({{ pending.length }})</h2>
+      <section v-if="pending.length" class="clinic-panel vue-pay-section">
+        <div class="clinic-panel__head"><h2>待缴费 ({{ pending.length }})</h2></div>
+        <div class="clinic-panel__body">
         <div class="vue-pay-grid">
           <article v-for="charge in pending" :key="charge.id" class="card card--accent-top">
             <div class="flex-between mb-sm"><strong>{{ charge.orderNo }}</strong><b class="accent">{{ formatMoney(charge.totalAmount) }}</b></div>
@@ -43,14 +44,17 @@ onMounted(async () => {
             <RouterLink :to="`/payment/${charge.id}`" class="btn btn--primary btn--sm">去支付</RouterLink>
           </article>
         </div>
+        </div>
       </section>
-      <section v-if="paid.length" class="vue-pay-section">
-        <h2>已缴费 ({{ paid.length }})</h2>
+      <section v-if="paid.length" class="clinic-panel vue-pay-section">
+        <div class="clinic-panel__head"><h2>已缴费 ({{ paid.length }})</h2></div>
+        <div class="clinic-panel__body">
         <div class="vue-pay-grid">
           <article v-for="charge in paid" :key="charge.id" class="card">
             <div class="flex-between mb-sm"><strong>{{ charge.orderNo }}</strong><StatusBadge :status="charge.payStatus" :map="PAY_STATUS_MAP" /></div>
             <p class="text-sub text-sm">金额：{{ formatMoney(charge.totalAmount) }}</p><p class="text-sub text-sm">时间：{{ formatDateTime(charge.payTime || charge.createTime) }}</p>
           </article>
+        </div>
         </div>
       </section>
     </UiState>
@@ -58,6 +62,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.accent{color:var(--c-accent)}.success{color:var(--c-success)}.vue-pay-section{margin-top:24px}.vue-pay-section h2{margin:0 0 16px}.vue-pay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}.vue-tags{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0}.vue-tags span{padding:2px 8px;border:1px solid var(--c-border-light);border-radius:99px;font-size:.75rem;color:var(--c-sub)}
+.accent{color:var(--color-brand-700)}.success{color:var(--c-success)}.vue-pay-section{margin-top:24px}.vue-pay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}.vue-tags{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0}.vue-tags span{padding:2px 8px;border:1px solid var(--color-border-strong);border-radius:99px;background:var(--color-chip-bg);font-size:.75rem;color:var(--color-brand-800)}
 @media(max-width:700px){.vue-pay-grid{grid-template-columns:1fr}}
 </style>

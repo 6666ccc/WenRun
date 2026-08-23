@@ -50,8 +50,9 @@ const fields = [
           <h2>{{ patient.name || user?.username || '未设置姓名' }}</h2><p>{{ patient.patientNo }}</p>
           <button class="btn btn--danger btn--sm" @click="signOut">退出登录</button>
         </aside>
-        <section class="card vue-profile-main">
-          <div class="flex-between mb-lg"><h3>档案信息</h3><button class="btn btn--outline btn--sm" @click="editing=!editing">{{ editing ? '取消编辑' : '编辑资料' }}</button></div>
+        <section class="clinic-panel vue-profile-main">
+          <div class="clinic-panel__head"><h3>档案信息</h3><button class="btn btn--outline btn--sm clinic-panel__edit" @click="editing=!editing">{{ editing ? '取消编辑' : '编辑资料' }}</button></div>
+          <div class="clinic-panel__body">
           <div v-if="editing" class="vue-form">
             <div v-for="[label,key] in fields" :key="key" class="form-group"><label class="form-label">{{ label }}</label><input v-model="form[key]" class="input" :placeholder="key==='allergyHistory'?'例如：青霉素过敏':''"></div>
             <div class="form-group"><label class="form-label">性别</label><select v-model="form.gender" class="input"><option value="">请选择</option><option :value="0">女</option><option :value="1">男</option></select></div>
@@ -63,6 +64,7 @@ const fields = [
             <div><small>出生日期</small><b>{{ formatDate(patient.birthDate) }}</b></div><div><small>地址</small><b>{{ patient.address || '—' }}</b></div>
             <div class="wide"><small>过敏史</small><b>{{ patient.allergyHistory || '无' }}</b></div>
           </div>
+          </div>
         </section>
       </div>
     </UiState>
@@ -70,6 +72,6 @@ const fields = [
 </template>
 
 <style scoped>
-.vue-message{text-align:center;color:var(--c-danger)}.vue-message.success{color:var(--c-success)}.vue-profile{display:flex;gap:24px}.vue-profile-card{width:240px;text-align:center;padding:32px 24px;flex-shrink:0}.vue-profile-card h2{font-family:var(--font-serif);margin:12px 0 4px}.vue-profile-card p{color:var(--c-muted)}.vue-profile-main{flex:1}.vue-profile-main h3{margin:0}.vue-info,.vue-form{display:grid;grid-template-columns:1fr 1fr;gap:14px 28px}.vue-info small,.vue-info b{display:block}.vue-info small{color:var(--c-muted)}.vue-info .wide{grid-column:1/-1}
+.vue-message{text-align:center;color:var(--c-danger)}.vue-message.success{color:var(--c-success)}.vue-profile{display:flex;gap:24px}.vue-profile-card{width:240px;text-align:center;padding:32px 24px;flex-shrink:0}.vue-profile-card h2{font-family:var(--font-serif);margin:12px 0 4px}.vue-profile-card p{color:var(--c-muted)}.vue-profile-main{flex:1}.clinic-panel__edit{border-color:rgba(255,255,255,.45);background:transparent;color:#fff}.clinic-panel__edit:hover:not(:disabled){background:rgba(255,255,255,.12);border-color:#fff;color:#fff}.vue-info,.vue-form{display:grid;grid-template-columns:1fr 1fr;gap:14px 28px}.vue-info small,.vue-info b{display:block}.vue-info small{color:var(--c-muted)}.vue-info .wide{grid-column:1/-1}
 @media(max-width:700px){.vue-profile{flex-direction:column}.vue-profile-card{width:auto}.vue-info,.vue-form{grid-template-columns:1fr 1fr}}
 </style>

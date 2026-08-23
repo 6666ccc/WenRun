@@ -49,13 +49,6 @@ CREATE TABLE IF NOT EXISTS sys_user_role (
   KEY idx_sys_user_role_role_id (role_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户角色关联';
 
-CREATE TABLE IF NOT EXISTS oauth_token_blacklist (
-  jti             VARCHAR(64)  NOT NULL COMMENT 'JWT ID',
-  expires_at      DATETIME     NOT NULL COMMENT '过期时间',
-  PRIMARY KEY (jti),
-  KEY idx_oauth_token_blacklist_expires_at (expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Token黑名单';
-
 -- ---------------------------------------------------------------------------
 -- 2. 组织与排班
 -- ---------------------------------------------------------------------------

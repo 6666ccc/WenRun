@@ -9,7 +9,7 @@ const routes = [
   { path: '/mode-select', redirect: '/home', meta: { patient: true } },
   { path: '/home', component: () => import('../views/Home.vue'), meta: { patient: true } },
   { path: '/user', component: () => import('../views/User.vue'), meta: { patient: true } },
-  { path: '/assistant', component: () => import('../views/Assistant.vue'), meta: { patient: true } },
+  { path: '/assistant', component: () => import('../views/Assistant.vue'), meta: { patient: true, shell: 'assistant' } },
   { path: '/registration', component: () => import('../views/Registration.vue'), meta: { patient: true } },
   { path: '/registration/:id', component: () => import('../views/RegistrationDetail.vue'), meta: { patient: true } },
   { path: '/department', component: () => import('../views/Department.vue'), meta: { patient: true } },

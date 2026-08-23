@@ -6,11 +6,7 @@ import java.util.List;
 
 @Data
 public class LoginVO {
-    /** 兼容字段，等于 accessToken */
     private String token;
-    private String accessToken;
-    private String refreshToken;
-    private Integer expiresIn;
     private Long userId;
     private String username;
     private String realName;

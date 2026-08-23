@@ -1,7 +1,7 @@
 <script setup>
 import {
-  AlertCircle, Bot, CalendarDays, CircleDollarSign, Clock3, FileText, Hospital,
-  House, Leaf, LogOut, Plus, Search, Send, UserRound, WalletCards,
+  AlertCircle, ArrowLeft, Bot, CalendarDays, CircleDollarSign, Clock3, FileText, History, Hospital,
+  House, Leaf, LogOut, PanelRight, Plus, Search, Send, UserRound, WalletCards,
 } from '@lucide/vue'
 
 defineProps({ name: { type: String, required: true }, size: { type: [Number, String], default: 24 } })
@@ -9,13 +9,16 @@ defineProps({ name: { type: String, required: true }, size: { type: [Number, Str
 const icons = {
   ai: Bot,
   alert: AlertCircle,
+  arrowLeft: ArrowLeft,
   calendar: CalendarDays,
   dollar: CircleDollarSign,
   hourglass: Clock3,
   record: FileText,
+  history: History,
   hospital: Hospital,
   home: House,
   logo: Leaf,
+  panelRight: PanelRight,
   logout: LogOut,
   plus: Plus,
   search: Search,

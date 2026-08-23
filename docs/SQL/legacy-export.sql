@@ -229,17 +229,6 @@ create index idx_medical_item_status
 create index idx_medical_item_type
     on medical_item (item_type);
 
-create table oauth_token_blacklist
-(
-    jti        varchar(64) not null comment 'JWT ID'
-        primary key,
-    expires_at datetime    not null comment '????'
-)
-    comment 'Token???';
-
-create index idx_oauth_token_blacklist_expires_at
-    on oauth_token_blacklist (expires_at);
-
 create table outpatient_visit
 (
     id              bigint auto_increment comment '??'

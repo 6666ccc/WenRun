@@ -65,7 +65,9 @@ async function cancel() {
     <PageHeader title="预约挂号" subtitle="查看挂号记录，预约新的门诊"><button class="btn btn--accent" @click="openBook">预约挂号</button></PageHeader>
     <section v-if="message" class="card mb-md vue-message" :class="{ success: message.includes('成功') }" role="status"><strong>{{ message }}</strong><template v-if="successBooking"><p>{{ successBooking.deptName }} · {{ successBooking.staffName }}</p><p>{{ successBooking.workDate }} · {{ formatTimePeriod(successBooking.timePeriod) }} · 挂号费 ¥{{ successBooking.registerFee }}</p><div class="vue-success-actions"><RouterLink v-if="registrations[0]" class="btn btn--primary btn--sm" :to="`/registration/${registrations[0].id}`">查看挂号详情</RouterLink><RouterLink class="btn btn--outline btn--sm" to="/home">返回首页</RouterLink></div></template></section>
     <UiState :loading="loading" :error="error" :empty="!registrations.length" empty-text="暂无挂号记录">
-      <div class="view-table-wrap vue-reg-table">
+      <div class="clinic-panel">
+        <div class="clinic-panel__head">挂号记录</div>
+        <div class="view-table-wrap vue-reg-table">
         <table class="view-table">
           <thead><tr><th>挂号编号</th><th>患者</th><th>科室 / 医生</th><th>就诊时间</th><th>挂号时间</th><th>挂号费</th><th>状态</th><th>操作</th></tr></thead>
           <tbody><tr v-for="item in registrations" :key="item.id">
@@ -82,6 +84,7 @@ async function cancel() {
           <div class="vue-actions"><RouterLink :to="`/registration/${item.id}`" class="btn btn--outline btn--sm">查看详情</RouterLink><button v-if="item.status===1" class="btn btn--danger btn--sm" @click="cancelState={show:true,id:item.id,regNo:item.regNo,loading:false}">取消挂号</button></div>
         </article>
       </div>
+      </div>
     </UiState>
     <div v-if="showBook" class="shared-dialog-overlay" role="presentation" @click="showBook=false"><div class="shared-dialog vue-book" role="dialog" aria-modal="true" aria-labelledby="booking-title" @click.stop>
       <div class="step-flow" aria-label="预约挂号流程"><span class="is-complete">1 选择号源</span><span :class="{ 'is-active': reviewing }">2 核对确认</span><span>3 完成</span></div>
@@ -96,7 +99,7 @@ async function cancel() {
 </template>
 
 <style scoped>
-.vue-message{text-align:left;color:var(--c-danger)}.vue-message.success{color:var(--c-success)}.vue-message p{margin:5px 0;color:var(--c-text-secondary);font-size:14px}.vue-success-actions{display:flex;gap:8px;margin-top:12px}.vue-actions{display:flex;gap:6px}.vue-reg-cards{display:none}.vue-reg-cards p{color:var(--c-sub);font-size:.85rem;margin:4px 0}.vue-book{max-width:480px;max-height:80vh;overflow:auto}.vue-options{display:flex;flex-direction:column;gap:8px}.vue-options button{text-align:left;padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-bg)}.vue-options button.selected{border-color:var(--c-accent);background:var(--c-accent-soft)}.vue-options strong,.vue-options span{display:block}.vue-options span{font-size:.8rem;color:var(--c-sub)}
+.vue-message{text-align:left;color:var(--c-danger)}.vue-message.success{color:var(--c-success)}.vue-message p{margin:5px 0;color:var(--c-text-secondary);font-size:14px}.vue-success-actions{display:flex;gap:8px;margin-top:12px}.vue-actions{display:flex;gap:6px}.vue-reg-cards{display:none}.vue-reg-cards p{color:var(--c-sub);font-size:.85rem;margin:4px 0}.vue-book{max-width:480px;max-height:80vh;overflow:auto}.vue-options{display:flex;flex-direction:column;gap:8px}.vue-options button{text-align:left;padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-bg)}.vue-options button.selected{border-color:var(--color-brand-700);background:var(--color-mint-100)}.vue-options strong,.vue-options span{display:block}.vue-options span{font-size:.8rem;color:var(--c-sub)}
 .step-flow{display:flex;gap:8px;margin-bottom:20px}.step-flow span{flex:1;padding:8px 6px;border-bottom:2px solid var(--c-border);color:var(--c-sub);font-size:12px;text-align:center}.step-flow .is-complete,.step-flow .is-active{border-color:var(--color-brand-700);color:var(--color-brand-700);font-weight:700}.booking-review{display:grid;gap:12px;margin:20px 0}.booking-review>div{display:flex;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid var(--c-border)}.booking-review dt{color:var(--c-sub)}.booking-review dd{margin:0;font-weight:600;text-align:right}
 @media(max-width:800px){.vue-reg-table{display:none}.vue-reg-cards{display:flex;flex-direction:column;gap:12px}}
 </style>

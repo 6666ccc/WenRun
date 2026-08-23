@@ -49,3 +49,10 @@ export function normalizeSessions(raw) {
 export function createSession(id) {
   return { id, title: DEFAULT_SESSION.title, messages: [], pendingInterrupt: null }
 }
+
+export function filterSessionsByTitle(sessions, query) {
+  const list = Array.isArray(sessions) ? sessions : []
+  const needle = String(query ?? '').trim().toLowerCase()
+  if (!needle) return list.slice()
+  return list.filter((session) => String(session.title ?? '').toLowerCase().includes(needle))
+}

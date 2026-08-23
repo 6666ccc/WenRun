@@ -1,30 +1,15 @@
 services:
   mysql:
     image: mysql:8.0
-    ports:
-      - "3306:3306"
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-wenrun}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456789}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docs/SQL/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
       - ./docs/SQL/seed.sql:/docker-entrypoint-initdb.d/2-seed.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-123456789}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant-data:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/6333'"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -37,40 +22,30 @@ services:
     environment:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/wenrun?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-123456789}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-python:8000}
-      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:-}
-      AI_DELEGATION_SECRET: ${AI_DELEGATION_SECRET:-dev-ai-delegation-secret-key-32chars}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
+      AI_DELEGATION_SECRET: ${AI_DELEGATION_SECRET:?请在 .env 中设置 AI_DELEGATION_SECRET}
       AI_DELEGATION_EXPIRY_SECONDS: ${AI_DELEGATION_EXPIRY_SECONDS:-300}
+      AUTH_TOKEN_TTL: ${AUTH_TOKEN_TTL:-8h}
+      LOGGING_CHARSET_CONSOLE: UTF-8
+      LOGGING_PATTERN_CONSOLE: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId:-no-request-id}] %logger{36} - %msg%n"
     depends_on:
       mysql:
         condition: service_healthy
       ai-python:
-        condition: service_started
+        condition: service_healthy
 
   ai-python:
     build:
       context: ./ai-python
-    ports:
-      - "8000:8000"
     environment:
-      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
-      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-wenrun}
-      QDRANT_HOSPITAL_COLLECTION: ${QDRANT_HOSPITAL_COLLECTION:-wenrun_hospital_custom}
-      QDRANT_MEDICAL_COLLECTION: ${QDRANT_MEDICAL_COLLECTION:-wenrun_medical_general}
-      QDRANT_MEMORY_COLLECTION: ${QDRANT_MEMORY_COLLECTION:-wenrun_conversation_memory}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
-      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-}
-      DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:-}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
-      AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:-}
-      AI_JAVA_BASE_URL: ${AI_JAVA_BASE_URL:-http://backend-java:8080}
-      AI_CHECKPOINT_PATH: ${AI_CHECKPOINT_PATH:-/data/checkpoints.sqlite}
-    volumes:
-      - ai-checkpoint:/data
-    depends_on:
-      qdrant:
-        condition: service_healthy
+      AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   frontend:
     build:
@@ -85,5 +60,3 @@ services:
 
 volumes:
   mysql-data:
-  qdrant-data:
-  ai-checkpoint:

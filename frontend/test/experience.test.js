@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { MODE_AGENT, MODE_CLASSIC, MODE_STORAGE_KEY, normalizeMode, patientHomePath, isPatientPortal, readMode, writeMode } from '../src/features/experience/mode.js'
-import { normalizeSessions } from '../src/features/assistant/session.js'
+import { filterSessionsByTitle, normalizeSessions } from '../src/features/assistant/session.js'
 import { toTask } from '../src/features/assistant/task.js'
 
 test('normalizeMode only accepts the two patient experiences', () => {
@@ -13,6 +13,32 @@ test('normalizeMode only accepts the two patient experiences', () => {
 
 test('normalizeSessions recovers a safe default after corrupt storage', () => {
   assert.deepEqual(normalizeSessions('{broken json'), [{ id: 'default', title: '新的问诊', messages: [], pendingInterrupt: null }])
+})
+
+test('filterSessionsByTitle returns a copy of all sessions for empty or blank queries', () => {
+  const sessions = [{ id: 'a', title: '新的问诊' }, { id: 'b', title: '待缴费用' }]
+  const all = filterSessionsByTitle(sessions, '')
+  const trimmed = filterSessionsByTitle(sessions, '   ')
+  assert.deepEqual(all, sessions)
+  assert.deepEqual(trimmed, sessions)
+  assert.notEqual(all, sessions)
+})
+
+test('filterSessionsByTitle matches titles case-insensitively and trims the query', () => {
+  const sessions = [
+    { id: 'a', title: '新的问诊' },
+    { id: 'b', title: 'Fever Follow-up' },
+    { id: 'c', title: '待缴费用' },
+  ]
+  assert.deepEqual(filterSessionsByTitle(sessions, ' 问诊 '), [{ id: 'a', title: '新的问诊' }])
+  assert.deepEqual(filterSessionsByTitle(sessions, 'fever'), [{ id: 'b', title: 'Fever Follow-up' }])
+})
+
+test('filterSessionsByTitle returns an empty array without mutating the original list', () => {
+  const sessions = [{ id: 'a', title: '新的问诊' }]
+  const snapshot = [...sessions]
+  assert.deepEqual(filterSessionsByTitle(sessions, '挂号'), [])
+  assert.deepEqual(sessions, snapshot)
 })
 
 test('toTask only exposes approved patient task types', () => {

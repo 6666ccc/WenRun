@@ -183,7 +183,7 @@ function switchMode(next) {
 .login-heading h1 {
   font-family: var(--font-serif);
   font-size: 1.5rem;
-  color: var(--c-brand);
+  color: var(--color-text);
   margin: 0;
 }
 .login-heading p {
@@ -212,22 +212,22 @@ function switchMode(next) {
 .login-switch button {
   background: none;
   border: 0;
-  color: var(--c-accent);
+  color: var(--color-brand-700);
   cursor: pointer;
   font-weight: 500;
 }
 @media (min-width: 1024px) {
-  .login-scene__brand { flex: 0 0 44%; background:linear-gradient(160deg,#e7faf5 0%,#c8f2e8 55%,#a7ebdc 100%); color:var(--color-brand-900); }
-  .login-scene__brand h1,.login-scene__brand-tagline { color:var(--color-brand-900); }
-  .login-scene__brand-quote { border-left-color:var(--color-brand-700); color:var(--color-brand-900); }
-  .login-scene__brand-glow { background:radial-gradient(circle,rgba(103,220,195,.42) 0%,transparent 70%); }
-  .login-scene__form-panel { max-width:none; flex:1; background:linear-gradient(135deg,var(--color-mint-050),#fff); }
-  .login-card { border-color:var(--color-border); border-radius:16px; box-shadow:0 12px 28px rgba(0,122,104,.08); }
+  .login-scene__brand { flex: 0 0 40%; background: var(--color-sidebar); color: #fff; }
+  .login-scene__brand h1,.login-scene__brand-tagline { color: #fff; }
+  .login-scene__brand-quote { border-left-color: rgba(255,255,255,.55); color: rgba(255,255,255,.92); }
+  .login-scene__brand-glow { background: radial-gradient(circle, rgba(255,255,255,.16) 0%, transparent 70%); }
+  .login-scene__form-panel { max-width: none; flex: 1; background: var(--color-bg); }
+  .login-card { border-color: var(--color-border); border-radius: 10px; box-shadow: var(--shadow-lg); }
 }
-.login-card__logo { background:var(--color-mint-500); color:var(--color-brand-900); box-shadow:0 4px 16px rgba(14,157,130,.2); }
+.login-card__logo { background: var(--color-brand-700); color: #fff; box-shadow: 0 4px 16px rgba(18,150,136,.28); }
 @media (max-width: 767px) {
-  .login-scene { min-height:100dvh; background:var(--color-mint-050); }
-  .login-scene__form-panel { align-items:flex-start; padding:56px 16px 32px; }
-  .login-card { padding:28px 22px; border-radius:16px; }
+  .login-scene { min-height: 100dvh; background: var(--color-bg); }
+  .login-scene__form-panel { align-items: flex-start; padding: 56px 16px 32px; }
+  .login-card { padding: 28px 22px; border-radius: 10px; }
 }
 </style>

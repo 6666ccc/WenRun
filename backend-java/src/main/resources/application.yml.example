@@ -19,38 +19,18 @@ spring:
 
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
-  type-aliases-package: com.wenrun.entity,com.wenrun.ai.knowledge.entity
+  type-aliases-package: com.wenrun.entity
   configuration:
     map-underscore-to-camel-case: true
 
-ai:
-  service:
-    base-url: http://127.0.0.1:8000
-    chat-path: /v1/chat
-    chat-stream-path: /v1/chat/stream
-    chat-resume-stream-path: /v1/chat/resume/stream
-    health-path: /health
-    api-key: ${AI_SERVICE_API_KEY:}
-    connect-timeout: 5s
-    read-timeout: 120s
-    stream-read-timeout: 10m
-    knowledge-ingest-path: /v1/knowledge/ingest
-    knowledge-delete-path: /v1/knowledge/{knowledgeBase}/{documentId}
-
-  delegation:
-    secret: ${AI_DELEGATION_SECRET}
-    expiry-seconds: ${AI_DELEGATION_EXPIRY_SECONDS:300}
-
-  knowledge:
-    storage:
-      root: ./data/knowledge
-      max-file-size: 20MB
-    tasks:
-      core-pool-size: 2
-      max-pool-size: 4
-      queue-capacity: 100
-      stale-after: 30m
-
 logging:
+  charset:
+    console: UTF-8
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId:-no-request-id}] %logger{36} - %msg%n"
   level:
-    com.wenrun: debug
+    com.wenrun: info
+
+wenrun:
+  auth:
+    token-ttl: ${AUTH_TOKEN_TTL:8h}

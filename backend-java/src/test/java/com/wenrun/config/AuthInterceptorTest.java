@@ -10,7 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -26,7 +29,7 @@ class AuthInterceptorTest {
 
     @BeforeEach
     void setUp() {
-        authTokenStore = new AuthTokenStore();
+        authTokenStore = new AuthTokenStore(Duration.ofHours(8));
         interceptor = new AuthInterceptor(authTokenStore);
     }
 
@@ -37,7 +40,7 @@ class AuthInterceptorTest {
 
     @Test
     void allowsOptionsWithoutAuth() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("OPTIONS", "/api/ai/chat");
+        MockHttpServletRequest request = new MockHttpServletRequest("OPTIONS", "/api/patients");
         assertTrue(interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
     }
 
@@ -83,5 +86,13 @@ class AuthInterceptorTest {
                 () -> interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
 
         assertEquals(ResultCode.UNAUTHORIZED, exception.getCode());
+    }
+
+    @Test
+    void rejectsExpiredToken() {
+        AuthTokenStore shortLivedStore = new AuthTokenStore(Duration.ZERO);
+        String token = shortLivedStore.createToken(7L, AccountType.PATIENT);
+
+        assertNull(shortLivedStore.getUserId(token));
     }
 }

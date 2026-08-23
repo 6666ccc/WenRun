@@ -1,311 +1,141 @@
-from datetime import datetime, timezone
+"""资料载入：PDF、Word、TXT、Markdown -> Document -> chunks -> Qdrant。"""
+
 from io import BytesIO
 from pathlib import Path
-from uuid import uuid4
+from typing import BinaryIO
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from app.rag.qdrant import (
+    ensure_collection,
+    get_embeddings,
+    get_qdrant_client,
+    get_store,
+    hospital_collection,
+)
+from docx import Document as WordDocument
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pypdf import PdfReader
 
-from app.models.knowledge import IngestResponse
-from app.rag.collections import COLLECTIONS, KnowledgeBase
-
-ALLOWED_SUFFIXES = {".pdf", ".docx"}
-_CHUNK_SIZE = 800
+SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
 
 
-def ingest_document(file, document_id: str, base: KnowledgeBase, original_name: str) -> IngestResponse:
-    if not isinstance(base, KnowledgeBase):
-        raise TypeError("ingest_document accepts KnowledgeBase only")
-    suffix = Path(original_name).suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise ValueError("only .pdf and .docx are supported")
+# 步骤一：读取上传文件的二进制内容，并检查扩展名。
+def _read_file(file: bytes | bytearray | BinaryIO, filename: str) -> bytes:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in SUPPORTED_SUFFIXES:
+        supported = ", ".join(sorted(SUPPORTED_SUFFIXES))
+        raise ValueError(f"不支持的文件格式：{suffix}，支持：{supported}")
 
-    data = _read_bytes(file)
-    units = _parse_pdf(data) if suffix == ".pdf" else _parse_docx(data)
-    chunks = _split_units(units)
-    if not chunks:
-        raise ValueError("no text extracted from document")
-
-    version = str(uuid4())
-    ingested_at = datetime.now(timezone.utc).isoformat()
-    documents = [
-        Document(
-            page_content=chunk["content"],
-            metadata={
-                "documentId": document_id,
-                "knowledgeBase": base.value,
-                "originalName": original_name,
-                "pageNumber": chunk.get("pageNumber"),
-                "section": chunk.get("section"),
-                "chunkIndex": index,
-                "documentVersion": version,
-                "ingestedAt": ingested_at,
-                "active": False,
-            },
-        )
-        for index, chunk in enumerate(chunks)
-    ]
-
-    backend = _ingest_backend(base)
-    try:
-        backend.add_documents(documents)
-        backend.activate(document_id, version)
-    except Exception:
-        backend.rollback(document_id, version)
-        raise
-
-    return IngestResponse(
-        document_id=document_id,
-        knowledge_base=base.value,
-        chunk_count=len(documents),
-    )
-
-
-def delete_document(base: KnowledgeBase, document_id: str) -> None:
-    if not isinstance(base, KnowledgeBase):
-        raise TypeError("delete_document accepts KnowledgeBase only")
-    _ingest_backend(base).delete_document(document_id)
-
-
-def _ingest_backend(base: KnowledgeBase):
-    from app.rag.rag import get_injected_vector_stores
-
-    injected = get_injected_vector_stores()
-    if injected is not None:
-        collection = COLLECTIONS[base]
-        store = injected.for_collection(collection) if hasattr(injected, "for_collection") else injected
-        return InjectedIngestBackend(store)
-
-    from app.core.config import get_settings
-    from app.core.llm import create_embeddings
-    from app.rag.qdrant import get_qdrant_client, get_vector_store
-
-    settings = get_settings()
-    embeddings = create_embeddings(settings)
-    client = get_qdrant_client(settings)
-    store = get_vector_store(settings, base, embeddings)
-    return QdrantIngestBackend(client, store, COLLECTIONS[base], embeddings)
-
-
-class InjectedIngestBackend:
-    def __init__(self, store):
-        self.store = store
-
-    def add_documents(self, documents):
-        adder = getattr(self.store, "add_documents", None)
-        if callable(adder):
-            adder(documents)
-            return
-        written = getattr(self.store, "documents", None)
-        if written is None:
-            self.store.documents = []
-        self.store.documents.extend(documents)
-
-    def activate(self, document_id: str, version: str):
-        activator = getattr(self.store, "activate", None)
-        if callable(activator):
-            activator(document_id, version)
-            return
-        documents = list(getattr(self.store, "documents", []) or [])
-        kept = []
-        for document in documents:
-            metadata = getattr(document, "metadata", {}) or {}
-            if metadata.get("documentId") != document_id:
-                kept.append(document)
-                continue
-            if metadata.get("documentVersion") == version:
-                metadata["active"] = True
-                kept.append(document)
-        self.store.documents = kept
-
-    def rollback(self, document_id: str, version: str):
-        rollback = getattr(self.store, "rollback", None)
-        if callable(rollback):
-            rollback(document_id, version)
-            return
-        documents = list(getattr(self.store, "documents", []) or [])
-        self.store.documents = [
-            document
-            for document in documents
-            if not (
-                (getattr(document, "metadata", {}) or {}).get("documentId") == document_id
-                and (getattr(document, "metadata", {}) or {}).get("documentVersion") == version
-            )
-        ]
-
-    def delete_document(self, document_id: str):
-        deleter = getattr(self.store, "delete_document", None)
-        if callable(deleter):
-            deleter(document_id)
-            return
-        documents = list(getattr(self.store, "documents", []) or [])
-        self.store.documents = [
-            document
-            for document in documents
-            if (getattr(document, "metadata", {}) or {}).get("documentId") != document_id
-        ]
-
-
-class QdrantIngestBackend:
-    def __init__(self, client, store, collection: str, embeddings):
-        self.client = client
-        self.store = store
-        self.collection = collection
-        self.embeddings = embeddings
-
-    def add_documents(self, documents):
-        self._ensure_collection()
-        self.store.add_documents(documents)
-
-    def activate(self, document_id: str, version: str):
-        self._delete_filtered(
-            must=[{"key": "documentId", "value": document_id}],
-            must_not=[{"key": "documentVersion", "value": version}],
-        )
-        point_ids = self._scroll_ids(
-            must=[
-                {"key": "documentId", "value": document_id},
-                {"key": "documentVersion", "value": version},
-            ]
-        )
-        if point_ids:
-            self.client.set_payload(
-                collection_name=self.collection,
-                payload={"active": True},
-                points=point_ids,
-            )
-
-    def rollback(self, document_id: str, version: str):
-        self._delete_filtered(
-            must=[
-                {"key": "documentId", "value": document_id},
-                {"key": "documentVersion", "value": version},
-            ]
-        )
-
-    def delete_document(self, document_id: str):
-        try:
-            self._delete_filtered(must=[{"key": "documentId", "value": document_id}])
-        except Exception as exc:
-            if _is_missing_collection(exc):
-                return
-            raise
-
-    def _ensure_collection(self):
-        if self.client.collection_exists(self.collection):
-            return
-        from qdrant_client.models import Distance, VectorParams
-
-        probe = self.embeddings.embed_query("dimension-probe")
-        self.client.create_collection(
-            collection_name=self.collection,
-            vectors_config=VectorParams(size=len(probe), distance=Distance.COSINE),
-        )
-
-    def _delete_filtered(self, must, must_not=None):
-        from qdrant_client.models import FilterSelector
-
-        self.client.delete(
-            collection_name=self.collection,
-            points_selector=FilterSelector(filter=_payload_filter(must, must_not)),
-        )
-
-    def _scroll_ids(self, must):
-        points, _ = self.client.scroll(
-            collection_name=self.collection,
-            scroll_filter=_payload_filter(must),
-            limit=10_000,
-            with_payload=False,
-            with_vectors=False,
-        )
-        return [point.id for point in points]
-
-
-def _payload_filter(must, must_not=None):
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-    return Filter(
-        must=[FieldCondition(key=item["key"], match=MatchValue(value=item["value"])) for item in must],
-        must_not=[
-            FieldCondition(key=item["key"], match=MatchValue(value=item["value"]))
-            for item in (must_not or [])
-        ]
-        or None,
-    )
-
-
-def _is_missing_collection(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return "not found" in text or "doesn't exist" in text or "does not exist" in text
-
-
-def _read_bytes(file) -> bytes:
     if isinstance(file, (bytes, bytearray)):
         return bytes(file)
+
     read = getattr(file, "read", None)
     if not callable(read):
-        raise TypeError("file must be bytes or a binary stream")
+        raise TypeError("file 必须是 bytes 或可读取的二进制文件对象")
+
     data = read()
-    seek = getattr(file, "seek", None)
-    if callable(seek):
-        try:
-            seek(0)
-        except Exception:
-            pass
     if isinstance(data, str):
         return data.encode("utf-8")
     return bytes(data)
 
 
-def _parse_pdf(data: bytes) -> list[dict]:
-    from pypdf import PdfReader
+# 步骤二：把不同格式的文件统一转换为 LangChain Document。
+# Document 的 page_content 是正文，metadata 保存来源和页码等信息。
+def _load_documents(data: bytes, filename: str) -> list[Document]:
+    suffix = Path(filename).suffix.lower()
+    base_metadata = {
+        "source_name": filename,
+        "file_type": suffix,
+        "document_id": str(uuid4()),
+    }
 
-    reader = PdfReader(BytesIO(data))
-    units = []
-    for index, page in enumerate(reader.pages, start=1):
-        text = (page.extract_text() or "").strip()
-        if text:
-            units.append({"content": text, "pageNumber": index, "section": None})
-    return units
+    if suffix == ".pdf":
+        reader = PdfReader(BytesIO(data))
+        documents = []
+        for page_number, page in enumerate(reader.pages, start=1):
+            text = (page.extract_text() or "").strip()
+            if text:
+                documents.append(
+                    Document(
+                        page_content=text,
+                        metadata={**base_metadata, "page": page_number},
+                    )
+                )
+        return documents
+
+    if suffix == ".docx":
+        word_document = WordDocument(BytesIO(data))
+        paragraphs = [
+            paragraph.text.strip()
+            for paragraph in word_document.paragraphs
+            if paragraph.text and paragraph.text.strip()
+        ]
+        text = "\n\n".join(paragraphs)
+        return [Document(page_content=text, metadata=base_metadata)] if text else []
+
+    # TXT 和 Markdown 都按 UTF-8 优先读取；GB18030 兼容常见中文文本文件。
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = data.decode("gb18030")
+    text = text.strip()
+    return [Document(page_content=text, metadata=base_metadata)] if text else []
 
 
-def _parse_docx(data: bytes) -> list[dict]:
-    from docx import Document as DocxDocument
-
-    document = DocxDocument(BytesIO(data))
-    units = []
-    current_section = None
-    paragraph_index = 0
-    for paragraph in document.paragraphs:
-        text = (paragraph.text or "").strip()
-        if not text:
-            continue
-        style_name = ""
-        if paragraph.style is not None:
-            style_name = paragraph.style.name or ""
-        if style_name.startswith("Heading"):
-            current_section = text
-            continue
-        paragraph_index += 1
-        units.append({
-            "content": text,
-            "pageNumber": None,
-            "section": current_section or f"paragraph-{paragraph_index}",
-        })
-    return units
+# 步骤三：把较长的 Document 切成适合向量检索的较小片段。
+# RecursiveCharacterTextSplitter 是 LangChain 对通用文本推荐的切分器。
+def _split_documents(documents: list[Document]) -> list[Document]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=120,
+        add_start_index=True,
+    )
+    return splitter.split_documents(documents)
 
 
-def _split_units(units: list[dict]) -> list[dict]:
-    chunks: list[dict] = []
-    for unit in units:
-        text = (unit.get("content") or "").strip()
-        if not text:
-            continue
-        if len(text) <= _CHUNK_SIZE:
-            chunks.append({**unit, "content": text})
-            continue
-        for start in range(0, len(text), _CHUNK_SIZE):
-            part = text[start:start + _CHUNK_SIZE].strip()
-            if part:
-                chunks.append({**unit, "content": part})
-    return chunks
+# 步骤四：把切好的 Document 写入医院知识库。
+def add_hospital_documents(
+    documents: list[Document],
+    ids: list[str] | None = None,
+) -> list[str]:
+    if not documents:
+        raise ValueError("没有可写入的文档片段")
 
+    client = get_qdrant_client()
+    embeddings = get_embeddings()
+
+    # 写入前确保 collection 存在，并且向量维度与 embedding 模型一致。
+    if not client.collection_exists(hospital_collection):
+        vector_size = len(embeddings.embed_query("dimension probe"))
+        ensure_collection(client, hospital_collection, vector_size)
+
+    store = get_store(client, hospital_collection, embeddings)
+    return store.add_documents(documents=documents, ids=ids)
+
+
+# 完整执行一次文件载入：读取、解析、切块、embedding 并写入 Qdrant。
+def ingest_file(file: bytes | bytearray | BinaryIO, filename: str) -> dict:
+    data = _read_file(file, filename)
+    documents = _load_documents(data, filename)
+    if not documents:
+        raise ValueError("文件没有提取到可用文本；扫描版 PDF 需要先做 OCR")
+
+    chunks = _split_documents(documents)
+    if not chunks:
+        raise ValueError("文件切分后没有可写入的文本片段")
+
+    # 使用稳定的本次导入 ID，便于后续删除或更新整份文档。
+    document_id = str(documents[0].metadata["document_id"])
+    # Qdrant 的点 ID 只能使用无符号整数或合法 UUID，不能直接使用 "uuid:序号"。
+    chunk_ids = [
+        str(uuid5(NAMESPACE_URL, f"{document_id}:{index}"))
+        for index in range(len(chunks))
+    ]
+    written_ids = add_hospital_documents(chunks, ids=chunk_ids)
+
+    return {
+        "document_id": document_id,
+        "filename": filename,
+        "chunk_count": len(written_ids),
+    }
