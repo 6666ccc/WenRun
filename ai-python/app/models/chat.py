@@ -37,15 +37,6 @@ class ChatRequest(ApiModel):
     user_context: UserContext = Field(default_factory=UserContext, alias="userContext")
 
 
-class ResumeRequest(ApiModel):
-    """预留给需要人工确认的工作流恢复接口。"""
-
-    conversation_id: str = Field(alias="conversationId", min_length=1, max_length=64)
-    interrupt_id: str = Field(alias="interruptId", min_length=1, max_length=128)
-    approved: bool
-    params: dict[str, Any] | None = None
-
-
 class ChatResponse(ApiModel):
     """普通 JSON 聊天响应。"""
 

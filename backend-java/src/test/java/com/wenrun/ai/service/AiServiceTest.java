@@ -1,6 +1,5 @@
 package com.wenrun.ai.service;
 
-import com.wenrun.ai.vo.aiReply;
 import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.exception.BusinessException;
@@ -9,6 +8,10 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,64 +25,81 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class AiServiceTest {
 
     @Test
-    void forwardsChatRequestAndKeepsRagSources() {
+    void parsesPythonSseEvents() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://python.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         aiService service = new aiService(builder.build(), "service-key");
-        server.expect(requestTo("http://python.test/v1/chat"))
+        server.expect(requestTo("http://python.test/v1/chat/stream"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("X-Api-Key", "service-key"))
-                .andExpect(jsonPath("$.message").value("普通感冒有哪些症状？"))
-                .andExpect(jsonPath("$.conversationId").value("conversation-1"))
-                .andExpect(jsonPath("$.memoryEnabled").value(true))
+                .andExpect(header("X-Request-Id", "request-123"))
+                .andExpect(jsonPath("$.userContext.userId").value(7))
+                .andExpect(jsonPath("$.userContext.patientId").value(12))
                 .andRespond(withSuccess("""
-                        {
-                          "reply": "根据院内资料整理的回复 [S1]",
-                          "status": "completed",
-                          "conversationId": "conversation-1",
-                          "selectedAgents": ["knowledge", "chat"],
-                          "sources": [
-                            {
-                              "id": "S1",
-                              "document_id": "document-1",
-                              "title": "感冒共识.pdf",
-                              "page": 4
-                            }
-                          ]
-                        }
-                        """, MediaType.APPLICATION_JSON));
+                        data: {"type":"status","content":"正在分析"}
+
+                        data: {"type":"token","content":"联调成功"}
+
+                        data: {"type":"done","reply":"联调成功","conversationId":"conversation-1"}
+
+                        """, MediaType.TEXT_EVENT_STREAM));
 
         aiRequest request = new aiRequest();
-        request.setMessage("普通感冒有哪些症状？");
+        request.setMessage("测试流式响应");
         request.setConversationId("conversation-1");
-        request.setMemoryEnabled(Boolean.TRUE);
+        request.setUserId(7L);
+        request.setPatientId(12L);
+        request.setRequestId("request-123");
+        List<Map<String, Object>> events = new ArrayList<>();
 
-        aiReply reply = service.chat(request);
+        service.streamChat(request, events::add);
 
-        assertEquals("根据院内资料整理的回复 [S1]", reply.getReply());
-        assertEquals("completed", reply.getStatus());
-        assertEquals("conversation-1", reply.getConversationId());
-        assertEquals("knowledge", reply.getSelectedAgents().get(0));
-        assertEquals("chat", reply.getSelectedAgents().get(1));
-        assertEquals(1, reply.getSources().size());
-        assertEquals("document-1", reply.getSources().get(0).getDocumentId());
-        assertEquals(4, reply.getSources().get(0).getPage());
+        assertEquals(List.of("status", "token", "done"),
+                events.stream().map(event -> event.get("type")).toList());
+        assertEquals("联调成功", events.get(2).get("reply"));
         server.verify();
     }
 
     @Test
-    void convertsPythonHttpErrorsToServiceUnavailable() {
+    void parsesMultilineSseDataAndFlushesFinalEvent() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://python.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         aiService service = new aiService(builder.build(), "");
-        server.expect(requestTo("http://python.test/v1/chat"))
+        server.expect(requestTo("http://python.test/v1/chat/stream"))
+                .andRespond(withSuccess("""
+                        : keep-alive
+                        data: {"type":"token",
+                        data: "content":"第一段"}
+
+                        data: {"type":"done","reply":"第一段"}""", MediaType.TEXT_EVENT_STREAM));
+
+        aiRequest request = new aiRequest();
+        request.setMessage("测试 SSE 解析");
+        List<Map<String, Object>> events = new ArrayList<>();
+
+        service.streamChat(request, events::add);
+
+        assertEquals(List.of("token", "done"),
+                events.stream().map(event -> event.get("type")).toList());
+        assertEquals("第一段", events.get(0).get("content"));
+        server.verify();
+    }
+
+    @Test
+    void convertsPythonStreamErrorsToServiceUnavailable() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://python.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        aiService service = new aiService(builder.build(), "");
+        server.expect(requestTo("http://python.test/v1/chat/stream"))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withServerError());
 
         aiRequest request = new aiRequest();
         request.setMessage("你好");
 
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.chat(request));
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.streamChat(request, event -> { }));
 
         assertEquals(ResultCode.SERVICE_UNAVAILABLE, exception.getCode());
         server.verify();

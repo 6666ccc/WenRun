@@ -1,16 +1,15 @@
-import { toTask } from '../../features/assistant/task.js'
+const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+
+function apiUrl(path) {
+  return `${API_BASE_URL}${path}`
+}
 
 export function normalizeChatEvent(event) {
   return event
 }
 
-export function taskFromChatEvent(event) {
-  return toTask(event?.task)
-}
-
 function applyChatEvent(raw, acc, handlers) {
   const event = normalizeChatEvent(raw)
-  handlers.onEvent?.(event)
   if (event.type === 'status') {
     handlers.onStatus?.(event.content)
     return null
@@ -27,10 +26,6 @@ function applyChatEvent(raw, acc, handlers) {
       handlers.onCitation?.(source)
     }
     return null
-  }
-  if (event.type === 'interrupt') {
-    handlers.onInterrupt?.(event.interrupt)
-    return { status: 'pending', interrupt: event.interrupt }
   }
   if (event.type === 'done') {
     const done = {
@@ -102,11 +97,20 @@ async function streamRequest(url, payload, handlers = {}) {
     signal,
   })
 
-  if (!res.ok) {
+  const responseType = res.headers.get('content-type') || ''
+  if (!res.ok || !responseType.includes('text/event-stream')) {
     let message = `服务器错误 (${res.status})`
     try {
       const body = await res.json()
       message = body?.message || message
+      if (body?.code === 401) {
+        const { setToken } = await import('../request.js')
+        setToken(null)
+        localStorage.removeItem('wenrun_user')
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
+      }
     } catch {
       // ignore non-json error body
     }
@@ -147,19 +151,10 @@ async function streamRequest(url, payload, handlers = {}) {
 }
 
 export function chatStream(payload, handlers = {}) {
-  return streamRequest('/api/ai/chat/stream', payload, handlers)
-}
-
-export function resumeStream(payload, handlers = {}) {
-  return streamRequest('/api/ai/chat/resume/stream', payload, handlers)
+  return streamRequest(apiUrl('/api/ai/chat/stream'), payload, handlers)
 }
 
 export async function deleteConversation(conversationId) {
   const { default: request } = await import('../request.js')
   return request.delete(`/api/ai/conversations/${encodeURIComponent(conversationId)}`)
-}
-
-export async function chat(message) {
-  const { default: request } = await import('../request.js')
-  return request.post('/api/ai/chat', { message })
 }

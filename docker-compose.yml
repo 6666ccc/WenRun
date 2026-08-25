@@ -22,12 +22,11 @@ services:
     environment:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/wenrun?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-python:8000}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
-      AI_DELEGATION_SECRET: ${AI_DELEGATION_SECRET:?请在 .env 中设置 AI_DELEGATION_SECRET}
-      AI_DELEGATION_EXPIRY_SECONDS: ${AI_DELEGATION_EXPIRY_SECONDS:-300}
       AUTH_TOKEN_TTL: ${AUTH_TOKEN_TTL:-8h}
+      WENRUN_CORS_ALLOWED_ORIGINS: ${WENRUN_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       LOGGING_CHARSET_CONSOLE: UTF-8
       LOGGING_PATTERN_CONSOLE: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId:-no-request-id}] %logger{36} - %msg%n"
     depends_on:
@@ -39,6 +38,10 @@ services:
   ai-python:
     build:
       context: ./ai-python
+    env_file:
+      - ./ai-python/.env
+    ports:
+      - "8000:8000"
     environment:
       AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
     healthcheck:

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../stores'
 import { getPatient, updatePatient } from '../api'
@@ -33,34 +33,44 @@ async function save() {
   finally { saving.value = false }
 }
 async function signOut() { await logout(); router.replace('/login') }
+const maskedIdCard = computed(() => {
+  const value = patient.value?.idCard || ''
+  if (!value) return '—'
+  if (value.length <= 8) return `${value.slice(0, 2)}••••${value.slice(-2)}`
+  return `${value.slice(0, 4)} •••••• ${value.slice(-4)}`
+})
 const fields = [
-  ['姓名','name'], ['手机号','phone'], ['身份证号','idCard'], ['出生日期','birthDate'],
-  ['地址','address'], ['过敏史','allergyHistory'],
+  { label: '姓名', key: 'name', autocomplete: 'name' },
+  { label: '手机号', key: 'phone', type: 'tel', autocomplete: 'tel', inputmode: 'tel' },
+  { label: '身份证号', key: 'idCard', autocomplete: 'off', inputmode: 'numeric' },
+  { label: '出生日期', key: 'birthDate', type: 'date', autocomplete: 'bday' },
+  { label: '地址', key: 'address', autocomplete: 'street-address' },
+  { label: '过敏史', key: 'allergyHistory' },
 ]
 </script>
 
 <template>
   <AppShell>
     <PageHeader title="个人中心" subtitle="查看和编辑您的档案信息" />
-    <div v-if="message" class="card mb-md vue-message" :class="{success:message.includes('成功')}">{{ message }}</div>
+    <div v-if="message" class="card mb-md vue-message" :class="{success:message.includes('成功')}" :role="message.includes('成功') ? 'status' : 'alert'">{{ message }}</div>
     <UiState :loading="loading" :error="error" :empty="!patient" empty-text="暂无患者档案">
       <div class="vue-profile stagger">
         <aside class="card vue-profile-card">
           <div class="view-avatar-ring"><div class="view-avatar-ring__inner">{{ (patient.name || user?.username || '?')[0] }}</div></div>
           <h2>{{ patient.name || user?.username || '未设置姓名' }}</h2><p>{{ patient.patientNo }}</p>
-          <button class="btn btn--danger btn--sm" @click="signOut">退出登录</button>
+          <button class="btn btn--danger btn--sm" type="button" @click="signOut">退出登录</button>
         </aside>
         <section class="clinic-panel vue-profile-main">
           <div class="clinic-panel__head"><h3>档案信息</h3><button class="btn btn--outline btn--sm clinic-panel__edit" @click="editing=!editing">{{ editing ? '取消编辑' : '编辑资料' }}</button></div>
           <div class="clinic-panel__body">
-          <div v-if="editing" class="vue-form">
-            <div v-for="[label,key] in fields" :key="key" class="form-group"><label class="form-label">{{ label }}</label><input v-model="form[key]" class="input" :placeholder="key==='allergyHistory'?'例如：青霉素过敏':''"></div>
-            <div class="form-group"><label class="form-label">性别</label><select v-model="form.gender" class="input"><option value="">请选择</option><option :value="0">女</option><option :value="1">男</option></select></div>
-            <button class="btn btn--primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
-          </div>
+          <form v-if="editing" class="vue-form" @submit.prevent="save">
+            <div v-for="field in fields" :key="field.key" class="form-group"><label class="form-label" :for="`profile-${field.key}`">{{ field.label }}</label><input :id="`profile-${field.key}`" v-model="form[field.key]" class="input" :type="field.type || 'text'" :autocomplete="field.autocomplete" :inputmode="field.inputmode" :placeholder="field.key==='allergyHistory'?'例如：青霉素过敏':''"></div>
+            <div class="form-group"><label class="form-label" for="profile-gender">性别</label><select id="profile-gender" v-model="form.gender" class="input"><option value="">请选择</option><option :value="0">女</option><option :value="1">男</option></select></div>
+            <button class="btn btn--primary" type="submit" :disabled="saving">{{ saving ? '保存中…' : '保存修改' }}</button>
+          </form>
           <div v-else class="vue-info">
             <div><small>姓名</small><b>{{ patient.name || '—' }}</b></div><div><small>性别</small><b>{{ GENDER_MAP[patient.gender] || '未知' }}</b></div>
-            <div><small>手机号</small><b>{{ patient.phone || '—' }}</b></div><div><small>身份证号</small><b>{{ patient.idCard || '—' }}</b></div>
+            <div><small>手机号</small><b>{{ patient.phone || '—' }}</b></div><div><small>身份证号</small><b>{{ maskedIdCard }}</b></div>
             <div><small>出生日期</small><b>{{ formatDate(patient.birthDate) }}</b></div><div><small>地址</small><b>{{ patient.address || '—' }}</b></div>
             <div class="wide"><small>过敏史</small><b>{{ patient.allergyHistory || '无' }}</b></div>
           </div>

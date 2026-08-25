@@ -6,6 +6,7 @@ COPY pom.xml ./
 RUN mvn -B dependency:go-offline
 
 COPY src ./src
+RUN cp src/main/resources/application.yml.example src/main/resources/application.yml
 RUN mvn -B -DskipTests package
 
 

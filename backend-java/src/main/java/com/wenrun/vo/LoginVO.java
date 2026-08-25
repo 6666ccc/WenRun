@@ -1,11 +1,13 @@
 package com.wenrun.vo;
 
 import lombok.Data;
+import lombok.ToString;
 
 import java.util.List;
 
 @Data
 public class LoginVO {
+    @ToString.Exclude
     private String token;
     private Long userId;
     private String username;

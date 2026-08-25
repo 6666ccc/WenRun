@@ -25,11 +25,14 @@ onBeforeUnmount(() => window.clearTimeout(loadingTimer))
 <template>
   <div v-if="loading && !showLoading" class="shared-loading shared-loading--delay" aria-hidden="true" />
   <div v-else-if="loading" class="shared-loading" role="status" aria-live="polite">
-    <div class="shared-loading__spinner" />
+    <div class="shared-loading__spinner" aria-hidden="true" />
     <span class="shared-loading__text">加载中…</span>
   </div>
-  <div v-else-if="error" class="card mb-md" style="color:var(--c-danger);text-align:center">{{ error }}</div>
-  <div v-else-if="empty" class="shared-empty">
+  <div v-else-if="error" class="ui-state ui-state--error mb-md" role="alert">
+    <span class="ui-state__icon"><UiIcon name="alert" :size="20" /></span>
+    <span><strong>暂时无法加载</strong><small>{{ error }}</small></span>
+  </div>
+  <div v-else-if="empty" class="shared-empty" role="status">
     <span class="shared-empty__icon"><UiIcon name="record" :size="48" /></span>
     <span class="shared-empty__text text-sub">{{ emptyText }}</span>
   </div>

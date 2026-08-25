@@ -1,9 +1,11 @@
 <script setup>
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 
 const props = defineProps({ show: Boolean, title: String, message: String, loading: Boolean })
 const emit = defineEmits(['confirm', 'cancel'])
 const dialog = ref(null)
+const titleId = useId()
+const descriptionId = useId()
 let returnFocus = null
 let previousOverflow = ''
 
@@ -41,10 +43,10 @@ onBeforeUnmount(() => {
 
 <template>
   <Transition name="fade">
-    <div v-if="show" class="shared-dialog-overlay" role="presentation" @click="!loading && emit('cancel')">
-      <div ref="dialog" class="shared-dialog" role="dialog" aria-modal="true" :aria-label="title || '确认操作'" @click.stop>
-        <h3>{{ title || '确认操作' }}</h3>
-        <p>{{ message }}</p>
+    <div v-if="show" class="shared-dialog-overlay" role="presentation" @click.self="!loading && emit('cancel')">
+      <div ref="dialog" class="shared-dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId" :aria-describedby="descriptionId" :aria-busy="loading">
+        <h3 :id="titleId">{{ title || '确认操作' }}</h3>
+        <p :id="descriptionId">{{ message }}</p>
         <div class="shared-dialog__actions">
           <button class="btn btn--ghost" type="button" :disabled="loading" @click="emit('cancel')">取消</button>
           <button class="btn btn--primary" type="button" :disabled="loading" @click="emit('confirm')">

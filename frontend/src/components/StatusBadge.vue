@@ -6,6 +6,7 @@ const info = computed(() => props.map?.[props.status])
 
 <template>
   <span class="shared-status" :class="info?.cls || 'shared-status--cancelled'">
+    <span class="shared-status__dot" aria-hidden="true" />
     {{ info?.label || fallback }}
   </span>
 </template>

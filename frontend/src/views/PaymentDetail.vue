@@ -58,8 +58,8 @@ async function pay() {
         <section v-if="charge.payStatus === 0" class="clinic-panel">
           <div class="clinic-panel__head"><h3>选择支付方式</h3></div>
           <div class="clinic-panel__body">
-          <div class="vue-methods"><button v-for="(label,key) in PAY_TYPE_MAP" :key="key" class="view-pay-method" :class="{ 'view-pay-method--active': Number(key) === payType }" @click="payType=Number(key)">{{ label }}</button></div>
-          <div v-if="message" class="vue-message" :class="{ success: message.includes('成功') }">{{ message }}</div>
+          <div class="vue-methods" role="radiogroup" aria-label="支付方式"><button v-for="(label,key) in PAY_TYPE_MAP" :key="key" type="button" role="radio" :aria-checked="Number(key) === payType" class="view-pay-method" :class="{ 'view-pay-method--active': Number(key) === payType }" @click="payType=Number(key)">{{ label }}</button></div>
+          <div v-if="message" class="vue-message" :class="{ success: message.includes('成功') }" :role="message.includes('成功') ? 'status' : 'alert'">{{ message }}</div>
           <div v-if="message.includes('成功')" class="payment-success-actions"><RouterLink class="btn btn--primary" to="/payment">查看已缴记录</RouterLink><RouterLink class="btn btn--outline" to="/home">返回首页</RouterLink></div>
           <button v-if="!message.includes('成功')" class="btn btn--accent btn--lg full" :disabled="paying" @click="pay">{{ paying ? '支付中…' : `确认支付 ${formatMoney(charge.totalAmount)}` }}</button>
           </div>

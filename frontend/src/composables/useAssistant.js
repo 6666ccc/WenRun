@@ -1,9 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { chatStream, deleteConversation, listCharges, listRegistrations, resumeStream } from '../api'
+import { chatStream, deleteConversation, listCharges, listRegistrations } from '../api'
 import { listVisits } from '../api/modules/consultation'
-import { taskFromChatEvent } from '../api/modules/ai'
-import { buildResumePayload } from '../features/assistant/interrupt'
-import { createMessageId, createSession, normalizeSessions } from '../features/assistant/session'
+import { createMessageId, createSession, normalizeSessions, shouldRemoveLocalSessionAfterDeleteError } from '../features/assistant/session'
 import { toTask } from '../features/assistant/task'
 
 const STORAGE_KEY = 'wenrun_ai_sessions'
@@ -21,7 +19,6 @@ export function useAssistant(user) {
   const task = ref(null)
   let controller = null
   const activeSession = computed(() => sessions.value.find((item) => item.id === activeId.value) || sessions.value[0])
-  const pendingInterrupt = computed(() => activeSession.value?.pendingInterrupt || null)
   watch(sessions, (value) => localStorage.setItem(STORAGE_KEY, JSON.stringify(value)), { deep: true })
 
   async function refreshContext() {
@@ -59,7 +56,7 @@ export function useAssistant(user) {
     try {
       await deleteConversation(id)
     } catch (error) {
-      if (!neverSynced) {
+      if (!shouldRemoveLocalSessionAfterDeleteError(error, neverSynced)) {
         sessionError.value = error.message || '删除会话失败，请重试。'
         return
       }
@@ -103,10 +100,6 @@ export function useAssistant(user) {
       sources: sources || message.sources || [],
       meta: { ...message.meta, intent },
     }))
-    updateSession(conversationId, (session) => ({
-      ...session,
-      pendingInterrupt: null,
-    }))
   }
 
   function appendAssistantError(conversationId, code, message) {
@@ -123,16 +116,6 @@ export function useAssistant(user) {
       onStatus: (text) => { streamStatus.value = text },
       onToken: (chunk) => appendAssistantToken(conversationId, chunk),
       onCitation: (source) => appendAssistantSource(conversationId, source),
-      onInterrupt: (interrupt) => {
-        updateLastAssistant(conversationId, (message) => ({
-          ...message,
-          content: message.content || interrupt?.summary || '请确认是否继续该操作。',
-        }))
-        updateSession(conversationId, (session) => ({
-          ...session,
-          pendingInterrupt: interrupt,
-        }))
-      },
       onDone: ({ reply, intent, sources }) => finalizeAssistantMessage(
         conversationId,
         { reply, intent, sources },
@@ -142,16 +125,12 @@ export function useAssistant(user) {
         code,
         message,
       ),
-      onEvent: (event) => {
-        const next = taskFromChatEvent(event)
-        if (next) task.value = next
-      },
     }
   }
 
   async function sendMessage(text) {
     const content = text.trim()
-    if (!content || replying.value || pendingInterrupt.value || !activeSession.value) return
+    if (!content || replying.value || !activeSession.value) return
     const conversationId = activeSession.value.id
     updateSession(conversationId, (session) => ({
       ...session,
@@ -176,35 +155,9 @@ export function useAssistant(user) {
     }
   }
 
-  async function resumeInterrupt(approved, params = {}) {
-    const pending = pendingInterrupt.value
-    const session = activeSession.value
-    if (!pending || !session || replying.value) return
-    controller = new AbortController()
-    replying.value = true
-    try {
-      const result = await resumeStream(
-        buildResumePayload(session.id, pending.interruptId, approved, params),
-        createStreamHandlers(session.id),
-      )
-      if (approved && result?.status === 'completed') {
-        await refreshContext()
-      }
-    } catch (nextError) {
-      if (nextError.name !== 'AbortError') {
-        appendAssistantError(session.id, nextError.code, nextError.message || '恢复对话失败，请稍后重试。')
-      }
-    } finally {
-      replying.value = false
-      streaming.value = false
-      streamStatus.value = null
-      controller = null
-    }
-  }
-
   return {
-    sessions, activeId, activeSession, context, replying, streaming, streamStatus, pendingInterrupt, sessionError, task,
-    sendMessage, resumeInterrupt, stopReply: () => controller?.abort(), newChat, deleteSession,
+    sessions, activeId, activeSession, context, replying, streaming, streamStatus, sessionError, task,
+    sendMessage, stopReply: () => controller?.abort(), newChat, deleteSession,
     refreshContext, openTask: (value) => { task.value = toTask(value) },
     closeTask: () => { task.value = null },
   }

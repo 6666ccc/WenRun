@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { MODE_AGENT, MODE_CLASSIC, MODE_STORAGE_KEY, normalizeMode, patientHomePath, isPatientPortal, readMode, writeMode } from '../src/features/experience/mode.js'
-import { filterSessionsByTitle, normalizeSessions } from '../src/features/assistant/session.js'
+import { filterSessionsByTitle, normalizeSessions, shouldRemoveLocalSessionAfterDeleteError } from '../src/features/assistant/session.js'
 import { toTask } from '../src/features/assistant/task.js'
 
 test('normalizeMode only accepts the two patient experiences', () => {
@@ -12,7 +12,7 @@ test('normalizeMode only accepts the two patient experiences', () => {
 })
 
 test('normalizeSessions recovers a safe default after corrupt storage', () => {
-  assert.deepEqual(normalizeSessions('{broken json'), [{ id: 'default', title: '新的问诊', messages: [], pendingInterrupt: null }])
+  assert.deepEqual(normalizeSessions('{broken json'), [{ id: 'default', title: '新的问诊', messages: [] }])
 })
 
 test('filterSessionsByTitle returns a copy of all sessions for empty or blank queries', () => {
@@ -56,6 +56,14 @@ test('patient entry starts in the unified patient home', () => {
   assert.equal(patientHomePath(), '/home')
   assert.equal(isPatientPortal({ portalType: 'patient' }), true)
   assert.equal(isPatientPortal({ portalType: 'doctor' }), false)
+})
+
+test('local session can be removed when server has no matching conversation', () => {
+  assert.equal(shouldRemoveLocalSessionAfterDeleteError(null, false), true)
+  assert.equal(shouldRemoveLocalSessionAfterDeleteError(new Error('无权访问该会话'), false), true)
+  assert.equal(shouldRemoveLocalSessionAfterDeleteError(new Error('无权访问该会话'), true), true)
+  assert.equal(shouldRemoveLocalSessionAfterDeleteError(new Error('网络异常，请检查网络连接'), false), false)
+  assert.equal(shouldRemoveLocalSessionAfterDeleteError(new Error('请求超时'), true), true)
 })
 
 test('mode preference round-trips through storage', () => {

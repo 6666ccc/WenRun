@@ -19,7 +19,7 @@ configure_logging()
 
 
 def create_app() -> FastAPI:
-    """创建 AI 模块骨架；具体 AI 能力由后续实现接入。"""
+    """创建温润 AI HTTP 服务。"""
     app = FastAPI(title="WenRun AI API", version="0.1.0")
     app.include_router(chat.router)
     app.include_router(health.router)

@@ -13,7 +13,9 @@ const charges = ref([])
 const loading = ref(true)
 const error = ref('')
 const pending = computed(() => charges.value.filter((item) => item.payStatus === 0))
-const paid = computed(() => charges.value.filter((item) => item.payStatus !== 0))
+const paid = computed(() => charges.value.filter((item) => item.payStatus === 1))
+const refunded = computed(() => charges.value.filter((item) => item.payStatus === 2))
+const processed = computed(() => charges.value.filter((item) => item.payStatus !== 0))
 const pendingTotal = computed(() => pending.value.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0))
 
 onMounted(async () => {
@@ -31,7 +33,8 @@ onMounted(async () => {
       <div class="view-pay-summary">
         <div class="view-pay-summary__item view-pay-summary__item--accent"><div class="view-pay-summary__label">待缴费</div><div class="view-pay-summary__value accent">{{ pending.length }}</div></div>
         <div class="view-pay-summary__item"><div class="view-pay-summary__label">待缴金额</div><div class="view-pay-summary__value">{{ formatMoney(pendingTotal) }}</div></div>
-        <div class="view-pay-summary__item"><div class="view-pay-summary__label">已缴费</div><div class="view-pay-summary__value success">{{ paid.length }}</div></div>
+        <div class="view-pay-summary__item"><div class="view-pay-summary__label">已支付</div><div class="view-pay-summary__value success">{{ paid.length }}</div></div>
+        <div v-if="refunded.length" class="view-pay-summary__item"><div class="view-pay-summary__label">已退款</div><div class="view-pay-summary__value">{{ refunded.length }}</div></div>
       </div>
       <section v-if="pending.length" class="clinic-panel vue-pay-section">
         <div class="clinic-panel__head"><h2>待缴费 ({{ pending.length }})</h2></div>
@@ -46,11 +49,11 @@ onMounted(async () => {
         </div>
         </div>
       </section>
-      <section v-if="paid.length" class="clinic-panel vue-pay-section">
-        <div class="clinic-panel__head"><h2>已缴费 ({{ paid.length }})</h2></div>
+      <section v-if="processed.length" class="clinic-panel vue-pay-section">
+        <div class="clinic-panel__head"><h2>已处理 ({{ processed.length }})</h2></div>
         <div class="clinic-panel__body">
         <div class="vue-pay-grid">
-          <article v-for="charge in paid" :key="charge.id" class="card">
+          <article v-for="charge in processed" :key="charge.id" class="card">
             <div class="flex-between mb-sm"><strong>{{ charge.orderNo }}</strong><StatusBadge :status="charge.payStatus" :map="PAY_STATUS_MAP" /></div>
             <p class="text-sub text-sm">金额：{{ formatMoney(charge.totalAmount) }}</p><p class="text-sub text-sm">时间：{{ formatDateTime(charge.payTime || charge.createTime) }}</p>
           </article>

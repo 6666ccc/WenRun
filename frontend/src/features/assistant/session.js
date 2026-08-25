@@ -2,7 +2,6 @@ export const DEFAULT_SESSION = {
   id: 'default',
   title: '新的问诊',
   messages: [],
-  pendingInterrupt: null,
 }
 
 function isMessage(message) {
@@ -40,14 +39,13 @@ export function normalizeSessions(raw) {
       id: session.id,
       title: typeof session.title === 'string' && session.title ? session.title : DEFAULT_SESSION.title,
       messages: session.messages.filter(isMessage).map(normalizeMessage),
-      pendingInterrupt: session.pendingInterrupt || null,
     }))
 
   return sessions.length ? sessions : [{ ...DEFAULT_SESSION }]
 }
 
 export function createSession(id) {
-  return { id, title: DEFAULT_SESSION.title, messages: [], pendingInterrupt: null }
+  return { id, title: DEFAULT_SESSION.title, messages: [] }
 }
 
 export function filterSessionsByTitle(sessions, query) {
@@ -55,4 +53,10 @@ export function filterSessionsByTitle(sessions, query) {
   const needle = String(query ?? '').trim().toLowerCase()
   if (!needle) return list.slice()
   return list.filter((session) => String(session.title ?? '').toLowerCase().includes(needle))
+}
+
+/** 服务端没有该会话、或只是本地残留时，允许清掉浏览器里的记录。 */
+export function shouldRemoveLocalSessionAfterDeleteError(error, neverSynced) {
+  if (!error || neverSynced) return true
+  return String(error.message || '').includes('无权访问该会话')
 }

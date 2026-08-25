@@ -1,15 +1,17 @@
-# 温润诊所 AI 服务骨架
+# 温润诊所 AI 服务
 
-该目录只保留 FastAPI 服务骨架，未实现任何聊天、模型、记忆、Agent、Tool、RAG、向量数据库或 SQLite 能力。
+FastAPI 负责运行当前 LangGraph 医院对话工作流，并通过 Java 网关向前端提供同步与 SSE 两种响应。
 
-## 保留的接口
+## 接口
 
-- `GET /health`：服务存活检查。
-- `POST /v1/chat`、`POST /v1/chat/stream`、`POST /v1/chat/resume/stream`：保留既有路径和请求校验，但会返回 `501 Not Implemented`，避免调用方误以为 AI 能力已可用。
+- `GET /health`：存活检查。
+- `POST /v1/chat/stream`：SSE 聊天，事件类型为 `status`、`citation`、`token`、`done` 或 `error`。
 
-聊天接口仍要求 `X-Api-Key`，其值来自 `AI_INTERNAL_API_KEY` 或 `AI_SERVICE_API_KEY`。
+除 `/health` 外的接口要求请求头 `X-Api-Key`。它必须与 Java 的 `AI_SERVICE_API_KEY` 使用同一值。
 
-## 运行
+## 本地运行
+
+复制 `.env.example` 为 `.env`，填写模型、Embedding、Qdrant 和服务间密钥后运行：
 
 ```bash
 pip install -e ".[test]"
@@ -17,4 +19,4 @@ python -m uvicorn app.main:app --reload
 python -m pytest
 ```
 
-后续实现请从 `app/api/routes/chat.py` 的占位接口开始，并按需要自行接入模型、会话、工具和知识库。
+默认监听 `http://localhost:8000`。前端不应直接持有服务间密钥，应始终通过 Java 的 `/api/ai/**` 接口访问。

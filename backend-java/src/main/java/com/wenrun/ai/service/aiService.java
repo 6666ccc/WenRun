@@ -1,11 +1,11 @@
 package com.wenrun.ai.service;
 
-import com.wenrun.ai.vo.aiReply;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.config.RequestTrace;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -14,39 +14,34 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 
-/**
- * Java 侧 AI 对话服务：把患者消息转发到 Python AI 服务，并统一转换错误。
- */
-@Slf4j
+/** Java 到 Python AI 服务的统一网关。 */
 @Service
 public class aiService {
 
     private static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 5_000;
-    private static final int DEFAULT_READ_TIMEOUT_MILLIS = 90_000;
+    private static final int DEFAULT_READ_TIMEOUT_MILLIS = 300_000;
+    private static final TypeReference<LinkedHashMap<String, Object>> EVENT_TYPE =
+            new TypeReference<>() { };
 
-    /** 指向 Python AI 服务的 HTTP 客户端，基址来自 AI_SERVICE_BASE_URL。 */
     private final RestClient pythonClient;
-    /** 调用 Python 时使用的 API Key；未配置则不加认证头。 */
     private final String apiKey;
+    private final ObjectMapper objectMapper;
 
-    /**
-     * 注入 RestClient 与 Python 服务地址、密钥。
-     *
-     * @param restClientBuilder Spring 提供的 RestClient 构建器
-     * @param baseUrl           Python 服务根地址，默认 http://localhost:8000
-     * @param apiKey            可选的服务间 API Key
-     * @param connectTimeoutMillis 建立到 Python 服务连接的最长时间
-     * @param readTimeoutMillis    等待图执行结果的最长时间
-     */
     @Autowired
     public aiService(
             RestClient.Builder restClientBuilder,
+            ObjectMapper objectMapper,
             @Value("${AI_SERVICE_BASE_URL:http://localhost:8000}") String baseUrl,
             @Value("${AI_SERVICE_API_KEY:}") String apiKey,
             @Value("${AI_SERVICE_CONNECT_TIMEOUT_MILLIS:" + DEFAULT_CONNECT_TIMEOUT_MILLIS + "}")
@@ -62,69 +57,142 @@ public class aiService {
                 .requestFactory(requestFactory)
                 .build();
         this.apiKey = apiKey;
+        this.objectMapper = objectMapper;
     }
 
-    /**
-     * 仅用于同包测试：注入已配置好的客户端，避免测试发起真实网络请求。
-     */
+    /** 仅供不访问真实网络的单元测试使用。 */
     aiService(RestClient pythonClient, String apiKey) {
         this.pythonClient = pythonClient;
         this.apiKey = apiKey;
+        this.objectMapper = new ObjectMapper();
+    }
+
+    public void streamChat(aiRequest request, Consumer<Map<String, Object>> consumer) {
+        postStream("/v1/chat/stream", buildChatPayload(request), request.getRequestId(), consumer);
+    }
+
+    private void postStream(String path, Object payload, String requestId,
+                            Consumer<Map<String, Object>> consumer) {
+        if (consumer == null) {
+            throw new IllegalArgumentException("流式事件处理器不能为空");
+        }
+        try {
+            RestClient.RequestBodySpec call = authenticated(pythonClient.post()
+                    .uri(path)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM), requestId);
+            call.body(payload).exchange((request, response) -> {
+                if (response.getStatusCode().isError()) {
+                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                            "AI 流式服务响应异常: HTTP " + response.getStatusCode().value());
+                }
+                InputStream body = response.getBody();
+                if (body == null) {
+                    throw new IOException("AI 流式服务返回空响应体");
+                }
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        body, StandardCharsets.UTF_8))) {
+                    readSseEvents(reader, consumer);
+                }
+                return null;
+            });
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (RestClientException ex) {
+            throw unavailable("无法连接 AI 流式服务，请确认 Python 服务已启动", ex);
+        } catch (Exception ex) {
+            throw unavailable("AI 流式响应解析失败", ex);
+        }
     }
 
     /**
-     * 将患者消息转发给 Python 的 POST /v1/chat 接口。
-     *
-     * <p>
-     * 未带会话 ID 时会生成 {@code java-} 前缀的 UUID，便于 Python 侧区分来源。
-     * </p>
+     * 按 SSE 事件边界解析上游响应。一个事件可以包含多行 data，最后一个事件即使
+     * 上游没有再补空行也必须被消费。
      */
-    public aiReply chat(aiRequest request) {
+    private void readSseEvents(BufferedReader reader, Consumer<Map<String, Object>> consumer)
+            throws IOException {
+        StringBuilder data = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (line.isEmpty()) {
+                dispatchSseData(data, consumer);
+                data.setLength(0);
+                continue;
+            }
+            if (line.startsWith(":")) {
+                continue;
+            }
+            if (line.startsWith("data:")) {
+                if (data.length() > 0) {
+                    data.append('\n');
+                }
+                String value = line.substring("data:".length());
+                if (value.startsWith(" ")) {
+                    value = value.substring(1);
+                }
+                data.append(value);
+            }
+        }
+        dispatchSseData(data, consumer);
+    }
+
+    private void dispatchSseData(StringBuilder data, Consumer<Map<String, Object>> consumer)
+            throws IOException {
+        String json = data.toString().trim();
+        if (json.isEmpty() || "[DONE]".equals(json)) {
+            return;
+        }
+        Map<String, Object> event = objectMapper.readValue(json, EVENT_TYPE);
+        if (event.get("type") != null) {
+            consumer.accept(event);
+        }
+    }
+
+    private Map<String, Object> buildChatPayload(aiRequest request) {
         if (request == null || !StringUtils.hasText(request.getMessage())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "消息不能为空");
         }
+        String conversationId = StringUtils.hasText(request.getConversationId())
+                ? request.getConversationId().trim()
+                : "java-" + UUID.randomUUID();
+        request.setConversationId(conversationId);
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("message", request.getMessage().trim());
-        payload.put("conversationId", StringUtils.hasText(request.getConversationId())
-                ? request.getConversationId().trim()
-                : "java-" + UUID.randomUUID());
-        if (request.getMemoryEnabled() != null) {
-            payload.put("memoryEnabled", request.getMemoryEnabled());
-        }
+        payload.put("conversationId", conversationId);
+        payload.put("memoryEnabled", request.getMemoryEnabled() == null
+                ? Boolean.TRUE : request.getMemoryEnabled());
+        addUserContext(payload, request.getUserId(), request.getPatientId());
+        return payload;
+    }
 
-        try {
-            RestClient.RequestBodySpec call = pythonClient.post()
-                    .uri("/v1/chat")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .body(payload);
-            if (StringUtils.hasText(apiKey)) {
-                call.header("X-Api-Key", apiKey);
-            }
-            // 透传当前请求追踪号，便于 Java / Python 日志对齐
-            String requestId = RequestTrace.get();
-            if (RequestTrace.isUsable(requestId)) {
-                call.header(RequestTrace.HEADER_NAME, requestId);
-            }
-
-            aiReply reply = call.retrieve().body(aiReply.class);
-            if (reply == null) {
-                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "AI 服务返回为空");
-            }
-            return reply;
-        } catch (BusinessException ex) {
-            throw ex;
-        } catch (RestClientResponseException ex) {
-            // HTTP 已到达但对端返回 4xx/5xx
-            log.warn("Python AI 服务返回错误: status={}", ex.getStatusCode().value());
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                    "AI 服务暂时不可用，请稍后重试");
-        } catch (RestClientException ex) {
-            // 连接失败、超时等未拿到 HTTP 响应的情况
-            log.warn("无法连接 Python AI 服务: {}", ex.getMessage());
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                    "无法连接 AI 服务，请确认 Python 服务已启动");
+    private void addUserContext(Map<String, Object> payload, Long userId, Long patientId) {
+        if (userId == null && patientId == null) {
+            return;
         }
+        Map<String, Object> context = new LinkedHashMap<>();
+        if (userId != null) {
+            context.put("userId", userId);
+        }
+        if (patientId != null) {
+            context.put("patientId", patientId);
+        }
+        payload.put("userContext", context);
+    }
+
+    private RestClient.RequestBodySpec authenticated(RestClient.RequestBodySpec call, String requestId) {
+        if (StringUtils.hasText(apiKey)) {
+            call = call.header("X-Api-Key", apiKey);
+        }
+        if (RequestTrace.isUsable(requestId)) {
+            call = call.header(RequestTrace.HEADER_NAME, requestId);
+        }
+        return call;
+    }
+
+    private BusinessException unavailable(String message, Exception cause) {
+        BusinessException exception = new BusinessException(ResultCode.SERVICE_UNAVAILABLE, message);
+        exception.initCause(cause);
+        return exception;
     }
 }

@@ -682,6 +682,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .clinic-page-leave-active {
   transition: opacity var(--motion-fast) var(--ease-enter), transform var(--motion-fast) var(--ease-enter);
 }
+.clinic-page-enter-active {
+  transition-duration: var(--motion-emphasis);
+}
 .clinic-page-leave-active {
   transition-duration: var(--motion-exit);
   transition-timing-function: var(--ease-exit);

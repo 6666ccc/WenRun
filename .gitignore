@@ -13,6 +13,9 @@ __pycache__/
 dist/
 build/
 
+# Local Docker image exports
+docker-images/*.tar
+
 # ===== Java / Maven (backend-java) =====
 target/
 HELP.md
