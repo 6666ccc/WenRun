@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import { defineStore } from 'pinia'
 import { login as loginApi, logout as logoutApi } from '../api/modules/user'
 import { setToken } from '../api/request'
+import { resetAllAssistantRuntimes } from '../composables/useAssistant'
 
 const USER_KEY = 'wenrun_user'
 
@@ -52,6 +53,7 @@ export const useAuthStore = defineStore('auth', {
     },
     async logout() {
       try { await logoutApi() } catch { /* 本地状态仍需清理 */ }
+      resetAllAssistantRuntimes()
       setToken(null)
       this.saveUser(null)
     },

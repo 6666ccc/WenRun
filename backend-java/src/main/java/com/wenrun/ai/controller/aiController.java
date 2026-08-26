@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,6 +28,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
@@ -62,11 +64,31 @@ public class aiController {
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatStream(@Valid @RequestBody aiRequest request) {
         prepare(request);
-        saveMessage(request.getConversationId(), request.getUserId(), "user", request.getMessage());
+        ChatMessage existingUser = chatMessageRepository.selectByClientRequestId(
+                request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user");
+        if (existingUser != null) {
+            if (!Objects.equals(existingUser.getContent(), request.getMessage())) {
+                return rejectedRequestStream(request, "AI_REQUEST_ID_REUSED", "请求 ID 已对应其他消息，请重新发送");
+            }
+            ChatMessage existingAssistant = chatMessageRepository.selectByClientRequestId(
+                    request.getConversationId(), request.getUserId(), request.getClientRequestId(), "assistant");
+            return duplicateRequestStream(request, existingAssistant);
+        }
+        if (!saveMessage(request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user", request.getMessage())) {
+            ChatMessage racedUser = chatMessageRepository.selectByClientRequestId(
+                    request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user");
+            if (racedUser != null) {
+                ChatMessage racedAssistant = chatMessageRepository.selectByClientRequestId(
+                        request.getConversationId(), request.getUserId(), request.getClientRequestId(), "assistant");
+                return duplicateRequestStream(request, racedAssistant);
+            }
+            throw new IllegalStateException("AI 用户消息保存失败");
+        }
         return stream(
                 consumer -> aiService.streamChat(request, consumer),
                 request.getConversationId(),
-                request.getUserId());
+                request.getUserId(),
+                request.getClientRequestId());
     }
 
     @DeleteMapping("/conversations/{conversationId}")
@@ -83,6 +105,11 @@ public class aiController {
         } else {
             request.setConversationId(request.getConversationId().trim());
         }
+        if (!StringUtils.hasText(request.getClientRequestId())) {
+            request.setClientRequestId("client-" + UUID.randomUUID());
+        } else {
+            request.setClientRequestId(request.getClientRequestId().trim());
+        }
         Long userId = UserContext.getUserId();
         ownershipService.establishIfAbsent(request.getConversationId(), userId);
         request.setUserId(userId);
@@ -90,7 +117,8 @@ public class aiController {
         request.setRequestId(RequestTrace.get());
     }
 
-    private SseEmitter stream(StreamAction action, String conversationId, Long userId) {
+    private SseEmitter stream(StreamAction action, String conversationId, Long userId,
+                              String clientRequestId) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
         AtomicBoolean terminal = new AtomicBoolean(false);
         AtomicReference<Future<?>> upstreamTask = new AtomicReference<>();
@@ -120,7 +148,7 @@ public class aiController {
                     if ("done".equals(type)) {
                         String reply = event.get("reply") instanceof String value && StringUtils.hasText(value)
                                 ? value : accumulatedReply.toString();
-                        saveMessage(conversationId, userId, "assistant", reply);
+                        saveMessage(conversationId, userId, clientRequestId, "assistant", reply);
                         terminal.set(true);
                         emitter.complete();
                     } else if ("error".equals(type)) {
@@ -168,19 +196,55 @@ public class aiController {
         }
     }
 
-    private void saveMessage(String conversationId, Long userId, String role, String content) {
+    private SseEmitter duplicateRequestStream(aiRequest request, ChatMessage existingAssistant) {
+        return requestResultStream(request, existingAssistant == null ? "AI_REQUEST_IN_PROGRESS" : null,
+                existingAssistant == null ? "该消息正在处理中，请勿重复发送" : null, existingAssistant);
+    }
+
+    private SseEmitter rejectedRequestStream(aiRequest request, String code, String message) {
+        return requestResultStream(request, code, message, null);
+    }
+
+    private SseEmitter requestResultStream(aiRequest request, String errorCode, String errorMessage,
+                                           ChatMessage existingAssistant) {
+        SseEmitter emitter = new SseEmitter(10_000L);
+        streamExecutor.submit(() -> {
+            try {
+                if (errorCode == null && existingAssistant != null) {
+                    Map<String, Object> done = new LinkedHashMap<>();
+                    done.put("type", "done");
+                    done.put("reply", existingAssistant.getContent());
+                    done.put("conversationId", request.getConversationId());
+                    send(emitter, done);
+                } else {
+                    sendError(emitter, errorCode, errorMessage);
+                }
+                emitter.complete();
+            } catch (Exception ex) {
+                emitter.completeWithError(ex);
+            }
+        });
+        return emitter;
+    }
+
+    private boolean saveMessage(String conversationId, Long userId, String clientRequestId,
+                                String role, String content) {
         if (!StringUtils.hasText(conversationId) || userId == null || !StringUtils.hasText(content)) {
-            return;
+            return false;
         }
         try {
             ChatMessage message = new ChatMessage();
             message.setConversationId(conversationId);
             message.setUserId(userId);
+            message.setClientRequestId(clientRequestId);
             message.setRole(role);
             message.setContent(content);
-            chatMessageRepository.insert(message);
+            return chatMessageRepository.insert(message) > 0;
+        } catch (DuplicateKeyException ex) {
+            return false;
         } catch (Exception ex) {
             log.warn("保存 AI 对话消息失败: {}", ex.getMessage());
+            return false;
         }
     }
 

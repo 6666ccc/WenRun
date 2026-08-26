@@ -12,6 +12,11 @@ public interface ChatMessageRepository {
 
     int insert(ChatMessage message);
 
+    ChatMessage selectByClientRequestId(@Param("conversationId") String conversationId,
+                                        @Param("userId") Long userId,
+                                        @Param("clientRequestId") String clientRequestId,
+                                        @Param("role") String role);
+
     boolean existsByConversationIdAndUserId(@Param("conversationId") String conversationId,
                                             @Param("userId") Long userId);
 

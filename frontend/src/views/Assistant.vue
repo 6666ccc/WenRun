@@ -27,6 +27,9 @@ const suggestions = ['最近总是睡不好，挂什么科？', '查看我最近
 const urgent = computed(() => /胸痛|呼吸困难|意识障碍|大量出血/.test([...assistant.activeSession.value?.messages || []].reverse().find((item) => item.role === 'user')?.content || ''))
 const totalCharges = computed(() => assistant.context.value.charges.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0))
 const hasMessages = computed(() => Boolean(assistant.activeSession.value?.messages.length))
+const visibleMessages = computed(() => (assistant.activeSession.value?.messages || []).filter((message) => (
+  message.role === 'user' || message.content || message.meta?.status === 'error' || message.meta?.status === 'stopped'
+)))
 const visibleSessions = computed(() => filterSessionsByTitle(assistant.sessions.value, query.value))
 const nextAppointment = computed(() => assistant.context.value.appointments[0])
 
@@ -205,7 +208,7 @@ onBeforeUnmount(() => {
 
         <div v-else class="chat-thread" aria-live="polite">
           <TransitionGroup name="message-in" tag="div" class="chat-message-list">
-            <article v-for="message in assistant.activeSession.value.messages" :key="message.id" class="chat-message" :class="`chat-message--${message.role}`">
+            <article v-for="message in visibleMessages" :key="message.id" class="chat-message" :class="`chat-message--${message.role}`">
               <div v-if="message.role === 'user'" class="chat-message__user-content">{{ message.content }}</div>
               <div v-else class="chat-message__assistant-content">
                 <div class="chat-md" v-html="renderMarkdown(message.content)" />

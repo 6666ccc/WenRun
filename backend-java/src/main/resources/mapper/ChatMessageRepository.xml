@@ -7,22 +7,34 @@
         <id column="id" property="id"/>
         <result column="conversation_id" property="conversationId"/>
         <result column="user_id" property="userId"/>
+        <result column="client_request_id" property="clientRequestId"/>
         <result column="role" property="role"/>
         <result column="content" property="content"/>
         <result column="create_time" property="createTime"/>
     </resultMap>
 
     <select id="selectByConversationId" resultMap="BaseResultMap">
-        SELECT id, conversation_id, user_id, role, content, create_time
+        SELECT id, conversation_id, user_id, client_request_id, role, content, create_time
         FROM chat_messages
         WHERE conversation_id = #{conversationId}
         ORDER BY create_time ASC, id ASC
     </select>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO chat_messages (conversation_id, user_id, role, content)
-        VALUES (#{conversationId}, #{userId}, #{role}, #{content})
+        INSERT INTO chat_messages (conversation_id, user_id, client_request_id, role, content)
+        VALUES (#{conversationId}, #{userId}, #{clientRequestId}, #{role}, #{content})
     </insert>
+
+    <select id="selectByClientRequestId" resultMap="BaseResultMap">
+        SELECT id, conversation_id, user_id, client_request_id, role, content, create_time
+        FROM chat_messages
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+          AND client_request_id = #{clientRequestId}
+          AND role = #{role}
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
 
     <select id="existsByConversationIdAndUserId" resultType="boolean">
         SELECT COUNT(1) > 0

@@ -1,4 +1,4 @@
-"""资料载入：PDF、Word、TXT、Markdown -> Document -> chunks -> Qdrant。"""
+"""资料载入：PDF、Word、TXT、Markdown → Document → 文本片段 → Qdrant。"""
 
 from io import BytesIO
 from pathlib import Path

@@ -17,6 +17,10 @@ public class aiRequest {
     @Size(max = 64, message = "会话 ID 长度不能超过 64 个字符")
     private String conversationId;
 
+    /** 由前端为同一轮对话生成的幂等键，不等同于 HTTP 链路追踪号。 */
+    @Size(max = 64, message = "请求 ID 长度不能超过 64 个字符")
+    private String clientRequestId;
+
     /**
      * 是否允许 Python AI 服务使用会话记忆；未传时由 Python 服务使用默认值。
      */

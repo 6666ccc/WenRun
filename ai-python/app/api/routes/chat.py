@@ -1,9 +1,10 @@
-import json
 import asyncio
+import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
@@ -12,26 +13,13 @@ from starlette.responses import StreamingResponse
 from app.api.dependencies.auth import verify_api_key
 from app.graphs.hospital.graphs import graph
 from app.models.chat import ChatRequest, ChatResponse
+from app.rag.ingest import ingest_file
 
 router = APIRouter(
     prefix="/v1/chat",
     tags=["Chat"],
     dependencies=[Depends(verify_api_key)],
 )
-
-
-async def _run_chat(request: ChatRequest) -> ChatResponse:
-    """执行医院对话图，并返回本轮的最终回复和 RAG 来源。"""
-    initial_state = _initial_state(request)
-
-    try:
-        # 图中的检索和模型调用均为同步 I/O，放到工作线程避免阻塞 FastAPI 事件循环。
-        result = await run_in_threadpool(graph.invoke, initial_state)
-    except Exception as exc:
-        logger.exception("chat_graph_failed conversation_id={}", request.conversation_id)
-        raise HTTPException(status_code=500, detail="AI 对话处理失败，请稍后再试") from exc
-
-    return _response_from_state(request, result)
 
 
 def _response_from_state(request: ChatRequest, result: dict[str, Any]) -> ChatResponse:
@@ -67,7 +55,7 @@ def _initial_state(request: ChatRequest) -> dict[str, Any]:
 
 
 def _text_from_message_chunk(message_chunk: object) -> str:
-    """Extract text from LangChain string or content-block message chunks."""
+    """从 LangChain 字符串或内容块消息片段中提取文本。"""
 
     content = getattr(message_chunk, "content", "")
     if isinstance(content, str):
@@ -87,12 +75,11 @@ def _text_from_message_chunk(message_chunk: object) -> str:
 
 
 def _is_streamable_message(message_chunk: object) -> bool:
-    """Return whether a graph message is safe to expose as patient-facing text.
+    """判断图消息是否可以安全地作为面向患者的文本公开。
 
-    LangGraph can surface messages emitted by nested agents while streaming. A
-    knowledge agent may produce tool results, routing messages, and tool-call
-    requests before it produces its final answer. Only assistant text is part of
-    the public SSE contract; everything else is internal graph state.
+    LangGraph 在流式传输时可能会暴露嵌套 Agent 产生的消息。知识 Agent
+    可能会在生成最终答案之前产生工具结果、路由消息和工具调用请求。
+    只有助手文本属于公开 SSE 协议的一部分，其余内容都属于图的内部状态。
     """
 
     if not isinstance(message_chunk, (AIMessage, AIMessageChunk)):
@@ -107,17 +94,15 @@ def _is_streamable_message(message_chunk: object) -> bool:
 
 
 def _stream_visible_nodes(selected_agents: list[str]) -> set[str]:
-    """Choose the graph node whose output is visible to the patient.
+    """选择对患者可见的图节点输出。
 
-    The begin node may also emit LLM messages, but those are routing JSON and must
-    never be sent to the browser. When multiple reply-producing nodes are active,
-    final_node is the only safe stream because it performs the final merge.
+    起始节点也可能产生 LLM 消息，但这些是路由 JSON，绝不能发送到浏览器。
+    当多个回复节点同时启用时，只有 final_node 执行最终汇总，因此它是唯一安全的流式输出节点。
     """
 
-    # Knowledge agents may invoke RAG and web-search tools. Their nested model
-    # messages are implementation details, so knowledge requests must wait for
-    # the graph's final merge. Chat-only requests have no retrieval/tool phase
-    # and can continue to stream directly from the chat node.
+    # 知识 Agent 可能会调用 RAG 和网页搜索工具。其嵌套模型消息属于实现细节，
+    # 因此知识请求必须等待图完成最终汇总。仅闲聊请求没有检索或工具阶段，
+    # 可以继续直接从 chat 节点进行流式输出。
     if selected_agents == ["chat"]:
         return {"chat_node"}
     return {"final_node"}
@@ -128,7 +113,7 @@ def _is_visible_message_node(
     namespace: object,
     visible_nodes: set[str],
 ) -> bool:
-    """Match only the visible node or its explicitly allowed model subgraph."""
+    """仅匹配可见节点或其明确允许的模型子图。"""
 
     if isinstance(node_name, str) and node_name in visible_nodes:
         return True
@@ -136,9 +121,8 @@ def _is_visible_message_node(
     if not isinstance(namespace, (list, tuple)):
         return False
 
-    # A chat/final node may contain a nested model invocation. Only the first
-    # namespace segment grants visibility; deeper siblings such as tools under a
-    # knowledge node must never inherit it.
+    # chat/final 节点可能包含嵌套的模型调用。只有命名空间的第一段可以授予可见性；
+    # knowledge 节点下的工具等更深层级的同级节点绝不能继承该可见性。
     first_segment = namespace[0] if namespace else None
     if not isinstance(first_segment, str):
         return False
@@ -147,36 +131,22 @@ def _is_visible_message_node(
 
 
 def _merge_stream_state(state: dict[str, Any], part: dict[str, Any]) -> None:
-    """Keep the latest graph state from v2 values or merge v2 updates."""
+    """从根图的 v2 values 事件中保留最新图状态。"""
 
-    # Nested agents have their own values stream. Only the root graph values
-    # contain final_reply, selected_agents and rag_sources for this API.
-    if part.get("ns"):
+    # 嵌套 Agent 有自己的 values 流。只有根图的 values 包含此 API 所需的
+    # final_reply、selected_agents 和 rag_sources。
+    if part.get("ns") or part.get("type") != "values":
         return
-    part_type = part.get("type")
     data = part.get("data")
-    if part_type == "values" and isinstance(data, dict):
+    if isinstance(data, dict):
         state.update(data)
-        return
-    if part_type != "updates" or not isinstance(data, dict):
-        return
-    for update in data.values():
-        if isinstance(update, dict):
-            state.update(update)
 
 
 async def _stream_graph(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
-    """Yield LangGraph v2 stream parts, with a compatibility fallback for tests."""
+    """生成 LangGraph v2 流式片段。"""
 
     initial_state = _initial_state(request)
-    astream = getattr(graph, "astream", None)
-    if astream is None:
-        # Older/fake graph implementations can still exercise the HTTP contract.
-        result = await run_in_threadpool(graph.invoke, initial_state)
-        yield {"type": "values", "data": result}
-        return
-
-    async for part in astream(
+    async for part in graph.astream(
         initial_state,
         stream_mode=["messages", "values"],
         subgraphs=True,
@@ -187,13 +157,40 @@ async def _stream_graph(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
 
 def _sse(event: dict[str, Any]) -> str:
-    """Encode one browser-compatible Server-Sent Event without losing Chinese text."""
+    """编码一条兼容浏览器的服务器发送事件，同时保留中文文本。"""
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+@router.post("/documents", status_code=status.HTTP_201_CREATED)
+async def upload_knowledge_document(
+    file: UploadFile = File(..., description="用于构建知识库的 PDF、Word 或文本文件"),
+) -> dict[str, str | int]:
+    """上传文档并写入医院 RAG 知识库。"""
+
+    filename = Path(file.filename or "").name
+    if not filename:
+        raise HTTPException(status_code=400, detail="请上传带文件名的文档")
+
+    try:
+        content = await file.read()
+    finally:
+        await file.close()
+
+    if not content:
+        raise HTTPException(status_code=400, detail="上传文件不能为空")
+
+    try:
+        return await run_in_threadpool(ingest_file, content, filename)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("knowledge_document_ingest_failed filename={}", filename)
+        raise HTTPException(status_code=500, detail="文档写入知识库失败，请稍后再试") from exc
 
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
-    """Run the graph and expose incremental model output through SSE."""
+    """运行对话图，并通过 SSE 暴露增量模型输出。"""
 
     async def events() -> AsyncIterator[str]:
         yield _sse({"type": "status", "content": "正在分析您的问题…"})
@@ -222,7 +219,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 message_chunk, metadata = data
                 if not isinstance(metadata, dict):
                     continue
-                node_name = metadata.get("langgraph_node") or metadata.get("node")
+                node_name = metadata.get("langgraph_node")
                 visible_nodes = _stream_visible_nodes(selected_agents)
                 namespace = part.get("ns") or ()
                 if not _is_visible_message_node(node_name, namespace, visible_nodes):
@@ -260,8 +257,8 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         for source in response.sources:
             yield _sse({"type": "citation", "sources": [source]})
         if not streamed_reply:
-            # If a provider does not expose token chunks, preserve the contract by
-            # sending one complete token rather than returning an empty answer.
+            # 如果服务提供方不提供令牌片段，则发送一个完整令牌以保持协议一致，
+            # 避免返回空答案。
             yield _sse({"type": "token", "content": response.reply})
         yield _sse({
             "type": "done",

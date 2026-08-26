@@ -30,6 +30,60 @@ def test_health_endpoint_reports_service_liveness():
     assert response.json() == {"status": "ok"}
 
 
+def test_upload_knowledge_document_writes_file_to_rag(monkeypatch):
+    monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    captured: dict = {}
+
+    def fake_ingest_file(content, filename):
+        captured["content"] = content
+        captured["filename"] = filename
+        return {
+            "document_id": "doc-123",
+            "filename": filename,
+            "chunk_count": 3,
+        }
+
+    monkeypatch.setattr(chat_route, "ingest_file", fake_ingest_file)
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/documents",
+        headers={"X-Api-Key": "test-key"},
+        files={"file": ("hospital-guide.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "document_id": "doc-123",
+        "filename": "hospital-guide.pdf",
+        "chunk_count": 3,
+    }
+    assert captured == {
+        "content": b"%PDF-1.7",
+        "filename": "hospital-guide.pdf",
+    }
+
+
+def test_upload_knowledge_document_returns_bad_request_for_invalid_file(monkeypatch):
+    monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    def fake_ingest_file(content, filename):
+        raise ValueError("不支持的文件格式：.exe")
+
+    monkeypatch.setattr(chat_route, "ingest_file", fake_ingest_file)
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/documents",
+        headers={"X-Api-Key": "test-key"},
+        files={"file": ("untrusted.exe", b"not a document", "application/octet-stream")},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "不支持的文件格式：.exe"}
+
+
 def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
     get_settings.cache_clear()
@@ -37,12 +91,15 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     captured: dict = {}
 
     class FakeGraph:
-        def invoke(self, state):
+        async def astream(self, state, *, stream_mode, subgraphs, version):
             captured["state"] = state
-            return {
-                "final_reply": "已生成回复",
-                "selected_agents": ["knowledge"],
-                "rag_sources": [{"id": "S1", "title": "院内资料", "page": 1}],
+            yield {
+                "type": "values",
+                "data": {
+                    "final_reply": "已生成回复",
+                    "selected_agents": ["knowledge"],
+                    "rag_sources": [{"id": "S1", "title": "院内资料", "page": 1}],
+                },
             }
 
     monkeypatch.setattr(chat_route, "graph", FakeGraph())
@@ -87,7 +144,7 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
                 "type": "values",
                 "data": {"selected_agents": ["chat"]},
             }
-            # Routing output must never reach the browser.
+            # 路由输出绝不能发送到浏览器。
             yield {
                 "type": "messages",
                 "data": (
@@ -154,7 +211,7 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
                 "type": "values",
                 "data": {"selected_agents": ["knowledge"]},
             }
-            # Tool output must never be sent as patient-facing text.
+            # 工具输出绝不能作为面向患者的文本发送。
             yield {
                 "type": "messages",
                 "data": (
@@ -163,7 +220,7 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
                 ),
                 "ns": ("knowledge_node:run-1", "tools:run-2"),
             }
-            # Knowledge-agent model output is also internal until final_node.
+            # 在 final_node 之前，知识 Agent 的模型输出同样属于内部内容。
             yield {
                 "type": "messages",
                 "data": (
@@ -172,7 +229,7 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
                 ),
                 "ns": ("knowledge_node:run-1", "model:run-3"),
             }
-            # Even under final_node, non-assistant messages and tool calls stay hidden.
+            # 即使在 final_node 下，非助手消息和工具调用也必须保持隐藏。
             yield {
                 "type": "messages",
                 "data": (

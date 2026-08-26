@@ -15,6 +15,21 @@ test('normalizeSessions recovers a safe default after corrupt storage', () => {
   assert.deepEqual(normalizeSessions('{broken json'), [{ id: 'default', title: '新的问诊', messages: [] }])
 })
 
+test('normalizeSessions preserves request identity and normalizes message status', () => {
+  const sessions = normalizeSessions([{
+    id: 'conversation-1',
+    title: '测试',
+    messages: [
+      { id: 'user-1', role: 'user', content: '你好', meta: { requestId: 'request-1', status: 'pending' } },
+      { id: 'legacy-1', role: 'assistant', content: '旧回复', meta: { intent: 'chat' } },
+    ],
+  }])
+
+  assert.equal(sessions[0].messages[0].meta.requestId, 'request-1')
+  assert.equal(sessions[0].messages[0].meta.status, 'pending')
+  assert.equal(sessions[0].messages[1].meta.status, 'completed')
+})
+
 test('filterSessionsByTitle returns a copy of all sessions for empty or blank queries', () => {
   const sessions = [{ id: 'a', title: '新的问诊' }, { id: 'b', title: '待缴费用' }]
   const all = filterSessionsByTitle(sessions, '')

@@ -13,14 +13,19 @@ function isSession(session) {
 }
 
 export const createMessageId = () => `message_${Date.now()}_${Math.random().toString(16).slice(2)}`
+export const createRequestId = () => `request_${Date.now()}_${Math.random().toString(16).slice(2)}`
+
+const MESSAGE_STATUSES = new Set(['pending', 'streaming', 'completed', 'error', 'stopped'])
 
 function normalizeMessage(message, index) {
+  const rawMeta = message.meta && typeof message.meta === 'object' ? message.meta : {}
+  const status = MESSAGE_STATUSES.has(rawMeta.status) ? rawMeta.status : 'completed'
   return {
     id: typeof message.id === 'string' && message.id ? message.id : `legacy_${index}_${message.role}`,
     role: message.role,
     content: message.content,
     sources: Array.isArray(message.sources) ? message.sources : [],
-    meta: message.meta && typeof message.meta === 'object' ? message.meta : { intent: null },
+    meta: { ...rawMeta, status },
   }
 }
 

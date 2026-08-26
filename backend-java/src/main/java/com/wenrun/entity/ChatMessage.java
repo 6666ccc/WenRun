@@ -9,6 +9,7 @@ public class ChatMessage {
     private Long id;
     private String conversationId;
     private Long userId;
+    private String clientRequestId;
     private String role;
     private String content;
     private LocalDateTime createTime;

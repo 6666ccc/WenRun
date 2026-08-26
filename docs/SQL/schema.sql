@@ -323,13 +323,15 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   conversation_id   VARCHAR(64)  NOT NULL COMMENT '会话ID',
   user_id           BIGINT       NOT NULL COMMENT '发送者用户ID',
+  client_request_id VARCHAR(64)  NULL COMMENT '客户端对话轮次幂等键',
   role              VARCHAR(32)  NOT NULL COMMENT 'user/assistant',
   content           MEDIUMTEXT   NOT NULL COMMENT '消息纯文本',
   create_time       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (id),
   KEY idx_chat_messages_conversation_id (conversation_id),
   KEY idx_chat_messages_user_id (user_id),
-  KEY idx_chat_messages_create_time (create_time)
+  KEY idx_chat_messages_create_time (create_time),
+  UNIQUE KEY uk_chat_messages_client_request (user_id, conversation_id, client_request_id, role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI对话消息';
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_documents (
