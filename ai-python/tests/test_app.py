@@ -1,5 +1,8 @@
 import json
+from base64 import b64encode
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi.testclient import TestClient
 from langchain_core.messages import (
     AIMessage,
@@ -20,6 +23,28 @@ def _sse_events(response):
         for line in response.text.splitlines()
         if line.startswith("data: ")
     ]
+
+
+def _chat_auth_headers(monkeypatch) -> dict[str, str]:
+    signing_key = b"a" * 32
+    monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
+    monkeypatch.setenv("AI_DELEGATION_SIGNING_SECRET", b64encode(signing_key).decode())
+    get_settings.cache_clear()
+    now = datetime.now(timezone.utc)
+    delegated_token = jwt.encode(
+        {
+            "iss": "wenrun-java",
+            "sub": "1",
+            "iat": now,
+            "exp": now + timedelta(minutes=5),
+        },
+        signing_key,
+        algorithm="HS256",
+    )
+    return {
+        "X-Api-Key": "test-key",
+        "X-Delegated-Token": delegated_token,
+    }
 
 
 def test_health_endpoint_reports_service_liveness():
@@ -84,9 +109,24 @@ def test_upload_knowledge_document_returns_bad_request_for_invalid_file(monkeypa
     assert response.json() == {"detail": "不支持的文件格式：.exe"}
 
 
-def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
+def test_chat_stream_returns_500_when_delegation_secret_missing(monkeypatch):
     monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
+    monkeypatch.setenv("AI_DELEGATION_SIGNING_SECRET", "")
+    monkeypatch.setenv("AI_DELEGATION_VERIFYING_SECRET", "")
     get_settings.cache_clear()
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers={"X-Api-Key": "test-key", "X-Delegated-Token": "any-token"},
+        json={"message": "你好", "conversationId": "c1"},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "delegation token verification is unavailable"}
+
+
+def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
 
     captured: dict = {}
 
@@ -106,7 +146,7 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     client = TestClient(create_app())
     response = client.post(
         "/v1/chat/stream",
-        headers={"X-Api-Key": "test-key"},
+        headers=headers,
         json={
             "message": "感冒怎么办",
             "conversationId": "demo",
@@ -129,8 +169,7 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
 
 
 def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
-    monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
-    get_settings.cache_clear()
+    headers = _chat_auth_headers(monkeypatch)
 
     captured: dict = {}
 
@@ -180,7 +219,7 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
     client = TestClient(create_app())
     response = client.post(
         "/v1/chat/stream",
-        headers={"X-Api-Key": "test-key"},
+        headers=headers,
         json={
             "message": "你好",
             "conversationId": "stream-demo",
@@ -202,8 +241,7 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
 
 
 def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monkeypatch):
-    monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
-    get_settings.cache_clear()
+    headers = _chat_auth_headers(monkeypatch)
 
     class FakeGraph:
         async def astream(self, state, *, stream_mode, subgraphs, version):
@@ -281,7 +319,7 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
     client = TestClient(create_app())
     response = client.post(
         "/v1/chat/stream",
-        headers={"X-Api-Key": "test-key"},
+        headers=headers,
         json={
             "message": "感冒吃什么药",
             "conversationId": "knowledge-stream-demo",

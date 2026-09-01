@@ -17,6 +17,15 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:root}
     password: ${SPRING_DATASOURCE_PASSWORD:}
 
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:host.docker.internal}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      username: ${SPRING_DATA_REDIS_USERNAME:}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      ssl:
+        enabled: ${SPRING_DATA_REDIS_SSL_ENABLED:false}
+
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: com.wenrun.entity
@@ -32,6 +41,12 @@ logging:
     root: info
     com.wenrun: info
 
+# 不要写成 AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:...}，同名占位会循环解析。
+# Docker 用环境变量覆盖；本地请在复制后的 application.yml 填写 Base64 字面量（解码后至少 32 字节）。
+AI_SERVICE_BASE_URL: http://localhost:8000
+AI_DELEGATION_TTL: 5m
+
 wenrun:
   auth:
     token-ttl: ${AUTH_TOKEN_TTL:8h}
+    session-store: ${WENRUN_AUTH_SESSION_STORE:redis}

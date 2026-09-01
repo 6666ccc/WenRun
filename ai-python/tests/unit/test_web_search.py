@@ -1,4 +1,4 @@
-from app.graphs.hospital.tools.web_search import (
+from app.graphs.hospital.tools.search import (
     format_search_results,
     search_web,
     web_search,
@@ -45,7 +45,7 @@ def test_search_web_maps_tavily_results(monkeypatch):
 
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
     monkeypatch.setattr(
-        "app.graphs.hospital.tools.web_search.TavilyClient",
+        "app.graphs.hospital.tools.search.TavilyClient",
         FakeClient,
     )
 
@@ -65,7 +65,7 @@ def test_search_web_without_api_key_returns_empty(monkeypatch):
 
 def test_web_search_tool_uses_formatted_results(monkeypatch):
     monkeypatch.setattr(
-        "app.graphs.hospital.tools.web_search.search_web",
+        "app.graphs.hospital.tools.search.search_web",
         lambda query, max_results=5: [
             {
                 "title": "感冒护理",

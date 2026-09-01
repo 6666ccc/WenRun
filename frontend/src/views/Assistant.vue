@@ -197,39 +197,41 @@ onBeforeUnmount(() => {
 
     <div class="chat-page">
       <main class="chat-main" aria-label="健康助手对话">
-        <div v-if="urgent" class="chat-alerts">
-          <div class="assistant-urgent" role="alert" aria-live="assertive"><strong>请优先处理急症</strong><span>前往急诊或拨打 120。</span></div>
-        </div>
-
-        <div v-if="!hasMessages" class="chat-empty">
-          <span class="chat-empty__mark" aria-hidden="true"><UiIcon name="logo" :size="32" /></span>
-          <h1>你好，我是温润健康助手。</h1>
-        </div>
-
-        <div v-else class="chat-thread" aria-live="polite">
-          <TransitionGroup name="message-in" tag="div" class="chat-message-list">
-            <article v-for="message in visibleMessages" :key="message.id" class="chat-message" :class="`chat-message--${message.role}`">
-              <div v-if="message.role === 'user'" class="chat-message__user-content">{{ message.content }}</div>
-              <div v-else class="chat-message__assistant-content">
-                <div class="chat-md" v-html="renderMarkdown(message.content)" />
-                <CitationList v-if="message.sources?.length" :sources="message.sources" />
-                <button
-                  v-if="message.content"
-                  class="chat-message__copy"
-                  type="button"
-                  :aria-label="copiedId === message.id ? '已复制回复' : '复制回复'"
-                  @click="copyMessage(message)"
-                >
-                  <UiIcon name="copy" :size="14" />
-                  {{ copiedId === message.id ? '已复制' : '复制' }}
-                </button>
-              </div>
-            </article>
-          </TransitionGroup>
-          <div v-if="assistant.replying.value && !assistant.streaming.value" class="chat-typing" aria-live="polite" aria-label="正在整理信息">
-            <span /><span /><span />
+        <div class="chat-main__inner">
+          <div v-if="urgent" class="chat-alerts">
+            <div class="assistant-urgent" role="alert" aria-live="assertive"><strong>请优先处理急症</strong><span>前往急诊或拨打 120。</span></div>
           </div>
-          <div ref="end" />
+
+          <div v-if="!hasMessages" class="chat-empty">
+            <span class="chat-empty__mark" aria-hidden="true"><UiIcon name="logo" :size="32" /></span>
+            <h1>你好，我是温润健康助手。</h1>
+          </div>
+
+          <div v-else class="chat-thread" aria-live="polite">
+            <TransitionGroup name="message-in" tag="div" class="chat-message-list">
+              <article v-for="message in visibleMessages" :key="message.id" class="chat-message" :class="`chat-message--${message.role}`">
+                <div v-if="message.role === 'user'" class="chat-message__user-content">{{ message.content }}</div>
+                <div v-else class="chat-message__assistant-content">
+                  <div class="chat-md" v-html="renderMarkdown(message.content)" />
+                  <CitationList v-if="message.sources?.length" :sources="message.sources" />
+                  <button
+                    v-if="message.content"
+                    class="chat-message__copy"
+                    type="button"
+                    :aria-label="copiedId === message.id ? '已复制回复' : '复制回复'"
+                    @click="copyMessage(message)"
+                  >
+                    <UiIcon name="copy" :size="14" />
+                    {{ copiedId === message.id ? '已复制' : '复制' }}
+                  </button>
+                </div>
+              </article>
+            </TransitionGroup>
+            <div v-if="assistant.replying.value && !assistant.streaming.value" class="chat-typing" aria-live="polite" aria-label="正在整理信息">
+              <span /><span /><span />
+            </div>
+            <div ref="end" />
+          </div>
         </div>
       </main>
 
@@ -320,6 +322,7 @@ onBeforeUnmount(() => {
 }
 
 .chat-page {
+  --chat-column: 960px;
   height: 100%;
   min-height: 0;
   display: flex;
@@ -327,14 +330,43 @@ onBeforeUnmount(() => {
 }
 
 .chat-main {
-  width: min(768px, 100%);
+  width: 100%;
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, .22) transparent;
+}
+
+.chat-main::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-main::-webkit-scrollbar-thumb {
+  background-color: rgba(15, 23, 42, .18);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+.chat-main::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(15, 23, 42, .32);
+}
+
+.chat-main__inner {
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  box-sizing: border-box;
+  width: min(var(--chat-column), 100%);
+  min-width: 0;
+  min-height: 100%;
   margin: 0 auto;
-  padding: 8px 20px 8px;
+  padding: 8px 24px;
 }
 
 .chat-alerts { width: 100%; padding: 4px 0 8px; }
@@ -410,9 +442,15 @@ onBeforeUnmount(() => {
   background: #f8faf9;
 }
 
-.chat-thread { padding: 8px 0 20px; }
+.chat-thread {
+  min-width: 0;
+  padding: 8px 0 20px;
+}
 
-.chat-message { margin: 0 0 22px; }
+.chat-message {
+  min-width: 0;
+  margin: 0 0 22px;
+}
 
 .chat-message--user {
   display: flex;
@@ -429,12 +467,24 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-.chat-message--assistant { max-width: 100%; }
+.chat-message--assistant { max-width: 100%; min-width: 0; }
 
 .chat-message__assistant-content {
+  min-width: 0;
   color: #1a1a1a;
   font-size: 16px;
   line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.chat-message__assistant-content :deep(.chat-md) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-message__assistant-content :deep(.chat-md a) {
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .chat-message__assistant-content :deep(p) { margin: 0 0 10px; }
@@ -490,10 +540,10 @@ onBeforeUnmount(() => {
 .chat-typing span:nth-child(3) { animation-delay: .32s; }
 
 .chat-composer-wrap {
-  width: min(768px, 100%);
+  width: min(var(--chat-column), 100%);
   max-width: 100%;
   margin: 0 auto;
-  padding: 8px 20px 12px;
+  padding: 8px 24px 12px;
   padding-bottom: max(12px, env(safe-area-inset-bottom));
   background: #fff;
 }
@@ -809,13 +859,13 @@ onBeforeUnmount(() => {
 .assistant-task-overlay.fade-enter-from .assistant-task,
 .assistant-task-overlay.fade-leave-to .assistant-task { opacity: 0; transform: translateY(12px); }
 
-:deep(.chat-citations) { display: block; margin-top: 14px; font-size: 14px; }
+:deep(.chat-citations) { display: block; margin-top: 14px; font-size: 14px; overflow-wrap: anywhere; }
 :deep(.chat-citations summary) { width: max-content; color: var(--color-brand-700); cursor: pointer; font-size: 13px; }
 :deep(.chat-citations ul) { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
-:deep(.chat-citations li) { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 9px; background: var(--color-mint-050); }
+:deep(.chat-citations li) { min-width: 0; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 9px; background: var(--color-mint-050); }
 :deep(.chat-citations strong),
 :deep(.chat-citations small),
-:deep(.chat-citations p) { display: block; }
+:deep(.chat-citations p) { display: block; overflow-wrap: anywhere; }
 :deep(.chat-citations strong) { font-size: 13px; }
 :deep(.chat-citations small) { margin-top: 2px; color: var(--color-text-secondary); font-size: 12px; }
 :deep(.chat-citations p) { margin: 5px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; }
@@ -826,7 +876,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767px) {
-  .chat-main { padding: 4px 16px 8px; }
+  .chat-main__inner { padding: 4px 16px 8px; }
   .chat-composer-wrap { padding-left: 12px; padding-right: 12px; }
   .chat-empty h1 { font-size: 26px; }
   .chat-message__user-content { max-width: 86%; }

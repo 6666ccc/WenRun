@@ -21,6 +21,8 @@ dependencies = [
   "pypdf",
   "python-docx",
   "python-multipart",
+  "PyJWT",
+  "httpx",
 ]
 
 [project.optional-dependencies]

@@ -68,10 +68,11 @@ public class aiService {
     }
 
     public void streamChat(aiRequest request, Consumer<Map<String, Object>> consumer) {
-        postStream("/v1/chat/stream", buildChatPayload(request), request.getRequestId(), consumer);
+        postStream("/v1/chat/stream", buildChatPayload(request), request.getRequestId(),
+                request.getDelegatedToken(), consumer);
     }
 
-    private void postStream(String path, Object payload, String requestId,
+    private void postStream(String path, Object payload, String requestId, String delegatedToken,
                             Consumer<Map<String, Object>> consumer) {
         if (consumer == null) {
             throw new IllegalArgumentException("流式事件处理器不能为空");
@@ -80,7 +81,7 @@ public class aiService {
             RestClient.RequestBodySpec call = authenticated(pythonClient.post()
                     .uri(path)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.TEXT_EVENT_STREAM), requestId);
+                    .accept(MediaType.TEXT_EVENT_STREAM), requestId, delegatedToken);
             call.body(payload).exchange((request, response) -> {
                 if (response.getStatusCode().isError()) {
                     throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
@@ -180,9 +181,13 @@ public class aiService {
         payload.put("userContext", context);
     }
 
-    private RestClient.RequestBodySpec authenticated(RestClient.RequestBodySpec call, String requestId) {
+    private RestClient.RequestBodySpec authenticated(
+            RestClient.RequestBodySpec call, String requestId, String delegatedToken) {
         if (StringUtils.hasText(apiKey)) {
             call = call.header("X-Api-Key", apiKey);
+        }
+        if (StringUtils.hasText(delegatedToken)) {
+            call = call.header("X-Delegated-Token", delegatedToken);
         }
         if (RequestTrace.isUsable(requestId)) {
             call = call.header(RequestTrace.HEADER_NAME, requestId);

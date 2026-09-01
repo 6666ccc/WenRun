@@ -1,5 +1,6 @@
 package com.wenrun.config;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -11,10 +12,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 内存 Token 存储（毕设简化，重启失效）
+ * 内存 Token 存储。仅当 {@code wenrun.auth.session-store=memory} 时启用。
  */
 @Component
-public class AuthTokenStore {
+@ConditionalOnProperty(name = "wenrun.auth.session-store", havingValue = "memory")
+public class AuthTokenStore implements TokenSessionStore {
 
     private final Map<String, TokenSession> tokenSessionMap = new ConcurrentHashMap<>();
     private final Duration tokenTtl;

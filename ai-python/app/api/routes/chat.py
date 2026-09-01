@@ -10,7 +10,8 @@ from loguru import logger
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
-from app.api.dependencies.auth import verify_api_key
+from app.api.dependencies.auth import DelegationContext, verify_api_key, verify_delegation_token
+from app.core.logging import current_request_id
 from app.graphs.hospital.graphs import graph
 from app.models.chat import ChatRequest, ChatResponse
 from app.rag.ingest import ingest_file
@@ -46,11 +47,15 @@ def _response_from_state(request: ChatRequest, result: dict[str, Any]) -> ChatRe
     )
 
 
-def _initial_state(request: ChatRequest) -> dict[str, Any]:
+def _initial_state(request: ChatRequest, delegation: DelegationContext) -> dict[str, Any]:
     return {
         "messages": [HumanMessage(content=request.message)],
         "conversation_id": request.conversation_id,
         "patient_id": request.user_context.patient_id,
+        # 当前图没有 checkpointer；如后续加入持久化，必须改用 Runtime Context，
+        # 不能把委托 Token 写入可恢复的 State。
+        "delegated_token": delegation.token,
+        "request_id": current_request_id(),
     }
 
 
@@ -142,10 +147,12 @@ def _merge_stream_state(state: dict[str, Any], part: dict[str, Any]) -> None:
         state.update(data)
 
 
-async def _stream_graph(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
+async def _stream_graph(
+    request: ChatRequest, delegation: DelegationContext
+) -> AsyncIterator[dict[str, Any]]:
     """生成 LangGraph v2 流式片段。"""
 
-    initial_state = _initial_state(request)
+    initial_state = _initial_state(request, delegation)
     async for part in graph.astream(
         initial_state,
         stream_mode=["messages", "values"],
@@ -189,7 +196,10 @@ async def upload_knowledge_document(
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest) -> StreamingResponse:
+async def chat_stream(
+    request: ChatRequest,
+    delegation: DelegationContext = Depends(verify_delegation_token),
+) -> StreamingResponse:
     """运行对话图，并通过 SSE 暴露增量模型输出。"""
 
     async def events() -> AsyncIterator[str]:
@@ -200,7 +210,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         retrieval_status_sent = False
         final_status_sent = False
         try:
-            async for part in _stream_graph(request):
+            async for part in _stream_graph(request, delegation):
                 _merge_stream_state(graph_state, part)
                 incoming_agents = graph_state.get("selected_agents") or []
                 selected_agents = [

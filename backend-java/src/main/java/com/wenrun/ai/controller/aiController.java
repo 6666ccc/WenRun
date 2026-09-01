@@ -1,5 +1,6 @@
 package com.wenrun.ai.controller;
 
+import com.wenrun.ai.security.DelegationTokenService;
 import com.wenrun.ai.service.ConversationOwnershipService;
 import com.wenrun.ai.service.aiService;
 import com.wenrun.ai.vo.aiRequest;
@@ -29,6 +30,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,18 +49,21 @@ public class aiController {
     private final ChatMessageRepository chatMessageRepository;
     private final ConversationOwnershipService ownershipService;
     private final AsyncTaskExecutor streamExecutor;
+    private final DelegationTokenService delegationTokenService;
 
     public aiController(
             aiService aiService,
             PatientRepository patientRepository,
             ChatMessageRepository chatMessageRepository,
             ConversationOwnershipService ownershipService,
-            @Qualifier("aiStreamExecutor") AsyncTaskExecutor streamExecutor) {
+            @Qualifier("aiStreamExecutor") AsyncTaskExecutor streamExecutor,
+            DelegationTokenService delegationTokenService) {
         this.aiService = aiService;
         this.patientRepository = patientRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.ownershipService = ownershipService;
         this.streamExecutor = streamExecutor;
+        this.delegationTokenService = delegationTokenService;
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -74,7 +79,8 @@ public class aiController {
                     request.getConversationId(), request.getUserId(), request.getClientRequestId(), "assistant");
             return duplicateRequestStream(request, existingAssistant);
         }
-        if (!saveMessage(request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user", request.getMessage())) {
+        if (!saveMessage(request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user",
+                request.getMessage())) {
             ChatMessage racedUser = chatMessageRepository.selectByClientRequestId(
                     request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user");
             if (racedUser != null) {
@@ -115,10 +121,20 @@ public class aiController {
         request.setUserId(userId);
         request.setPatientId(currentPatientId(userId));
         request.setRequestId(RequestTrace.get());
+        request.setDelegatedToken(
+                delegationTokenService.issue(
+                        request.getUserId(),
+                        UserContext.getAccountType(),
+                        request.getPatientId(),
+                        Set.of(
+                                "departments:read",
+                                "schedules:read",
+                                "staff:read",
+                                "registrations:read")));
     }
 
     private SseEmitter stream(StreamAction action, String conversationId, Long userId,
-                              String clientRequestId) {
+            String clientRequestId) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
         AtomicBoolean terminal = new AtomicBoolean(false);
         AtomicReference<Future<?>> upstreamTask = new AtomicReference<>();
@@ -147,7 +163,8 @@ public class aiController {
                     send(emitter, event);
                     if ("done".equals(type)) {
                         String reply = event.get("reply") instanceof String value && StringUtils.hasText(value)
-                                ? value : accumulatedReply.toString();
+                                ? value
+                                : accumulatedReply.toString();
                         saveMessage(conversationId, userId, clientRequestId, "assistant", reply);
                         terminal.set(true);
                         emitter.complete();
@@ -206,7 +223,7 @@ public class aiController {
     }
 
     private SseEmitter requestResultStream(aiRequest request, String errorCode, String errorMessage,
-                                           ChatMessage existingAssistant) {
+            ChatMessage existingAssistant) {
         SseEmitter emitter = new SseEmitter(10_000L);
         streamExecutor.submit(() -> {
             try {
@@ -228,7 +245,7 @@ public class aiController {
     }
 
     private boolean saveMessage(String conversationId, Long userId, String clientRequestId,
-                                String role, String content) {
+            String role, String content) {
         if (!StringUtils.hasText(conversationId) || userId == null || !StringUtils.hasText(content)) {
             return false;
         }

@@ -37,4 +37,8 @@ public class aiRequest {
     /** 捕获进入 Java 的追踪号，供异步 SSE 线程继续向 Python 透传。 */
     @JsonIgnore
     private String requestId;
+
+
+    @JsonIgnore
+    private String DelegatedToken;
 }

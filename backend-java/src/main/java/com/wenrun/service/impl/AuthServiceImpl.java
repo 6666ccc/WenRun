@@ -3,7 +3,7 @@ package com.wenrun.service.impl;
 import com.wenrun.common.constant.AccountType;
 import com.wenrun.common.constant.BizStatus;
 import com.wenrun.common.exception.BusinessException;
-import com.wenrun.config.AuthTokenStore;
+import com.wenrun.config.TokenSessionStore;
 import com.wenrun.dto.LoginDTO;
 import com.wenrun.dto.RegisterDTO;
 import com.wenrun.dto.UpdateProfileDTO;
@@ -33,7 +33,7 @@ public class AuthServiceImpl implements AuthService {
     private final StaffRepository staffMapper;
     private final PatientRepository patientMapper;
     private final PatientService patientService;
-    private final AuthTokenStore authTokenStore;
+    private final TokenSessionStore authTokenStore;
     private final PasswordEncoder passwordEncoder;
 
     @Override
