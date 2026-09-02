@@ -102,6 +102,7 @@ public class aiController {
         Long userId = UserContext.getUserId();
         ownershipService.assertOwned(conversationId, userId);
         chatMessageRepository.deleteByConversationId(conversationId);
+        aiService.deleteConversationMemory(conversationId);
         return Result.success();
     }
 

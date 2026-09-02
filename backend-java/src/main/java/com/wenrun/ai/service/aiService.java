@@ -6,6 +6,7 @@ import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.config.RequestTrace;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -26,6 +27,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 /** Java 到 Python AI 服务的统一网关。 */
+@Slf4j
 @Service
 public class aiService {
 
@@ -70,6 +72,30 @@ public class aiService {
     public void streamChat(aiRequest request, Consumer<Map<String, Object>> consumer) {
         postStream("/v1/chat/stream", buildChatPayload(request), request.getRequestId(),
                 request.getDelegatedToken(), consumer);
+    }
+
+    /** 删除会话时清理 Python 侧的 checkpoint。记忆清理失败不应阻塞用户删除操作。 */
+    public void deleteConversationMemory(String conversationId) {
+        if (!StringUtils.hasText(conversationId)) {
+            return;
+        }
+        try {
+            pythonClient.delete()
+                    .uri("/v1/chat/memory/{conversationId}", conversationId)
+                    .headers(headers -> {
+                        if (StringUtils.hasText(apiKey)) {
+                            headers.set("X-Api-Key", apiKey);
+                        }
+                        String requestId = RequestTrace.get();
+                        if (RequestTrace.isUsable(requestId)) {
+                            headers.set(RequestTrace.HEADER_NAME, requestId);
+                        }
+                    })
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception ex) {
+            log.warn("清理会话记忆失败 conversationId={}: {}", conversationId, ex.getMessage());
+        }
     }
 
     private void postStream(String path, Object payload, String requestId, String delegatedToken,
