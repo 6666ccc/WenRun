@@ -14,6 +14,17 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   backend-java:
     build:
       context: ./backend-java
@@ -27,7 +38,7 @@ services:
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
       AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:?请在 .env 中设置 AI_DELEGATION_SIGNING_SECRET}
       AUTH_TOKEN_TTL: ${AUTH_TOKEN_TTL:-8h}
-      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-host.docker.internal}
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
       SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
       SPRING_DATA_REDIS_USERNAME: ${SPRING_DATA_REDIS_USERNAME:-}
       SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
@@ -38,6 +49,8 @@ services:
       LOGGING_PATTERN_CONSOLE: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId:-no-request-id}] %logger{36} - %msg%n"
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       ai-python:
         condition: service_healthy
@@ -53,6 +66,11 @@ services:
       AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
       AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:?请在 .env 中设置 AI_DELEGATION_SIGNING_SECRET}
       JAVA_TOOL_BASE_URL: ${JAVA_TOOL_BASE_URL:-http://backend-java:8080}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/1}
+      AI_CHECKPOINT_TTL_MINUTES: ${AI_CHECKPOINT_TTL_MINUTES:-1440}
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 5s

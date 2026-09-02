@@ -195,7 +195,9 @@ START → begin_node → knowledge_node → chat_node → final_node → END
 
 - `tools` 已接入 LangGraph，并能通过 Java 内部 Tool API 查询启用的科室，作为 Python Tool → Java → MySQL 的只读通信验证。
 - 当前尚未接入排班、我的挂号、挂号/取消等业务 Tool；对于这类请求，回复会明确提示当前仅支持科室查询。写操作必须先完成用户确认、MySQL 幂等键、审计和号源事务校验，不能由模型直接发起。
-- `memoryEnabled` 会透传到 Python 请求模型，但当前图初始状态只有本轮用户消息，未从 MySQL 读取历史消息，也未按该字段启用/禁用记忆。它目前不产生实际记忆效果。
+- `memoryEnabled` 已生效。为 `true` 且 `AI_REDIS_URL` 配置可用时，图使用 Redis checkpointer，`conversationId` 作为 `thread_id`，同一会话跨轮共享消息历史与摘要；为 `false` 或 checkpointer 不可用时，退化为单轮无状态图。历史超过 12 条消息后由 `summarize_node` 压缩为摘要，并用 `RemoveMessage` 裁剪旧消息。
+- 委托令牌不进入 State，只通过 Runtime Context（`HospitalToolContext`）传递，不会写入 checkpoint。
+- 删除会话时，Java 会调用 `DELETE /v1/chat/memory/{conversationId}` 级联清理 checkpoint。
 - `patientId` 已传入 State，但现有节点未用它过滤知识库或查询患者业务数据。
 
 扩展业务工具时，应先在 Java 定义经过鉴权和参数校验的受控业务能力，再把对应工具注册到图中；禁止让模型直连数据库或以模型文本直接执行写操作。涉及挂号、取消等写操作时，应使用确认步骤、幂等键和审计日志。

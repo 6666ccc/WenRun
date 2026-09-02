@@ -1,0 +1,188 @@
+# 低资源生产编排（约 1.8GB 内存服务器）
+# 容器内存上限合计约 1.34GB（含 Redis 192m），给系统和 SSH 留出余量
+# 对外仅 80（前端）；MySQL / Qdrant / Redis 不映射宿主机端口，仅容器内网访问
+#
+# 本文件不会加载 tar。服务器上请按顺序：
+#   1. docker load -i wenrun-ai-python.tar
+#   2. docker load -i wenrun-backend-java.tar
+#   3. docker load -i wenrun-frontend.tar
+#      三个业务镜像 tag 必须正好是：
+#      wenrun/ai-python:latest
+#      wenrun/backend-java:latest
+#      wenrun/frontend:latest
+#   4. 官方镜像也要在本机有（load 或 pull）：
+#      mysql:latest、qdrant/qdrant:latest、redis:8-alpine
+#      Redis 是这次新增的，旧 tar 包里通常没有，需单独准备
+#   5. mkdir -p /data/wenrun-mysql /data/wenrun-qdrant
+#   6. 同目录放 .env（含 MYSQL_ROOT_PASSWORD、AI_SERVICE_API_KEY、
+#      AI_DELEGATION_SIGNING_SECRET、DASHSCOPE_* 等，不要写进本文件）
+#   7. docker compose -f docker-compose.prod.yml --env-file .env up -d
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:latest
+    container_name: wenrun-mysql
+    restart: unless-stopped
+    mem_limit: 320m
+    memswap_limit: 320m
+    cpus: 0.50
+    logging: *default-logging
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-wenrun}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=50
+      - --performance-schema=OFF
+      - --table-open-cache=128
+    volumes:
+      - /data/wenrun-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 40s
+    networks:
+      - wenrun-net
+
+  redis:
+    image: redis:8-alpine
+    container_name: wenrun-redis
+    restart: unless-stopped
+    mem_limit: 192m
+    memswap_limit: 192m
+    cpus: 0.15
+    logging: *default-logging
+    # Redis 8 内置 RedisJSON 与 Query Engine，langgraph-checkpoint-redis 需要它们。
+    # Session 在 db0，Agent checkpoint 在 db1，避免 LRU 淘汰时互相踩。
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - wenrun-net
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: wenrun-qdrant
+    restart: unless-stopped
+    mem_limit: 160m
+    memswap_limit: 160m
+    cpus: 0.30
+    logging: *default-logging
+    volumes:
+      - /data/wenrun-qdrant:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - wenrun-net
+
+  ai-python:
+    image: wenrun/ai-python:latest
+    container_name: wenrun-ai-python
+    restart: unless-stopped
+    mem_limit: 280m
+    memswap_limit: 280m
+    cpus: 0.50
+    logging: *default-logging
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?请在 .env 中设置 DASHSCOPE_API_KEY}
+      DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:?请在 .env 中设置 DASHSCOPE_CHAT_MODEL}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:?请在 .env 中设置 DASHSCOPE_BASE_URL}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:?请在 .env 中设置 EMBEDDING_MODEL}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_TIMEOUT: "10"
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-wenrun}
+      QDRANT_HOSPITAL_COLLECTION: ${QDRANT_HOSPITAL_COLLECTION:-wenrun_hospital_custom}
+      QDRANT_MEDICAL_COLLECTION: ${QDRANT_MEDICAL_COLLECTION:-wenrun_medical_general}
+      QDRANT_MEMORY_COLLECTION: ${QDRANT_MEMORY_COLLECTION:-wenrun_conversation_memory}
+      AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/1}
+      AI_CHECKPOINT_TTL_MINUTES: ${AI_CHECKPOINT_TTL_MINUTES:-1440}
+      AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
+      AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:?请在 .env 中设置 AI_DELEGATION_SIGNING_SECRET}
+      JAVA_TOOL_BASE_URL: ${JAVA_TOOL_BASE_URL:-http://backend-java:8080}
+      JAVA_TOOL_TIMEOUT_SECONDS: ${JAVA_TOOL_TIMEOUT_SECONDS:-5}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+    networks:
+      - wenrun-net
+
+  backend-java:
+    image: wenrun/backend-java:latest
+    container_name: wenrun-backend-java
+    restart: unless-stopped
+    mem_limit: 320m
+    memswap_limit: 320m
+    cpus: 0.70
+    logging: *default-logging
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-python:
+        condition: service_started
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx256m -Xms128m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/wenrun?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      AI_SERVICE_BASE_URL: http://ai-python:8000
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
+      AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:?请在 .env 中设置 AI_DELEGATION_SIGNING_SECRET}
+      AI_DELEGATION_TTL: ${AI_DELEGATION_TTL:-5m}
+      AUTH_TOKEN_TTL: ${AUTH_TOKEN_TTL:-8h}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_DATABASE: "0"
+      SPRING_DATA_REDIS_USERNAME: ${SPRING_DATA_REDIS_USERNAME:-}
+      SPRING_DATA_REDIS_PASSWORD: ${SPRING_DATA_REDIS_PASSWORD:-}
+      SPRING_DATA_REDIS_SSL_ENABLED: ${SPRING_DATA_REDIS_SSL_ENABLED:-false}
+      WENRUN_AUTH_SESSION_STORE: redis
+      WENRUN_CORS_ALLOWED_ORIGINS: ${WENRUN_CORS_ALLOWED_ORIGINS:-}
+    networks:
+      - wenrun-net
+
+  frontend:
+    image: wenrun/frontend:latest
+    container_name: wenrun-frontend
+    restart: unless-stopped
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: 0.20
+    logging: *default-logging
+    ports:
+      - "80:80"
+    depends_on:
+      - backend-java
+      - ai-python
+    networks:
+      - wenrun-net
+
+networks:
+  wenrun-net:
+    driver: bridge
