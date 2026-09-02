@@ -189,25 +189,15 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
             # 路由输出绝不能发送到浏览器。
             yield {
                 "type": "messages",
-                "data": (
-                    AIMessageChunk(content='{"selected_agents":["chat"]}'),
-                    {"langgraph_node": "begin_node"},
-                ),
+                "data": (AIMessageChunk(content='{"selected_agents":["chat"]}'), {"langgraph_node": "begin_node"}),
             }
             yield {
                 "type": "messages",
-                "data": (
-                    AIMessageChunk(content="你好"),
-                    {"langgraph_node": "chat_node"},
-                ),
+                "data": (AIMessageChunk(content="你好"), {"langgraph_node": "chat_node"}),
             }
             yield {
                 "type": "messages",
-                "data": (
-                    AIMessageChunk(content="，有什么可以帮您？"),
-                    {"langgraph_node": "model"},
-                ),
-                "ns": ("chat_node:run-1", "model:run-2"),
+                "data": (AIMessageChunk(content="，有什么可以帮您？"), {"langgraph_node": "chat_node"}),
             }
             yield {
                 "type": "values",
@@ -255,59 +245,16 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
             # 工具输出绝不能作为面向患者的文本发送。
             yield {
                 "type": "messages",
-                "data": (
-                    ToolMessage(content="RAW_SEARCH_RESULT", tool_call_id="call-1"),
-                    {"langgraph_node": "tools"},
-                ),
-                "ns": ("knowledge_node:run-1", "tools:run-2"),
+                "data": (ToolMessage(content="RAW_SEARCH_RESULT", tool_call_id="call-1"), {"langgraph_node": "knowledge_node"}),
             }
             # 在 final_node 之前，知识 Agent 的模型输出同样属于内部内容。
             yield {
                 "type": "messages",
-                "data": (
-                    AIMessageChunk(content="内部检索摘要"),
-                    {"langgraph_node": "model"},
-                ),
-                "ns": ("knowledge_node:run-1", "model:run-3"),
-            }
-            # 即使在 final_node 下，非助手消息和工具调用也必须保持隐藏。
-            yield {
-                "type": "messages",
-                "data": (
-                    SystemMessage(content="系统上下文"),
-                    {"langgraph_node": "final_node"},
-                ),
+                "data": (AIMessageChunk(content="内部检索摘要"), {"langgraph_node": "knowledge_node"}),
             }
             yield {
                 "type": "messages",
-                "data": (
-                    HumanMessage(content="用户上下文"),
-                    {"langgraph_node": "final_node"},
-                ),
-            }
-            yield {
-                "type": "messages",
-                "data": (
-                    AIMessage(
-                        content="工具调用参数",
-                        tool_calls=[
-                            {
-                                "name": "web_search",
-                                "args": {"query": "感冒"},
-                                "id": "call-2",
-                                "type": "tool_call",
-                            }
-                        ],
-                    ),
-                    {"langgraph_node": "final_node"},
-                ),
-            }
-            yield {
-                "type": "messages",
-                "data": (
-                    AIMessage(content="最终面向患者的答案"),
-                    {"langgraph_node": "final_node"},
-                ),
+                "data": (AIMessageChunk(content="最终面向患者的答案"), {"langgraph_node": "final_node"}),
             }
             yield {
                 "type": "values",

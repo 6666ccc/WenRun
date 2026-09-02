@@ -1,5 +1,6 @@
 import asyncio
 import json
+from time import perf_counter
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -86,32 +87,20 @@ def _text_from_message_chunk(message_chunk: object) -> str:
 
     text_parts: list[str] = []
     for block in content:
-        if isinstance(block, dict):
-            value = block.get("text")
-        else:
-            value = getattr(block, "text", None)
+        value = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
         if isinstance(value, str):
             text_parts.append(value)
     return "".join(text_parts)
 
 
 def _is_streamable_message(message_chunk: object) -> bool:
-    """判断图消息是否可以安全地作为面向患者的文本公开。
-
-    LangGraph 在流式传输时可能会暴露嵌套 Agent 产生的消息。知识 Agent
-    可能会在生成最终答案之前产生工具结果、路由消息和工具调用请求。
-    只有助手文本属于公开 SSE 协议的一部分，其余内容都属于图的内部状态。
-    """
-
     if not isinstance(message_chunk, (AIMessage, AIMessageChunk)):
         return False
-    if getattr(message_chunk, "tool_calls", None):
-        return False
-    if getattr(message_chunk, "tool_call_chunks", None):
-        return False
-    if getattr(message_chunk, "invalid_tool_calls", None):
-        return False
-    return bool(_text_from_message_chunk(message_chunk).strip())
+    return not any((
+        getattr(message_chunk, "tool_calls", None),
+        getattr(message_chunk, "tool_call_chunks", None),
+        getattr(message_chunk, "invalid_tool_calls", None),
+    )) and bool(_text_from_message_chunk(message_chunk).strip())
 
 
 def _stream_visible_nodes(selected_agents: list[str]) -> set[str]:
@@ -127,28 +116,6 @@ def _stream_visible_nodes(selected_agents: list[str]) -> set[str]:
     if selected_agents == ["chat"]:
         return {"chat_node"}
     return {"final_node"}
-
-
-def _is_visible_message_node(
-    node_name: object,
-    namespace: object,
-    visible_nodes: set[str],
-) -> bool:
-    """仅匹配可见节点或其明确允许的模型子图。"""
-
-    if isinstance(node_name, str) and node_name in visible_nodes:
-        return True
-
-    if not isinstance(namespace, (list, tuple)):
-        return False
-
-    # chat/final 节点可能包含嵌套的模型调用。只有命名空间的第一段可以授予可见性；
-    # knowledge 节点下的工具等更深层级的同级节点绝不能继承该可见性。
-    first_segment = namespace[0] if namespace else None
-    if not isinstance(first_segment, str):
-        return False
-    first_node = first_segment.split(":", 1)[0]
-    return first_node in visible_nodes
 
 
 def _merge_stream_state(state: dict[str, Any], part: dict[str, Any]) -> None:
@@ -235,6 +202,8 @@ async def chat_stream(
     """运行对话图，并通过 SSE 暴露增量模型输出。"""
 
     async def events() -> AsyncIterator[str]:
+        started_at = perf_counter()
+        first_token_at: float | None = None
         yield _sse({"type": "status", "content": "正在分析您的问题…"})
         graph_state: dict[str, Any] = {}
         streamed_reply = False
@@ -263,18 +232,21 @@ async def chat_stream(
                     continue
                 node_name = metadata.get("langgraph_node")
                 visible_nodes = _stream_visible_nodes(selected_agents)
-                namespace = part.get("ns") or ()
-                if not _is_visible_message_node(node_name, namespace, visible_nodes):
-                    continue
-                if not _is_streamable_message(message_chunk):
+                if node_name not in visible_nodes or not _is_streamable_message(message_chunk):
                     continue
                 content = _text_from_message_chunk(message_chunk)
-                if content:
-                    if "knowledge" in selected_agents and not final_status_sent:
-                        final_status_sent = True
-                        yield _sse({"type": "status", "content": "正在整理答案…"})
-                    streamed_reply = True
-                    yield _sse({"type": "token", "content": content})
+                if "knowledge" in selected_agents and not final_status_sent:
+                    final_status_sent = True
+                    yield _sse({"type": "status", "content": "正在整理答案…"})
+                if first_token_at is None:
+                    first_token_at = perf_counter()
+                    logger.info(
+                        "chat_stream_first_token conversation_id={} elapsed_ms={}",
+                        request.conversation_id,
+                        round((first_token_at - started_at) * 1000),
+                    )
+                streamed_reply = True
+                yield _sse({"type": "token", "content": content})
 
             response = _response_from_state(request, graph_state)
         except HTTPException as exc:
@@ -306,6 +278,12 @@ async def chat_stream(
             "type": "done",
             **response.model_dump(by_alias=True),
         })
+        logger.info(
+            "chat_stream_completed conversation_id={} elapsed_ms={} first_token_ms={}",
+            request.conversation_id,
+            round((perf_counter() - started_at) * 1000),
+            round((first_token_at - started_at) * 1000) if first_token_at is not None else None,
+        )
 
     return StreamingResponse(
         events(),

@@ -10,6 +10,18 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 
+def _selected_reply_nodes(state: State) -> list[str]:
+    """将互不依赖的已选 Agent 并行分发，避免多意图请求串行等待。"""
+
+    selected = state.get("selected_agents") or []
+    node_by_agent = {
+        "knowledge": "knowledge_node",
+        "chat": "chat_node",
+        "tools": "tool_node",
+    }
+    return [node_by_agent[agent] for agent in selected if agent in node_by_agent]
+
+
 def _workflow() -> StateGraph:
     workflow = StateGraph(State, context_schema=HospitalToolContext)
     workflow.add_node("begin_node", begin_node)
@@ -20,9 +32,9 @@ def _workflow() -> StateGraph:
     workflow.add_node("summarize_node", summarize_node)
 
     workflow.add_edge(START, "begin_node")
-    workflow.add_edge("begin_node", "knowledge_node")
-    workflow.add_edge("knowledge_node", "chat_node")
-    workflow.add_edge("chat_node", "tool_node")
+    workflow.add_conditional_edges("begin_node", _selected_reply_nodes)
+    workflow.add_edge("knowledge_node", "final_node")
+    workflow.add_edge("chat_node", "final_node")
     workflow.add_edge("tool_node", "final_node")
     workflow.add_edge("final_node", "summarize_node")
     workflow.add_edge("summarize_node", END)

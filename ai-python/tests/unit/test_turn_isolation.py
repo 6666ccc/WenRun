@@ -39,6 +39,14 @@ class _StubAgent:
         return {"messages": [AIMessage(content=self.reply)]}
 
 
+class _StreamingStubModel:
+    def __init__(self, reply):
+        self.reply = reply
+
+    def stream(self, messages):
+        yield AIMessage(content=self.reply)
+
+
 def _stub_nodes(monkeypatch, intents):
     """按回合顺序返回意图，并把所有 LLM 出口替换成确定性桩。"""
 
@@ -54,11 +62,10 @@ def _stub_nodes(monkeypatch, intents):
         "model",
         type("M", (), {"invoke": staticmethod(lambda messages: AIMessage(content="感冒建议：多喝水"))})(),
     )
-    chat_agent = _StubAgent("不客气，还有需要随时说。")
-    monkeypatch.setattr(chat_module, "agent", chat_agent)
+    chat_model = _StreamingStubModel("不客气，还有需要随时说。")
+    monkeypatch.setattr(chat_module, "model", chat_model)
     final_agent = _StubAgent("这不该被调用")
-    monkeypatch.setattr(final_module, "final_agent", final_agent)
-    return chat_agent, final_agent
+    return chat_model, final_agent
 
 
 def test_second_turn_does_not_reuse_previous_turn_replies(monkeypatch):

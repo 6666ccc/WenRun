@@ -2,7 +2,7 @@
 from app.graphs.hospital.memory import recent_messages
 from app.graphs.hospital.state import State
 from app.models.chat import model
-from langchain.agents import create_agent
+from langchain_core.messages import SystemMessage
 
 CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短、尊重、有温度的中文直接回复患者。
 
@@ -32,12 +32,6 @@ CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短�
 - 「感冒吃什么药」→ 不要在本节点回答；若仍被问到，只说医疗问题会由知识助手处理。
 """
 
-agent = create_agent(
-    model=model,
-    tools=[],
-    system_prompt=CHAT_SYSTEM_PROMPT,
-)
-
 def chat_node(state: State) -> dict:
     ##任务一：看起始节点是否把 chat 写进 selected_agents
     selected = state.get("selected_agents") or []
@@ -45,12 +39,17 @@ def chat_node(state: State) -> dict:
         return {}
 
     ##任务二：调用闲聊 agent，把回复写入 chat_reply 供汇总节点使用
-    result = agent.invoke({"messages": recent_messages(state)})
-    messages = result.get("messages") or []
-    last = messages[-1] if messages else None
-    content = getattr(last, "content", "") if last is not None else ""
-    if not isinstance(content, str):
-        content = str(content)
-    return {"chat_reply": content}
+    # ``invoke`` waits for the whole model answer. ``stream`` lets LangGraph's
+    # messages stream forward each model chunk immediately to the SSE route.
+    chunks: list[str] = []
+    for chunk in model.stream([
+        SystemMessage(content=CHAT_SYSTEM_PROMPT),
+        *recent_messages(state),
+    ]):
+        content = getattr(chunk, "content", "")
+        if not isinstance(content, str) or not content:
+            continue
+        chunks.append(content)
+    return {"chat_reply": "".join(chunks)}
 
 

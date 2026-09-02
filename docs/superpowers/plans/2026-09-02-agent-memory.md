@@ -22,44 +22,52 @@
 
 ---
 
+
+
 ## File Structure
 
 **新建：**
 
-| 文件 | 职责 |
-|---|---|
-| `ai-python/app/graphs/hospital/memory.py` | 记忆策略：回合字段重置、上下文窗口、摘要触发判断与消息切分 |
-| `ai-python/app/graphs/hospital/checkpointing.py` | Redis checkpointer 生命周期 + 带记忆图的注册表 |
-| `ai-python/app/graphs/hospital/nodes/summarize.py` | 摘要节点 |
-| `ai-python/tests/unit/test_memory.py` | 记忆策略单元测试 |
-| `ai-python/tests/unit/test_turn_isolation.py` | 跨轮串轮回归测试（本计划最关键的测试） |
-| `ai-python/tests/unit/test_checkpointing.py` | 图工厂与记忆图注册表测试 |
+
+| 文件                                                 | 职责                                 |
+| -------------------------------------------------- | ---------------------------------- |
+| `ai-python/app/graphs/hospital/memory.py`          | 记忆策略：回合字段重置、上下文窗口、摘要触发判断与消息切分      |
+| `ai-python/app/graphs/hospital/checkpointing.py`   | Redis checkpointer 生命周期 + 带记忆图的注册表 |
+| `ai-python/app/graphs/hospital/nodes/summarize.py` | 摘要节点                               |
+| `ai-python/tests/unit/test_memory.py`              | 记忆策略单元测试                           |
+| `ai-python/tests/unit/test_turn_isolation.py`      | 跨轮串轮回归测试（本计划最关键的测试）                |
+| `ai-python/tests/unit/test_checkpointing.py`       | 图工厂与记忆图注册表测试                       |
+
 
 **修改：**
 
-| 文件 | 改动 |
-|---|---|
-| `ai-python/app/graphs/hospital/state.py` | 删 `delegated_token`、`request_id`；加 `summary` |
-| `ai-python/app/graphs/hospital/graphs.py` | 改为 `build_graph()` 工厂 + `context_schema` + 摘要节点 |
-| `ai-python/app/graphs/hospital/nodes/tool.py` | 从 Runtime Context 取令牌 |
-| `ai-python/app/graphs/hospital/nodes/begin.py` | 回合重置 + 统一窗口 |
-| `ai-python/app/graphs/hospital/nodes/knowledge.py` | 统一窗口（两处） |
-| `ai-python/app/graphs/hospital/nodes/chat.py` | 统一窗口 |
-| `ai-python/app/api/routes/chat.py` | 传 context 与 thread_id、选图、记忆清理接口 |
-| `ai-python/app/core/config.py` | 加 `redis_url`、`checkpoint_ttl_minutes` |
-| `ai-python/app/main.py` | 加 lifespan |
-| `ai-python/pyproject.toml` | 加 Redis checkpointer 依赖 |
-| `ai-python/.env.example`、根 `.env.example` | 补 Redis 变量 |
-| `ai-python/tests/test_app.py` | FakeGraph 签名补 `context`/`config` |
-| `ai-python/tests/unit/test_tool_node.py` | 改为构造 `Runtime` |
-| `backend-java/.../ai/service/aiService.java` | 加 `deleteConversationMemory` |
-| `backend-java/.../ai/controller/aiController.java` | 删会话时级联清记忆 |
-| `docker-compose.prod.yml`、`docker-compose.yml` | Redis 8 + 内存预算 + Python 侧 Redis 环境变量 |
-| `docs/AI模块开发与运维指南.md`、`docs/求职项目评估与流程图.md`、`TODO.md` | 文档与实现对齐 |
+
+| 文件                                                   | 改动                                              |
+| ---------------------------------------------------- | ----------------------------------------------- |
+| `ai-python/app/graphs/hospital/state.py`             | 删 `delegated_token`、`request_id`；加 `summary`    |
+| `ai-python/app/graphs/hospital/graphs.py`            | 改为 `build_graph()` 工厂 + `context_schema` + 摘要节点 |
+| `ai-python/app/graphs/hospital/nodes/tool.py`        | 从 Runtime Context 取令牌                           |
+| `ai-python/app/graphs/hospital/nodes/begin.py`       | 回合重置 + 统一窗口                                     |
+| `ai-python/app/graphs/hospital/nodes/knowledge.py`   | 统一窗口（两处）                                        |
+| `ai-python/app/graphs/hospital/nodes/chat.py`        | 统一窗口                                            |
+| `ai-python/app/api/routes/chat.py`                   | 传 context 与 thread_id、选图、记忆清理接口                 |
+| `ai-python/app/core/config.py`                       | 加 `redis_url`、`checkpoint_ttl_minutes`          |
+| `ai-python/app/main.py`                              | 加 lifespan                                      |
+| `ai-python/pyproject.toml`                           | 加 Redis checkpointer 依赖                         |
+| `ai-python/.env.example`、根 `.env.example`            | 补 Redis 变量                                      |
+| `ai-python/tests/test_app.py`                        | FakeGraph 签名补 `context`/`config`                |
+| `ai-python/tests/unit/test_tool_node.py`             | 改为构造 `Runtime`                                  |
+| `backend-java/.../ai/service/aiService.java`         | 加 `deleteConversationMemory`                    |
+| `backend-java/.../ai/controller/aiController.java`   | 删会话时级联清记忆                                       |
+| `docker-compose.prod.yml`、`docker-compose.yml`       | Redis 8 + 内存预算 + Python 侧 Redis 环境变量            |
+| `docs/AI模块开发与运维指南.md`、`docs/求职项目评估与流程图.md`、`TODO.md` | 文档与实现对齐                                         |
+
 
 **注：** 会话归属校验**无需新增**。`aiController.prepare()` 已经调用 `ownershipService.establishIfAbsent(conversationId, userId)`，且 Java 在转发前就写入了 user 消息，因此任何存在 checkpoint 的 `conversationId` 必然已在 `chat_messages` 里建立归属，换 ID 读别人记忆会被 403 拦掉。本计划不重复实现。
 
 ---
+
+
 
 ## Task 1: 委托令牌迁出 State，改用 Runtime Context
 
@@ -68,6 +76,7 @@
 复用已有的 `HospitalToolContext`（`app/graphs/hospital/tools/context.py:22-26`）作为图级 context schema——它已经带了 `delegated_token`、`request_id`、`now` 三个请求级字段，且文件顶部注释已声明「禁止写入持久化 checkpoint」。
 
 **Files:**
+
 - Modify: `ai-python/app/graphs/hospital/state.py:10-20`
 - Modify: `ai-python/app/graphs/hospital/graphs.py:9`
 - Modify: `ai-python/app/graphs/hospital/nodes/tool.py:1-16,73-102`
@@ -76,10 +85,11 @@
 - Test: `ai-python/tests/test_app.py:133-135,177-181,247-248`
 
 **Interfaces:**
+
 - Produces: `HospitalToolContext(delegated_token: str, request_id: str | None = None, now: datetime = clinic_now())` 成为图的 `context_schema`；`tool_node(state: State, runtime: Runtime[HospitalToolContext]) -> dict`；`chat.py::_initial_state(request: ChatRequest) -> dict[str, Any]`（不再接收 `delegation` 参数）；`chat.py::_runtime_context(delegation: DelegationContext) -> HospitalToolContext`。
 - Consumes: 无（首个任务）。
 
-- [ ] **Step 1: 改写 `test_tool_node.py`，让 tool_node 从 Runtime 取令牌（失败测试）**
+- [ ] **Step 1: 改写** `test_tool_node.py`**，让 tool_node 从 Runtime 取令牌（失败测试）**
 
 把文件里 `_tool_runtime` 之外再加一个图级 runtime 构造器，并替换两个直接往 state 里塞 `delegated_token` 的测试。
 
@@ -307,6 +317,8 @@ Expected: PASS，无 FAILED、无 ERROR。
 
 - [ ] **Step 10: 提交**
 
+
+
 ```bash
 git add ai-python/app/graphs/hospital/state.py ai-python/app/graphs/hospital/graphs.py ai-python/app/graphs/hospital/nodes/tool.py ai-python/app/api/routes/chat.py ai-python/tests/unit/test_tool_node.py ai-python/tests/test_app.py
 git commit -m "refactor(ai): 委托令牌从图 State 迁到 Runtime Context"
@@ -314,11 +326,14 @@ git commit -m "refactor(ai): 委托令牌从图 State 迁到 Runtime Context"
 
 ---
 
+
+
 ## Task 2: 回合字段重置与统一上下文窗口
 
 State 持久化后，`knowledge_node`/`chat_node`/`tool_node` 未被选中时的 `return {}` 会让上一轮的 `knowledge_reply` 等字段存活到本轮，被 `final_node._collect_replies`（`nodes/final.py:34-41`）当成本轮结果一起汇总。本任务在加 checkpointer **之前**修掉，并把散在四处的 `[-6:]` 收敬到单一来源。
 
 **Files:**
+
 - Create: `ai-python/app/graphs/hospital/memory.py`
 - Create: `ai-python/tests/unit/test_memory.py`
 - Modify: `ai-python/app/graphs/hospital/nodes/begin.py:1-7,188-211`
@@ -328,6 +343,7 @@ State 持久化后，`knowledge_node`/`chat_node`/`tool_node` 未被选中时的
 - Test: `ai-python/tests/unit/test_begin_node.py`
 
 **Interfaces:**
+
 - Consumes: Task 1 的 `State`（已无 `delegated_token`/`request_id`）。
 - Produces: `memory.RECENT_MESSAGE_WINDOW: int = 6`；`memory.TURN_SCOPED_REPLY_FIELDS: tuple[str, ...]`；`memory.reset_turn_fields() -> dict[str, None]`；`memory.recent_messages(state: State, limit: int = RECENT_MESSAGE_WINDOW) -> list[BaseMessage]`。Task 5 会扩展 `recent_messages` 以拼入摘要，签名不变。
 
@@ -434,15 +450,17 @@ Expected: PASS，共 4 条。
 
 `begin_node` 的返回值即将多出 5 个重置字段，现有 7 处 `assert result == {"selected_agents": [...]}` 会全部失败。逐条改为按键断言（模块导入别名是 `begin`，`HumanMessage` 已在第 1 行导入）：
 
-| 行号 | 原断言 | 改为 |
-|---|---|---|
-| 33 | `assert result == {"selected_agents": ["knowledge", "tools"]}` | `assert result["selected_agents"] == ["knowledge", "tools"]` |
-| 50 | `assert result == {"selected_agents": ["knowledge"]}` | `assert result["selected_agents"] == ["knowledge"]` |
-| 64 | `assert result == {"selected_agents": ["chat"]}` | `assert result["selected_agents"] == ["chat"]` |
-| 76 | `assert result == {"selected_agents": ["chat"]}` | `assert result["selected_agents"] == ["chat"]` |
-| 88 | `assert result == {"selected_agents": ["tools"]}` | `assert result["selected_agents"] == ["tools"]` |
-| 111 | `assert result == {"selected_agents": ["knowledge"]}` | `assert result["selected_agents"] == ["knowledge"]` |
-| 122 | `assert result == {"selected_agents": ["tools"]}` | `assert result["selected_agents"] == ["tools"]` |
+
+| 行号  | 原断言                                                            | 改为                                                           |
+| --- | -------------------------------------------------------------- | ------------------------------------------------------------ |
+| 33  | `assert result == {"selected_agents": ["knowledge", "tools"]}` | `assert result["selected_agents"] == ["knowledge", "tools"]` |
+| 50  | `assert result == {"selected_agents": ["knowledge"]}`          | `assert result["selected_agents"] == ["knowledge"]`          |
+| 64  | `assert result == {"selected_agents": ["chat"]}`               | `assert result["selected_agents"] == ["chat"]`               |
+| 76  | `assert result == {"selected_agents": ["chat"]}`               | `assert result["selected_agents"] == ["chat"]`               |
+| 88  | `assert result == {"selected_agents": ["tools"]}`              | `assert result["selected_agents"] == ["tools"]`              |
+| 111 | `assert result == {"selected_agents": ["knowledge"]}`          | `assert result["selected_agents"] == ["knowledge"]`          |
+| 122 | `assert result == {"selected_agents": ["tools"]}`              | `assert result["selected_agents"] == ["tools"]`              |
+
 
 第 100 行已经是按键断言，不用动。
 
@@ -536,9 +554,12 @@ git commit -m "fix(ai): 每轮开头重置节点产出，统一上下文窗口�
 
 ---
 
+
+
 ## Task 3: Redis Checkpointer 接入与 memoryEnabled 开关
 
 **Files:**
+
 - Create: `ai-python/app/graphs/hospital/checkpointing.py`
 - Create: `ai-python/tests/unit/test_checkpointing.py`
 - Create: `ai-python/tests/unit/test_turn_isolation.py`
@@ -551,6 +572,7 @@ git commit -m "fix(ai): 每轮开头重置节点产出，统一上下文窗口�
 - Modify: `ai-python/.env.example`
 
 **Interfaces:**
+
 - Consumes: Task 2 的 `memory.reset_turn_fields`；Task 1 的 `HospitalToolContext` context schema。
 - Produces: `graphs.build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph`；`graphs.graph`（无 checkpointer，供 `langgraph.json` 与 `memoryEnabled=false`）；`checkpointing.memory_lifespan()`（async context manager）；`checkpointing.get_memory_graph() -> CompiledStateGraph | None`；`checkpointing.set_memory_graph(graph) -> None`；`checkpointing.get_checkpointer() -> BaseCheckpointSaver | None`；`Settings.redis_url: str`；`Settings.checkpoint_ttl_minutes: int`。
 
@@ -1072,6 +1094,8 @@ def test_checkpointer_accumulates_history_across_turns(monkeypatch):
 
 - [ ] **Step 15: 运行测试确认通过**
 
+
+
 Run: `python -m pytest tests/unit/test_turn_isolation.py -v`
 Expected: PASS，共 2 条。若 `test_second_turn_does_not_reuse_previous_turn_replies` 失败，说明 Task 2 的重置未生效，回去修 `begin_node`。
 
@@ -1099,17 +1123,21 @@ Expected: pytest 全部 PASS。
 
 ---
 
+
+
 ## Task 4: 记忆清理接口与 Java 级联删除
 
 `aiController.deleteConversation` 目前只删 MySQL 消息，Redis 里的 checkpoint 会残留到 TTL 过期——用户「删除会话」后重开同名会话仍能被旧记忆污染。
 
 **Files:**
+
 - Modify: `ai-python/app/api/routes/chat.py`
 - Modify: `ai-python/tests/test_app.py`
 - Modify: `backend-java/src/main/java/com/wenrun/ai/service/aiService.java`
 - Modify: `backend-java/src/main/java/com/wenrun/ai/controller/aiController.java:100-106`
 
 **Interfaces:**
+
 - Consumes: Task 3 的 `checkpointing.get_checkpointer()`。
 - Produces: `DELETE /v1/chat/memory/{conversation_id}` → 204（需 `X-Api-Key`，不需委托令牌）；`aiService.deleteConversationMemory(String conversationId)`（best-effort，不抛异常）。
 
@@ -1250,11 +1278,14 @@ git commit -m "feat: 删除会话时级联清理 Agent 会话记忆"
 
 ---
 
+
+
 ## Task 5: 历史摘要压缩
 
 长会话下 checkpoint 与 prompt 会无限膨胀。摘要节点放在 `final_node` 之后：此时 token 已经流给前端，只有 `done` 事件被延迟，比放在图开头拖慢首字体验好得多。压缩时用 `RemoveMessage` 真正裁掉旧消息，把 checkpoint 体积压住。
 
 **Files:**
+
 - Modify: `ai-python/app/graphs/hospital/state.py`
 - Modify: `ai-python/app/graphs/hospital/memory.py`
 - Create: `ai-python/app/graphs/hospital/nodes/summarize.py`
@@ -1263,6 +1294,7 @@ git commit -m "feat: 删除会话时级联清理 Agent 会话记忆"
 - Create: `ai-python/tests/unit/test_summarize_node.py`
 
 **Interfaces:**
+
 - Consumes: Task 2 的 `memory.recent_messages`；Task 3 的 `graphs._workflow`。
 - Produces: `State.summary: str | None`；`memory.SUMMARY_TRIGGER_MESSAGES: int = 12`；`memory.SUMMARY_KEEP_MESSAGES: int = 6`；`memory.needs_summary(state: State) -> bool`；`memory.split_for_summary(state: State) -> tuple[list[BaseMessage], list[BaseMessage]]`；`summarize.summarize_node(state: State) -> dict`。`recent_messages` 签名不变，但返回值前会拼一条摘要 SystemMessage。
 
@@ -1541,6 +1573,8 @@ def summarize_node(state: State) -> dict:
 
 - [ ] **Step 6: 运行测试确认通过**
 
+
+
 Run: `python -m pytest tests/unit/test_memory.py tests/unit/test_summarize_node.py -v`
 Expected: PASS，共 12 条。
 
@@ -1596,9 +1630,12 @@ Expected: pytest 全部 PASS。
 
 ---
 
+
+
 ## Task 6: 基础设施与文档对齐
 
 **Files:**
+
 - Modify: `docker-compose.prod.yml:1-26,57-78,99-127`
 - Modify: `docker-compose.yml`
 - Modify: `.env.example`
@@ -1607,6 +1644,7 @@ Expected: pytest 全部 PASS。
 - Modify: `TODO.md`
 
 **Interfaces:**
+
 - Consumes: Task 3 的 `AI_REDIS_URL`、`AI_CHECKPOINT_TTL_MINUTES`。
 - Produces: 无代码接口。
 
@@ -1768,12 +1806,16 @@ git commit -m "chore: Redis 8 + 会话记忆基础设施，文档与实现对齐
 
 ---
 
+
+
 ## 已知限制（要写进 README，面试时主动讲，不要等人问）
 
 - **同一会话并发写 checkpoint 未加锁。** Java 侧 `clientRequestId` 幂等只能拦住重复提交的同一条消息；同一 `conversationId` 并发发送两条**不同**消息时，两次 `graph.astream` 会各自基于同一份 checkpoint 写回，后写的覆盖先写的，丢一轮历史。前端是单输入框串行发送，实际触发概率低。彻底解决要在 Java 侧按 `conversationId` 加 Redis 分布式锁或串行队列，属于后续工作。
 - **记忆只是「患者自述」，不是病历。** 摘要 prompt 已要求标注自述来源、禁止新增诊断与药名，但模型仍可能把旧症状当成当前事实。任何医疗结论仍必须走 RAG 引用或 Tool 返回的真实数据，记忆不构成依据。
 - **checkpoint 有 TTL 且可被 LRU 淘汰。** 生产 Redis 是 `allkeys-lru` + 128mb，默认 TTL 24 小时。超期或内存压力下记忆会消失，此时会话退化为单轮，不报错。MySQL `chat_messages` 仍保留完整消息，前端历史展示不受影响。
-- **摘要会让最后一个 token 到 `done` 事件之间多一次 LLM 调用。** 只在消息超过 12 条时触发（约每 6 轮一次）。若实测延迟不可接受，可把 `summarize_node` 改为后台任务，但那需要额外的写冲突处理。
+- **摘要会让最后一个 token 到** `done` **事件之间多一次 LLM 调用。** 只在消息超过 12 条时触发（约每 6 轮一次）。若实测延迟不可接受，可把 `summarize_node` 改为后台任务，但那需要额外的写冲突处理。
+
+
 
 ## 验收清单
 

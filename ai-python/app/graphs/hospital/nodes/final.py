@@ -2,8 +2,7 @@
 
 from app.graphs.hospital.state import State
 from app.models.chat import model
-from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from loguru import logger
 
 FINAL_SYSTEM_PROMPT = """你是温润诊所患者端的回复汇总助手。
@@ -17,12 +16,6 @@ FINAL_SYSTEM_PROMPT = """你是温润诊所患者端的回复汇总助手。
 - 不提及内部 Agent、节点、State、工具调用或汇总过程。
 - 直接输出最终回复，不要添加“汇总如下”等开场白。
 """
-
-final_agent = create_agent(
-    model=model,
-    tools=[],
-    system_prompt=FINAL_SYSTEM_PROMPT,
-)
 
 _REPLY_FIELDS = (
     ("知识咨询", "knowledge_reply"),
@@ -52,23 +45,24 @@ def _summarize_replies(replies: list[tuple[str, str]]) -> str:
         section_blocks.append(f"【{label}】\n{reply}")
 
     sections = "\n\n".join(section_blocks)
-    result = final_agent.invoke(
-        {
-            "messages": [
-                HumanMessage(
-                    content=(
-                        "请将以下内部回复整理成一条面向患者的最终回复。"
-                        "严格保留其中的事实、风险提醒和引用来源：\n\n"
-                        f"{sections}"
-                    )
-                )
-            ]
-        }
-    )
-    messages = result.get("messages") or []
-    last_message = messages[-1] if messages else None
-    content = getattr(last_message, "content", "")
-    return content.strip() if isinstance(content, str) else ""
+    chunks: list[str] = []
+    for chunk in model.stream([
+        # Keeping the instruction as a system message preserves the previous
+        # agent configuration while allowing immediate SSE forwarding.
+        SystemMessage(content=FINAL_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                "请将以下内部回复整理成一条面向患者的最终回复。"
+                "严格保留其中的事实、风险提醒和引用来源：\n\n"
+                f"{sections}"
+            )
+        ),
+    ]):
+        content = getattr(chunk, "content", "")
+        if not isinstance(content, str) or not content:
+            continue
+        chunks.append(content)
+    return "".join(chunks).strip()
 
 
 def final_node(state: State) -> dict:
