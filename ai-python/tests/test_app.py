@@ -131,8 +131,9 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     captured: dict = {}
 
     class FakeGraph:
-        async def astream(self, state, *, stream_mode, subgraphs, version):
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
             captured["state"] = state
+            captured["context"] = context
             yield {
                 "type": "values",
                 "data": {
@@ -166,6 +167,8 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     assert captured["state"]["patient_id"] == 12
     assert isinstance(captured["state"]["messages"][0], HumanMessage)
     assert captured["state"]["messages"][0].content == "感冒怎么办"
+    assert captured["context"].delegated_token
+    assert "delegated_token" not in captured["state"]
 
 
 def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
@@ -174,7 +177,7 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
     captured: dict = {}
 
     class FakeGraph:
-        async def astream(self, state, *, stream_mode, subgraphs, version):
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
             captured["state"] = state
             captured["stream_mode"] = stream_mode
             captured["subgraphs"] = subgraphs
@@ -244,7 +247,7 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
     headers = _chat_auth_headers(monkeypatch)
 
     class FakeGraph:
-        async def astream(self, state, *, stream_mode, subgraphs, version):
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
             yield {
                 "type": "values",
                 "data": {"selected_agents": ["knowledge"]},
@@ -347,3 +350,113 @@ def test_stream_visible_nodes_only_streams_chat_when_chat_is_the_sole_agent():
     assert chat_route._stream_visible_nodes(["chat"]) == {"chat_node"}
     assert chat_route._stream_visible_nodes(["knowledge"]) == {"final_node"}
     assert chat_route._stream_visible_nodes(["knowledge", "chat"]) == {"final_node"}
+
+
+def test_graph_config_uses_conversation_id_as_thread_id():
+    from app.models.chat import ChatRequest
+
+    request = ChatRequest(message="你好", conversationId="conv-42")
+
+    assert chat_route._graph_config(request) == {
+        "configurable": {"thread_id": "conv-42"}
+    }
+
+
+def test_chat_stream_prefers_memory_graph(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    from app.graphs.hospital import checkpointing
+
+    captured: dict = {}
+
+    class MemoryGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            captured["config"] = config
+            yield {"type": "values", "data": {"final_reply": "记忆图回复"}}
+
+    class StatelessGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            captured["used_stateless"] = True
+            yield {"type": "values", "data": {"final_reply": "无记忆回复"}}
+
+    monkeypatch.setattr(chat_route, "graph", StatelessGraph())
+    checkpointing.set_memory_graph(MemoryGraph())
+    try:
+        client = TestClient(create_app())
+        response = client.post(
+            "/v1/chat/stream",
+            headers=headers,
+            json={"message": "你好", "conversationId": "conv-42"},
+        )
+    finally:
+        checkpointing.set_memory_graph(None)
+
+    assert response.status_code == 200
+    assert _sse_events(response)[-1]["reply"] == "记忆图回复"
+    assert captured["config"] == {"configurable": {"thread_id": "conv-42"}}
+    assert "used_stateless" not in captured
+
+
+def test_chat_stream_falls_back_to_stateless_graph_when_memory_disabled(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    from app.graphs.hospital import checkpointing
+
+    class MemoryGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            raise AssertionError("memoryEnabled=false 时不得使用记忆图")
+            yield  # pragma: no cover
+
+    class StatelessGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            yield {"type": "values", "data": {"final_reply": "无记忆回复"}}
+
+    monkeypatch.setattr(chat_route, "graph", StatelessGraph())
+    checkpointing.set_memory_graph(MemoryGraph())
+    try:
+        client = TestClient(create_app())
+        response = client.post(
+            "/v1/chat/stream",
+            headers=headers,
+            json={
+                "message": "你好",
+                "conversationId": "conv-42",
+                "memoryEnabled": False,
+            },
+        )
+    finally:
+        checkpointing.set_memory_graph(None)
+
+    assert _sse_events(response)[-1]["reply"] == "无记忆回复"
+
+
+def test_delete_conversation_memory_purges_thread(monkeypatch):
+    monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    deleted: list[str] = []
+
+    class FakeCheckpointer:
+        async def adelete_thread(self, thread_id):
+            deleted.append(thread_id)
+
+    monkeypatch.setattr(chat_route, "get_checkpointer", lambda: FakeCheckpointer())
+    client = TestClient(create_app())
+    response = client.delete(
+        "/v1/chat/memory/conv-42", headers={"X-Api-Key": "test-key"}
+    )
+
+    assert response.status_code == 204
+    assert deleted == ["conv-42"]
+
+
+def test_delete_conversation_memory_succeeds_when_memory_disabled(monkeypatch):
+    monkeypatch.setenv("AI_INTERNAL_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr(chat_route, "get_checkpointer", lambda: None)
+    client = TestClient(create_app())
+    response = client.delete(
+        "/v1/chat/memory/conv-42", headers={"X-Api-Key": "test-key"}
+    )
+
+    assert response.status_code == 204
+

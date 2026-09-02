@@ -11,6 +11,7 @@ from datetime import datetime
 
 from langchain.tools import ToolRuntime
 from langchain_core.messages import HumanMessage
+from langgraph.runtime import Runtime
 
 from app.graphs.hospital.nodes import tool as tool_node_module
 from app.graphs.hospital.tools import departments as departments_module
@@ -32,6 +33,10 @@ def _tool_runtime(context: HospitalToolContext) -> ToolRuntime:
     )
 
 
+def _graph_runtime(context: HospitalToolContext) -> Runtime:
+    return Runtime(context=context)
+
+
 class FakeJavaToolClient:
     def list_departments(self, delegated_token, request_id):
         assert delegated_token == "delegated-token"
@@ -40,7 +45,9 @@ class FakeJavaToolClient:
 
 
 def test_tool_node_skips_when_tools_not_selected():
-    assert tool_node_module.tool_node({"selected_agents": ["chat"]}) == {}
+    assert tool_node_module.tool_node(
+        {"selected_agents": ["chat"]}, _graph_runtime(CONTEXT)
+    ) == {}
 
 
 def test_list_departments_reads_delegation_from_runtime_context(monkeypatch):
@@ -92,17 +99,14 @@ def test_tool_node_invokes_agent_with_request_scoped_context(monkeypatch):
             return {"messages": [HumanMessage(content="当前可查询的科室：内科、儿科。")]}
 
     monkeypatch.setattr(tool_node_module, "agent", FakeAgent())
-    monkeypatch.setattr(tool_node_module, "clinic_now", lambda: FROZEN_NOW)
-
     history = [HumanMessage(content="有哪些科室？")]
     result = tool_node_module.tool_node(
         {
             "selected_agents": ["tools"],
-            "delegated_token": "delegated-token",
-            "request_id": "trace-123",
             "conversation_id": "conversation-1",
             "messages": history,
-        }
+        },
+        _graph_runtime(CONTEXT),
     )
 
     assert result == {"tools_reply": "当前可查询的科室：内科、儿科。"}
@@ -122,7 +126,14 @@ def test_tool_node_returns_unavailable_when_delegated_token_missing():
     assert tool_node_module.tool_node(
         {
             "selected_agents": ["tools"],
-            "delegated_token": "",
             "messages": [HumanMessage(content="有哪些科室？")],
-        }
+        },
+        _graph_runtime(HospitalToolContext("", "trace-123", now=FROZEN_NOW)),
     ) == {"tools_reply": "业务查询服务暂不可用，请稍后重试。"}
+
+
+def test_state_schema_never_carries_delegated_token():
+    from app.graphs.hospital.state import State
+
+    assert "delegated_token" not in State.__annotations__
+    assert "request_id" not in State.__annotations__

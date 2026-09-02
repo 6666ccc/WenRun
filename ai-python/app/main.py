@@ -1,5 +1,6 @@
 from pathlib import Path
 from time import perf_counter
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -8,6 +9,7 @@ from loguru import logger
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from app.api.routes import chat, health
+from app.graphs.hospital.checkpointing import memory_lifespan
 from app.core.logging import (
     configure_logging,
     new_request_id,
@@ -18,9 +20,15 @@ from app.core.logging import (
 configure_logging()
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    async with memory_lifespan():
+        yield
+
+
 def create_app() -> FastAPI:
     """创建温润 AI HTTP 服务。"""
-    app = FastAPI(title="WenRun AI API", version="0.1.0")
+    app = FastAPI(title="WenRun AI API", version="0.1.0", lifespan=lifespan)
     app.include_router(chat.router)
     app.include_router(health.router)
 

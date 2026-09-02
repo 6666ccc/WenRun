@@ -1,4 +1,5 @@
 ##该节点主要是简单聊天，不需要专业知识，不需要工具，只需要根据患者的问题，给出回复即可。
+from app.graphs.hospital.memory import recent_messages
 from app.graphs.hospital.state import State
 from app.models.chat import model
 from langchain.agents import create_agent
@@ -44,7 +45,7 @@ def chat_node(state: State) -> dict:
         return {}
 
     ##任务二：调用闲聊 agent，把回复写入 chat_reply 供汇总节点使用
-    result = agent.invoke({"messages": list(state.get("messages") or [])[-6:]})
+    result = agent.invoke({"messages": recent_messages(state)})
     messages = result.get("messages") or []
     last = messages[-1] if messages else None
     content = getattr(last, "content", "") if last is not None else ""

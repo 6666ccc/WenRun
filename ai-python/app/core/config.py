@@ -31,6 +31,11 @@ class Settings(BaseSettings):
         5.0,
         validation_alias="JAVA_TOOL_TIMEOUT_SECONDS",
     )
+    redis_url: str = Field("", validation_alias="AI_REDIS_URL")
+    checkpoint_ttl_minutes: int = Field(
+        1440,
+        validation_alias="AI_CHECKPOINT_TTL_MINUTES",
+    )
     tavily_api_key: str = Field("", validation_alias="TAVILY_API_KEY")
 
 

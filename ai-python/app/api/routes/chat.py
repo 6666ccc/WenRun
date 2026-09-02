@@ -8,11 +8,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
 from app.api.dependencies.auth import DelegationContext, verify_api_key, verify_delegation_token
 from app.core.logging import current_request_id
+from app.graphs.hospital.checkpointing import get_checkpointer, get_memory_graph
 from app.graphs.hospital.graphs import graph
+from app.graphs.hospital.tools.context import HospitalToolContext
 from app.models.chat import ChatRequest, ChatResponse
 from app.rag.ingest import ingest_file
 
@@ -47,16 +49,30 @@ def _response_from_state(request: ChatRequest, result: dict[str, Any]) -> ChatRe
     )
 
 
-def _initial_state(request: ChatRequest, delegation: DelegationContext) -> dict[str, Any]:
+def _initial_state(request: ChatRequest) -> dict[str, Any]:
     return {
         "messages": [HumanMessage(content=request.message)],
         "conversation_id": request.conversation_id,
         "patient_id": request.user_context.patient_id,
-        # 当前图没有 checkpointer；如后续加入持久化，必须改用 Runtime Context，
-        # 不能把委托 Token 写入可恢复的 State。
-        "delegated_token": delegation.token,
-        "request_id": current_request_id(),
     }
+
+
+def _runtime_context(delegation: DelegationContext) -> HospitalToolContext:
+    """委托令牌与追踪号只在本次请求内有效，绝不进入持久化 State。"""
+
+    return HospitalToolContext(delegation.token, current_request_id())
+
+
+def _graph_for(memory_enabled: bool):
+    if memory_enabled:
+        memory_graph = get_memory_graph()
+        if memory_graph is not None:
+            return memory_graph
+    return graph
+
+
+def _graph_config(request: ChatRequest) -> dict[str, Any]:
+    return {"configurable": {"thread_id": request.conversation_id}}
 
 
 def _text_from_message_chunk(message_chunk: object) -> str:
@@ -152,9 +168,10 @@ async def _stream_graph(
 ) -> AsyncIterator[dict[str, Any]]:
     """生成 LangGraph v2 流式片段。"""
 
-    initial_state = _initial_state(request, delegation)
-    async for part in graph.astream(
-        initial_state,
+    async for part in _graph_for(request.memory_enabled).astream(
+        _initial_state(request),
+        context=_runtime_context(delegation),
+        config=_graph_config(request),
         stream_mode=["messages", "values"],
         subgraphs=True,
         version="v2",
@@ -193,6 +210,21 @@ async def upload_knowledge_document(
     except Exception as exc:
         logger.exception("knowledge_document_ingest_failed filename={}", filename)
         raise HTTPException(status_code=500, detail="文档写入知识库失败，请稍后再试") from exc
+
+
+@router.delete("/memory/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation_memory(conversation_id: str) -> Response:
+    """清除单个会话的 checkpoint。会话归属由 Java 侧校验后才会调用。"""
+
+    checkpointer = get_checkpointer()
+    if checkpointer is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        await checkpointer.adelete_thread(conversation_id)
+    except Exception:
+        logger.exception("conversation_memory_delete_failed conversation_id={}", conversation_id)
+        raise HTTPException(status_code=500, detail="会话记忆清理失败") from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/stream")

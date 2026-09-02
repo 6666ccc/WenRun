@@ -30,7 +30,7 @@ def test_begin_node_uses_model_json_without_tool_strategy(monkeypatch):
 
     result = begin.begin_node({"messages": [HumanMessage(content="我感冒了，帮我挂明天内科")]})
 
-    assert result == {"selected_agents": ["knowledge", "tools"]}
+    assert result["selected_agents"] == ["knowledge", "tools"]
     assert len(stub_model.calls) == 1
     assert isinstance(stub_model.calls[0][0], SystemMessage)
     assert "只返回一个 JSON 对象" in stub_model.calls[0][0].content
@@ -47,7 +47,7 @@ def test_begin_node_asks_model_to_repair_invalid_json_once(monkeypatch):
 
     result = begin.begin_node({"messages": [HumanMessage(content="普通感冒有什么症状")]})
 
-    assert result == {"selected_agents": ["knowledge"]}
+    assert result["selected_agents"] == ["knowledge"]
     assert len(stub_model.calls) == 2
     assert isinstance(stub_model.calls[1][0], SystemMessage)
     assert "上一次无效输出如下" in stub_model.calls[1][0].content
@@ -61,7 +61,7 @@ def test_begin_node_falls_back_to_chat_after_invalid_repair(monkeypatch):
 
     result = begin.begin_node({"messages": [HumanMessage(content="随便说点什么")]})
 
-    assert result == {"selected_agents": ["chat"]}
+    assert result["selected_agents"] == ["chat"]
     assert len(stub_model.calls) == 2
 
 
@@ -73,7 +73,7 @@ def test_begin_node_retries_once_when_model_call_fails(monkeypatch):
 
     result = begin.begin_node({"messages": [HumanMessage(content="你好")]})
 
-    assert result == {"selected_agents": ["chat"]}
+    assert result["selected_agents"] == ["chat"]
     assert len(stub_model.calls) == 2
 
 
@@ -85,7 +85,7 @@ def test_begin_node_forces_tools_and_drops_knowledge_for_department_catalog(monk
 
     result = begin.begin_node({"messages": [HumanMessage(content="你们医院有哪些科室？")]})
 
-    assert result == {"selected_agents": ["tools"]}
+    assert result["selected_agents"] == ["tools"]
     assert len(stub_model.calls) == 1
 
 
@@ -108,7 +108,7 @@ def test_begin_node_does_not_force_tools_for_department_floor_question(monkeypat
 
     result = begin.begin_node({"messages": [HumanMessage(content="儿科在几楼")]})
 
-    assert result == {"selected_agents": ["knowledge"]}
+    assert result["selected_agents"] == ["knowledge"]
 
 
 def test_begin_node_uses_tools_only_when_classifier_fails_on_department_catalog(monkeypatch):
@@ -119,4 +119,19 @@ def test_begin_node_uses_tools_only_when_classifier_fails_on_department_catalog(
 
     result = begin.begin_node({"messages": [HumanMessage(content="你们医院有哪些科室？")]})
 
-    assert result == {"selected_agents": ["tools"]}
+    assert result["selected_agents"] == ["tools"]
+
+
+def test_begin_node_resets_previous_turn_outputs(monkeypatch):
+    stub_model = StubModel([AIMessage(content='{"selected_agents":["chat"]}')])
+    monkeypatch.setattr(begin, "model", stub_model)
+    result = begin.begin_node({
+        "messages": [HumanMessage(content="谢谢你啊")],
+        "knowledge_reply": "上一轮的用药建议",
+        "rag_sources": [{"id": "S1"}],
+        "tools_reply": "上一轮的号源结果",
+        "final_reply": "上一轮的最终回复",
+    })
+    assert result["selected_agents"] == ["chat"]
+    for field in ("knowledge_reply", "rag_sources", "chat_reply", "tools_reply", "final_reply"):
+        assert result[field] is None

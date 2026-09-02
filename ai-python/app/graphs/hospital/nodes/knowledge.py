@@ -1,4 +1,5 @@
 ##该节点：先检索院内 RAG；未命中时，再由 Agent 整理检索词并决定是否联网。
+from app.graphs.hospital.memory import recent_messages
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
@@ -108,7 +109,7 @@ def _to_rag_sources(documents: list[Document]) -> list[dict]:
 
 # 步骤四：院内资料未命中时，保留原有 web_search Agent 作为兜底。
 def _web_fallback_reply(state: State) -> str:
-    result = agent.invoke({"messages": list(state.get("messages") or [])[-6:]})
+    result = agent.invoke({"messages": recent_messages(state)})
     messages = result.get("messages") or []
     last = messages[-1] if messages else None
     content = getattr(last, "content", "") if last is not None else ""
@@ -156,7 +157,7 @@ def knowledge_node(state: State) -> dict:
                 f"【院内资料】\n{context}"
             )
         ),
-        *list(state.get("messages") or [])[-6:],
+        *recent_messages(state),
     ]
     answer = model.invoke(rag_messages)
 

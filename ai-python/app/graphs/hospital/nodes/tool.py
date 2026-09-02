@@ -1,6 +1,7 @@
 ##该节点处理本院实时业务查询，需要挂载工具；委托令牌与当前时间通过运行时上下文注入。
 from datetime import datetime
 
+from app.graphs.hospital.memory import recent_messages
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tools import (
     HospitalToolContext,
@@ -9,10 +10,11 @@ from app.graphs.hospital.tools import (
     list_my_registrations,
     list_schedules,
 )
-from app.graphs.hospital.tools.context import clinic_now, format_clinic_clock
+from app.graphs.hospital.tools.context import format_clinic_clock
 from app.models.chat import model
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
+from langgraph.runtime import Runtime
 from loguru import logger
 
 TOOL_SYSTEM_PROMPT = """你是温润诊所的患者端业务助手。用简短、尊重、有温度的中文直接回复患者。
@@ -70,14 +72,15 @@ agent = create_agent(
 )
 
 
-def tool_node(state: State) -> dict:
+def tool_node(state: State, runtime: Runtime[HospitalToolContext]) -> dict:
     ##任务一：看起始节点是否把 tools 写进 selected_agents
     selected = state.get("selected_agents") or []
     if "tools" not in selected:
         return {}
 
     ##任务二：没有委托令牌就不要打扰模型，直接给出降级回复
-    delegated_token = state.get("delegated_token")
+    context = runtime.context
+    delegated_token = getattr(context, "delegated_token", "")
     if not isinstance(delegated_token, str) or not delegated_token.strip():
         logger.error(
             "tool_node_missing_delegated_token conversation_id={}",
@@ -85,14 +88,10 @@ def tool_node(state: State) -> dict:
         )
         return {"tools_reply": "业务查询服务暂不可用，请稍后重试。"}
 
-    ##任务三：把请求级凭据和当前北京时间注入运行时上下文
+    ##任务三：运行时上下文只在本次请求内有效，直接透传给嵌套 Agent
     result = agent.invoke(
-        {"messages": list(state.get("messages") or [])[-6:]},
-        context=HospitalToolContext(
-            delegated_token,
-            state.get("request_id"),
-            now=clinic_now(),
-        ),
+        {"messages": recent_messages(state)},
+        context=context,
     )
     messages = result.get("messages") or []
     last = messages[-1] if messages else None

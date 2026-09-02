@@ -1,5 +1,6 @@
 """医院对话图的起始节点：只做意图多选，不直接回答患者。"""
 
+from app.graphs.hospital.memory import recent_messages, reset_turn_fields
 from app.graphs.hospital.state import AgentName, State
 from app.models.chat import model
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -188,7 +189,7 @@ def _repair_invalid_json(messages: list[BaseMessage], invalid_output: str) -> st
 def begin_node(state: State) -> dict:
     """调用模型分类，并将通过 Pydantic 校验的结果写入图 State。"""
 
-    messages = list(state.get("messages") or [])[-6:]
+    messages = recent_messages(state)
     raw_decision = _classify(messages)
     decision = _parse_decision(raw_decision or "")
 
@@ -208,4 +209,4 @@ def begin_node(state: State) -> dict:
         state.get("conversation_id"),
         selected_agents,
     )
-    return {"selected_agents": selected_agents}
+    return {**reset_turn_fields(), "selected_agents": selected_agents}
