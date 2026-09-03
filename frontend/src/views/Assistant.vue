@@ -257,7 +257,7 @@ onBeforeUnmount(() => {
               type="button"
               :class="{ 'is-active': assistant.fastMode.value }"
               :aria-pressed="assistant.fastMode.value"
-              :title="assistant.fastMode.value ? '快速模式已开启：回答更快，但查不了号源排班' : '开启快速模式：回答更快，但查不了号源排班'"
+              :title="assistant.fastMode.value ? '快速模式已开启：回答更快，可联网查公开资料，但查不了号源排班和本院规定' : '开启快速模式：回答更快，可联网查公开资料，但查不了号源排班和本院规定'"
               @click="assistant.toggleFastMode()"
             >
               <UiIcon name="zap" :size="15" />快速

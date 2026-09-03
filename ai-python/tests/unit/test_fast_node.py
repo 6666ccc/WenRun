@@ -7,7 +7,6 @@ os.environ.setdefault(
     "https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
-from langchain_core.documents import Document
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.graphs.hospital.nodes import fast as fast_mod
@@ -59,41 +58,49 @@ def test_fast_node_answers_without_tools(monkeypatch):
     assert result["tools_reply"] is None
     # 快速图没有 begin_node，必须显式清空 checkpoint 里残留的 selected_agents。
     assert result["selected_agents"] == []
-    # 只挂知识与联网两个工具，绝不挂业务写/查工具。
-    assert [tool.name for tool in scripted.bound_tools] == [
-        "search_hospital_knowledge",
-        "web_search",
-    ]
+    # 只挂联网检索，绝不挂院内 RAG 或业务写/查工具。
+    assert [tool.name for tool in scripted.bound_tools] == ["web_search"]
 
 
-def test_fast_node_collects_rag_sources_from_knowledge_tool(monkeypatch):
+def test_fast_node_uses_web_search_and_leaves_rag_sources_empty(monkeypatch):
     scripted = _ScriptedModel(
         [
-            [_tool_call("search_hospital_knowledge", {"query": "感冒"}, "call-1")],
-            [_text("院内资料显示，多休息。")],
+            [_tool_call("web_search", {"query": "感冒 用药"}, "call-1")],
+            [_text("公开资料建议多休息。")],
         ]
     )
     monkeypatch.setattr(fast_mod, "model", scripted)
     monkeypatch.setattr(
-        fast_mod,
-        "retrieve_hospital_documents",
-        lambda query: [
-            Document(page_content="多休息", metadata={"source_name": "院内资料", "page": 2})
-        ],
+        fast_mod, "web_search", _StubTool("web_search", "网页片段：多休息")
     )
 
     result = fast_mod.fast_node(
-        {"messages": [HumanMessage(content="感冒怎么办")], "conversation_id": "c1"}
+        {"messages": [HumanMessage(content="感冒吃什么药")], "conversation_id": "c1"}
     )
 
-    assert result["final_reply"] == "院内资料显示，多休息。"
-    assert result["rag_sources"] == [
-        {"id": "S1", "document_id": None, "title": "院内资料", "page": 2}
-    ]
+    assert result["final_reply"] == "公开资料建议多休息。"
+    assert result["rag_sources"] == []
     assert len(result["messages"]) == 1
-    # 第二轮必须带上工具结果。
     second_turn = scripted.seen_messages[1]
-    assert any("多休息" in str(message.content) for message in second_turn)
+    assert any("网页片段：多休息" in str(message.content) for message in second_turn)
+
+
+def test_fast_node_ignores_hospital_knowledge_tool_calls(monkeypatch):
+    scripted = _ScriptedModel(
+        [
+            [_tool_call("search_hospital_knowledge", {"query": "儿科楼层"}, "call-1")],
+            [_text("请关闭快速模式再问院内规定。")],
+        ]
+    )
+    monkeypatch.setattr(fast_mod, "model", scripted)
+
+    result = fast_mod.fast_node(
+        {"messages": [HumanMessage(content="儿科在几楼")], "conversation_id": "c1"}
+    )
+
+    assert result["rag_sources"] == []
+    second_turn = scripted.seen_messages[1]
+    assert any("没有名为 search_hospital_knowledge" in str(message.content) for message in second_turn)
 
 
 class _StubTool:

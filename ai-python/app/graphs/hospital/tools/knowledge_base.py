@@ -1,4 +1,4 @@
-"""院内知识库检索工具。供快速模式的单 Agent 自主调用。"""
+"""院内知识库检索工具。快速模式不再挂载；检索函数可供其他节点复用。"""
 
 from langchain.tools import tool
 from langchain_core.documents import Document

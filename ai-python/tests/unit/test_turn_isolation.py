@@ -60,7 +60,7 @@ def _stub_nodes(monkeypatch, intents):
     monkeypatch.setattr(
         knowledge_module,
         "model",
-        type("M", (), {"invoke": staticmethod(lambda messages: AIMessage(content="感冒建议：多喝水"))})(),
+        _StreamingStubModel("感冒建议：多喝水"),
     )
     chat_model = _StreamingStubModel("不客气，还有需要随时说。")
     monkeypatch.setattr(chat_module, "model", chat_model)
