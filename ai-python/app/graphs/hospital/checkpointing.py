@@ -6,10 +6,11 @@ from typing import Any, AsyncIterator
 from loguru import logger
 
 from app.core.config import get_settings
-from app.graphs.hospital.graphs import build_graph
+from app.graphs.hospital.graphs import build_fast_graph, build_graph
 
 _memory_graph: Any | None = None
 _checkpointer: Any | None = None
+_fast_memory_graph: Any | None = None
 
 
 def get_memory_graph() -> Any | None:
@@ -19,6 +20,15 @@ def get_memory_graph() -> Any | None:
 def set_memory_graph(graph: Any | None) -> None:
     global _memory_graph
     _memory_graph = graph
+
+
+def get_fast_memory_graph() -> Any | None:
+    return _fast_memory_graph
+
+
+def set_fast_memory_graph(graph: Any | None) -> None:
+    global _fast_memory_graph
+    _fast_memory_graph = graph
 
 
 def get_checkpointer() -> Any | None:
@@ -58,10 +68,12 @@ async def memory_lifespan() -> AsyncIterator[Any | None]:
 
     _set_checkpointer(saver)
     set_memory_graph(build_graph(checkpointer=saver))
+    set_fast_memory_graph(build_fast_graph(checkpointer=saver))
     logger.info("checkpointer_ready ttl_minutes={}", settings.checkpoint_ttl_minutes)
     try:
         yield saver
     finally:
         set_memory_graph(None)
+        set_fast_memory_graph(None)
         _set_checkpointer(None)
         await stack.aclose()

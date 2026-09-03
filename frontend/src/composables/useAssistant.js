@@ -11,6 +11,7 @@ import {
 import { toTask } from '../features/assistant/task'
 
 const STORAGE_KEY = 'wenrun_ai_sessions'
+const FAST_MODE_KEY = 'wenrun_ai_fast_mode'
 const LEGACY_OWNER_KEY = 'wenrun_ai_sessions_owner'
 const makeId = () => `session_${Date.now()}_${Math.random().toString(16).slice(2)}`
 const fulfilled = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
@@ -22,6 +23,14 @@ function runtimeKey(user) {
 
 function scopedStorageKey(key) {
   return `${STORAGE_KEY}:${key}`
+}
+
+function scopedFastModeKey(key) {
+  return `${FAST_MODE_KEY}:${key}`
+}
+
+function readFastMode(key) {
+  return localStorage.getItem(scopedFastModeKey(key)) === 'true'
 }
 
 function readSessions(key) {
@@ -50,6 +59,7 @@ function createRuntime(key) {
   const streaming = ref(false)
   const streamStatus = ref(null)
   const sessionError = ref(null)
+  const fastMode = ref(readFastMode(key))
   const task = ref(null)
   const activeRequestId = ref(null)
   const requests = new Map()
@@ -62,6 +72,12 @@ function createRuntime(key) {
     }
   }, { deep: true })
 
+  watch(fastMode, (value) => {
+    if (!destroyed) {
+      localStorage.setItem(scopedFastModeKey(key), String(value))
+    }
+  })
+
   return {
     key,
     sessions,
@@ -71,6 +87,7 @@ function createRuntime(key) {
     streaming,
     streamStatus,
     sessionError,
+    fastMode,
     task,
     activeRequestId,
     requests,
@@ -284,7 +301,10 @@ export function useAssistant(user) {
     runtime.streaming.value = false
     runtime.streamStatus.value = null
     try {
-      await chatStream({ message: content, conversationId, clientRequestId: requestId }, createStreamHandlers(runtime, conversationId, requestId))
+      await chatStream(
+        { message: content, conversationId, clientRequestId: requestId, fastMode: runtime.fastMode.value },
+        createStreamHandlers(runtime, conversationId, requestId),
+      )
     } catch (nextError) {
       const request = runtime.requests.get(requestId)
       if (nextError.name === 'AbortError' && request?.status === 'stopped') return
@@ -326,6 +346,8 @@ export function useAssistant(user) {
     streaming: runtime.streaming,
     streamStatus: runtime.streamStatus,
     sessionError: runtime.sessionError,
+    fastMode: runtime.fastMode,
+    toggleFastMode: () => { runtime.fastMode.value = !runtime.fastMode.value },
     task: runtime.task,
     sendMessage,
     stopReply: () => stopRequest(),

@@ -123,7 +123,9 @@ SELECT 'PDEMO006', '刘秀英', 0, DATE('1963-09-27'), '110101196309270028', '13
 WHERE NOT EXISTS (SELECT 1 FROM patient WHERE patient_no = 'PDEMO006');
 
 -- ---------------------------------------------------------------------------
--- 排班：临床医生 昨天到未来 6 天，上午/下午；张伟另加今晚/明晚
+-- 排班：临床医生 昨天到未来 30 天（含今天共 32 天），每天上午/下午；
+-- 张伟（D001）从今天起每天另加晚上，方便测一个月内的挂号号源。
+-- 日期按 CURDATE() 滚动，可重复执行；已有 (医生, 日期, 时段) 不会重复插入。
 -- ---------------------------------------------------------------------------
 INSERT INTO schedule (dept_id, staff_id, work_date, time_period, total_count, remaining_count, register_fee)
 SELECT st.dept_id, st.id, DATE_ADD(CURDATE(), INTERVAL days.n DAY), periods.p, 20, 20,
@@ -136,8 +138,12 @@ SELECT st.dept_id, st.id, DATE_ADD(CURDATE(), INTERVAL days.n DAY), periods.p, 2
 FROM staff st
 JOIN dept d ON d.id = st.dept_id
 JOIN (
-  SELECT -1 AS n UNION ALL SELECT 0 UNION ALL SELECT 1 UNION ALL SELECT 2
-  UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+  WITH RECURSIVE days AS (
+    SELECT -1 AS n
+    UNION ALL
+    SELECT n + 1 FROM days WHERE n < 30
+  )
+  SELECT n FROM days
 ) days
 JOIN (
   SELECT '上午' AS p UNION ALL SELECT '下午'
@@ -154,7 +160,12 @@ INSERT INTO schedule (dept_id, staff_id, work_date, time_period, total_count, re
 SELECT st.dept_id, st.id, DATE_ADD(CURDATE(), INTERVAL days.n DAY), '晚上', 10, 10, 50.00
 FROM staff st
 JOIN (
-  SELECT 0 AS n UNION ALL SELECT 1
+  WITH RECURSIVE days AS (
+    SELECT 0 AS n
+    UNION ALL
+    SELECT n + 1 FROM days WHERE n < 30
+  )
+  SELECT n FROM days
 ) days
 WHERE st.staff_no = 'D001'
   AND NOT EXISTS (

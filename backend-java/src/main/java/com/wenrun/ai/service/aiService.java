@@ -189,6 +189,7 @@ public class aiService {
         payload.put("conversationId", conversationId);
         payload.put("memoryEnabled", request.getMemoryEnabled() == null
                 ? Boolean.TRUE : request.getMemoryEnabled());
+        payload.put("fastMode", request.getFastMode() != null && request.getFastMode());
         addUserContext(payload, request.getUserId(), request.getPatientId());
         return payload;
     }

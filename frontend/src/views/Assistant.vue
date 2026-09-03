@@ -253,6 +253,16 @@ onBeforeUnmount(() => {
             @keydown="keydown"
           />
           <div class="chat-composer__tools">
+            <button
+              class="chat-composer__chip"
+              type="button"
+              :class="{ 'is-active': assistant.fastMode.value }"
+              :aria-pressed="assistant.fastMode.value"
+              :title="assistant.fastMode.value ? '快速模式已开启：回答更快，可联网查公开资料，但查不了号源排班和本院规定' : '开启快速模式：回答更快，可联网查公开资料，但查不了号源排班和本院规定'"
+              @click="assistant.toggleFastMode()"
+            >
+              <UiIcon name="zap" :size="15" />快速
+            </button>
             <button class="chat-composer__chip" type="button" @click="openTask({ type: 'registration', title: '预约挂号' })">
               <UiIcon name="calendar" :size="15" />挂号
             </button>
@@ -891,5 +901,11 @@ onBeforeUnmount(() => {
   .message-in-leave-active,
   .assistant-task,
   .chat-typing span { animation: none; transition: none; }
+}
+
+.chat-composer__chip.is-active {
+  border-color: currentColor;
+  color: var(--color-primary, #1a7f6b);
+  font-weight: 600;
 }
 </style>

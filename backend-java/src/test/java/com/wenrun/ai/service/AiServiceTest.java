@@ -35,6 +35,7 @@ class AiServiceTest {
                 .andExpect(header("X-Request-Id", "request-123"))
                 .andExpect(jsonPath("$.userContext.userId").value(7))
                 .andExpect(jsonPath("$.userContext.patientId").value(12))
+                .andExpect(jsonPath("$.fastMode").value(true))
                 .andRespond(withSuccess("""
                         data: {"type":"status","content":"正在分析"}
 
@@ -49,6 +50,7 @@ class AiServiceTest {
         request.setConversationId("conversation-1");
         request.setUserId(7L);
         request.setPatientId(12L);
+        request.setFastMode(true);
         request.setRequestId("request-123");
         List<Map<String, Object>> events = new ArrayList<>();
 

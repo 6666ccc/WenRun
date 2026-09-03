@@ -13,8 +13,12 @@ from starlette.responses import Response, StreamingResponse
 
 from app.api.dependencies.auth import DelegationContext, verify_api_key, verify_delegation_token
 from app.core.logging import current_request_id
-from app.graphs.hospital.checkpointing import get_checkpointer, get_memory_graph
-from app.graphs.hospital.graphs import graph
+from app.graphs.hospital.checkpointing import (
+    get_checkpointer,
+    get_fast_memory_graph,
+    get_memory_graph,
+)
+from app.graphs.hospital.graphs import fast_graph, graph
 from app.graphs.hospital.tools.context import HospitalToolContext
 from app.models.chat import ChatRequest, ChatResponse
 from app.rag.ingest import ingest_file
@@ -64,12 +68,12 @@ def _runtime_context(delegation: DelegationContext) -> HospitalToolContext:
     return HospitalToolContext(delegation.token, current_request_id())
 
 
-def _graph_for(memory_enabled: bool):
+def _graph_for(memory_enabled: bool, fast_mode: bool):
     if memory_enabled:
-        memory_graph = get_memory_graph()
+        memory_graph = get_fast_memory_graph() if fast_mode else get_memory_graph()
         if memory_graph is not None:
             return memory_graph
-    return graph
+    return fast_graph if fast_mode else graph
 
 
 def _graph_config(request: ChatRequest) -> dict[str, Any]:
@@ -103,18 +107,31 @@ def _is_streamable_message(message_chunk: object) -> bool:
     )) and bool(_text_from_message_chunk(message_chunk).strip())
 
 
-def _stream_visible_nodes(selected_agents: list[str]) -> set[str]:
+# 单意图时直接对患者输出正文的根图节点。tool_node 的回复由嵌套 Agent 生成，
+# 只在子图命名空间里产生分片，因此不在此列。
+_SOLE_AGENT_STREAM_NODES = {
+    "chat": "chat_node",
+    "knowledge": "knowledge_node",
+}
+
+
+def _stream_visible_nodes(selected_agents: list[str], fast_mode: bool = False) -> set[str]:
     """选择对患者可见的图节点输出。
 
     起始节点也可能产生 LLM 消息，但这些是路由 JSON，绝不能发送到浏览器。
     当多个回复节点同时启用时，只有 final_node 执行最终汇总，因此它是唯一安全的流式输出节点。
     """
 
-    # 知识 Agent 可能会调用 RAG 和网页搜索工具。其嵌套模型消息属于实现细节，
-    # 因此知识请求必须等待图完成最终汇总。仅闲聊请求没有检索或工具阶段，
-    # 可以继续直接从 chat 节点进行流式输出。
-    if selected_agents == ["chat"]:
-        return {"chat_node"}
+    # 快速模式没有路由与汇总，fast_node 直接产出面向患者的正文。
+    if fast_mode:
+        return {"fast_node"}
+
+    # 只有一个回复节点被选中时，final_node 只做透传、不再调用模型，
+    # 该节点自身的输出就是最终正文，可以直接流式转发。
+    if len(selected_agents) == 1:
+        node = _SOLE_AGENT_STREAM_NODES.get(selected_agents[0])
+        if node is not None:
+            return {node}
     return {"final_node"}
 
 
@@ -135,7 +152,7 @@ async def _stream_graph(
 ) -> AsyncIterator[dict[str, Any]]:
     """生成 LangGraph v2 流式片段。"""
 
-    async for part in _graph_for(request.memory_enabled).astream(
+    async for part in _graph_for(request.memory_enabled, request.fast_mode).astream(
         _initial_state(request),
         context=_runtime_context(delegation),
         config=_graph_config(request),
@@ -218,11 +235,19 @@ async def chat_stream(
                     agent for agent in incoming_agents if isinstance(agent, str)
                 ]
 
-                if "knowledge" in selected_agents and not retrieval_status_sent:
+                if (
+                    not request.fast_mode
+                    and "knowledge" in selected_agents
+                    and not retrieval_status_sent
+                ):
                     retrieval_status_sent = True
                     yield _sse({"type": "status", "content": "正在检索相关资料…"})
 
                 if part.get("type") != "messages":
+                    continue
+                if part.get("ns"):
+                    # 嵌套 Agent（网页检索、业务工具）的模型分片属于实现细节，
+                    # 只转发根图节点自己产生的消息。
                     continue
                 data = part.get("data")
                 if not isinstance(data, (list, tuple)) or len(data) != 2:
@@ -231,11 +256,15 @@ async def chat_stream(
                 if not isinstance(metadata, dict):
                     continue
                 node_name = metadata.get("langgraph_node")
-                visible_nodes = _stream_visible_nodes(selected_agents)
+                visible_nodes = _stream_visible_nodes(selected_agents, request.fast_mode)
                 if node_name not in visible_nodes or not _is_streamable_message(message_chunk):
                     continue
                 content = _text_from_message_chunk(message_chunk)
-                if "knowledge" in selected_agents and not final_status_sent:
+                if (
+                    not request.fast_mode
+                    and "knowledge" in selected_agents
+                    and not final_status_sent
+                ):
                     final_status_sent = True
                     yield _sse({"type": "status", "content": "正在整理答案…"})
                 if first_token_at is None:
