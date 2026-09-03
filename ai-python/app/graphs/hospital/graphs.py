@@ -1,5 +1,6 @@
 from app.graphs.hospital.nodes.begin import begin_node
 from app.graphs.hospital.nodes.chat import chat_node
+from app.graphs.hospital.nodes.fast import fast_node
 from app.graphs.hospital.nodes.final import final_node
 from app.graphs.hospital.nodes.knowledge import knowledge_node
 from app.graphs.hospital.nodes.summarize import summarize_node
@@ -47,5 +48,25 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     return _workflow().compile(checkpointer=checkpointer)
 
 
+def _fast_workflow() -> StateGraph:
+    """快速模式：单个全能节点直接作答，只保留摘要压缩。"""
+
+    workflow = StateGraph(State, context_schema=HospitalToolContext)
+    workflow.add_node("fast_node", fast_node)
+    workflow.add_node("summarize_node", summarize_node)
+
+    workflow.add_edge(START, "fast_node")
+    workflow.add_edge("fast_node", "summarize_node")
+    workflow.add_edge("summarize_node", END)
+    return workflow
+
+
+def build_fast_graph(checkpointer: BaseCheckpointSaver | None = None):
+    """按需编译快速模式图。checkpointer 为 None 时得到无记忆实例。"""
+
+    return _fast_workflow().compile(checkpointer=checkpointer)
+
+
 # langgraph.json 依赖该模块级实例；导入阶段不连接 Redis。
 graph = build_graph()
+fast_graph = build_fast_graph()
