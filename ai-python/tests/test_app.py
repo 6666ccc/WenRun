@@ -233,21 +233,21 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
     assert captured["version"] == "v2"
 
 
-def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monkeypatch):
+def test_chat_stream_hides_knowledge_internals_when_final_node_summarizes(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
 
     class FakeGraph:
         async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
             yield {
                 "type": "values",
-                "data": {"selected_agents": ["knowledge"]},
+                "data": {"selected_agents": ["knowledge", "tools"]},
             }
             # 工具输出绝不能作为面向患者的文本发送。
             yield {
                 "type": "messages",
                 "data": (ToolMessage(content="RAW_SEARCH_RESULT", tool_call_id="call-1"), {"langgraph_node": "knowledge_node"}),
             }
-            # 在 final_node 之前，知识 Agent 的模型输出同样属于内部内容。
+            # 多意图时 final_node 会重写正文，此前各节点的输出都属于内部内容。
             yield {
                 "type": "messages",
                 "data": (AIMessageChunk(content="内部检索摘要"), {"langgraph_node": "knowledge_node"}),
@@ -259,7 +259,7 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
             yield {
                 "type": "values",
                 "data": {
-                    "selected_agents": ["knowledge"],
+                    "selected_agents": ["knowledge", "tools"],
                     "final_reply": "最终面向患者的答案",
                     "rag_sources": [],
                 },
@@ -271,7 +271,7 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
         "/v1/chat/stream",
         headers=headers,
         json={
-            "message": "感冒吃什么药",
+            "message": "感冒吃什么药，顺便帮我查下明天内科的号",
             "conversationId": "knowledge-stream-demo",
         },
     )
@@ -293,10 +293,75 @@ def test_chat_stream_hides_knowledge_internals_and_only_exposes_final_reply(monk
     assert events[-1]["reply"] == "最终面向患者的答案"
 
 
-def test_stream_visible_nodes_only_streams_chat_when_chat_is_the_sole_agent():
+def test_chat_stream_forwards_knowledge_node_when_knowledge_is_the_sole_agent(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+
+    class FakeGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            yield {
+                "type": "values",
+                "data": {"selected_agents": ["knowledge"]},
+            }
+            # 嵌套 Agent（网页兜底）的分片带子图命名空间，不得转发给患者。
+            yield {
+                "type": "messages",
+                "ns": ("knowledge_node:1",),
+                "data": (AIMessageChunk(content="嵌套内部草稿"), {"langgraph_node": "model"}),
+            }
+            yield {
+                "type": "messages",
+                "data": (AIMessageChunk(content="院内资料显示，"), {"langgraph_node": "knowledge_node"}),
+            }
+            yield {
+                "type": "messages",
+                "data": (AIMessageChunk(content="请多休息。"), {"langgraph_node": "knowledge_node"}),
+            }
+            yield {
+                "type": "values",
+                "data": {
+                    "selected_agents": ["knowledge"],
+                    "final_reply": "院内资料显示，请多休息。",
+                    "rag_sources": [{"id": "S1", "title": "院内资料", "page": 1}],
+                },
+            }
+
+    monkeypatch.setattr(chat_route, "graph", FakeGraph())
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={
+            "message": "感冒吃什么药",
+            "conversationId": "knowledge-sole-demo",
+        },
+    )
+
+    assert response.status_code == 200
+    events = _sse_events(response)
+    assert [event["type"] for event in events] == [
+        "status",
+        "status",
+        "status",
+        "token",
+        "token",
+        "citation",
+        "done",
+    ]
+    assert [event["content"] for event in events if event["type"] == "token"] == [
+        "院内资料显示，",
+        "请多休息。",
+    ]
+    assert "嵌套内部草稿" not in response.text
+    assert events[-1]["reply"] == "院内资料显示，请多休息。"
+
+
+def test_stream_visible_nodes_streams_the_sole_root_reply_node():
     assert chat_route._stream_visible_nodes(["chat"]) == {"chat_node"}
-    assert chat_route._stream_visible_nodes(["knowledge"]) == {"final_node"}
+    assert chat_route._stream_visible_nodes(["knowledge"]) == {"knowledge_node"}
+    # tool_node 的正文由嵌套 Agent 生成，只能等 final_node 透传后一次性下发。
+    assert chat_route._stream_visible_nodes(["tools"]) == {"final_node"}
     assert chat_route._stream_visible_nodes(["knowledge", "chat"]) == {"final_node"}
+    assert chat_route._stream_visible_nodes([]) == {"final_node"}
 
 
 def test_graph_config_uses_conversation_id_as_thread_id():
@@ -406,4 +471,103 @@ def test_delete_conversation_memory_succeeds_when_memory_disabled(monkeypatch):
     )
 
     assert response.status_code == 204
+
+
+def test_stream_visible_nodes_uses_fast_node_in_fast_mode():
+    assert chat_route._stream_visible_nodes([], fast_mode=True) == {"fast_node"}
+    assert chat_route._stream_visible_nodes(["chat"], fast_mode=True) == {"fast_node"}
+
+
+def test_chat_stream_uses_fast_graph_when_fast_mode_enabled(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+
+    class NormalGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            raise AssertionError("fastMode=true 时不得使用正常图")
+            yield  # pragma: no cover
+
+    class FastGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            yield {
+                "type": "messages",
+                "data": (AIMessageChunk(content="快速回复"), {"langgraph_node": "fast_node"}),
+            }
+            yield {"type": "values", "data": {"final_reply": "快速回复", "rag_sources": []}}
+
+    monkeypatch.setattr(chat_route, "graph", NormalGraph())
+    monkeypatch.setattr(chat_route, "fast_graph", FastGraph())
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={
+            "message": "你好",
+            "conversationId": "fast-demo",
+            "memoryEnabled": False,
+            "fastMode": True,
+        },
+    )
+
+    assert response.status_code == 200
+    events = _sse_events(response)
+    assert [event["type"] for event in events] == ["status", "token", "done"]
+    assert events[1]["content"] == "快速回复"
+    assert events[-1]["reply"] == "快速回复"
+
+
+def test_chat_stream_defaults_to_normal_graph(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+
+    class NormalGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            yield {"type": "values", "data": {"final_reply": "正常回复"}}
+
+    class FastGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            raise AssertionError("未传 fastMode 时不得使用快速图")
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(chat_route, "graph", NormalGraph())
+    monkeypatch.setattr(chat_route, "fast_graph", FastGraph())
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={"message": "你好", "conversationId": "fast-default", "memoryEnabled": False},
+    )
+
+    assert _sse_events(response)[-1]["reply"] == "正常回复"
+
+
+def test_chat_stream_prefers_fast_memory_graph(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    from app.graphs.hospital import checkpointing
+
+    captured: dict = {}
+
+    class FastMemoryGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            captured["config"] = config
+            yield {"type": "values", "data": {"final_reply": "快速记忆回复"}}
+
+    class FastStatelessGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            captured["used_stateless"] = True
+            yield {"type": "values", "data": {"final_reply": "快速无记忆回复"}}
+
+    monkeypatch.setattr(chat_route, "fast_graph", FastStatelessGraph())
+    checkpointing.set_fast_memory_graph(FastMemoryGraph())
+    try:
+        client = TestClient(create_app())
+        response = client.post(
+            "/v1/chat/stream",
+            headers=headers,
+            json={"message": "你好", "conversationId": "conv-77", "fastMode": True},
+        )
+    finally:
+        checkpointing.set_fast_memory_graph(None)
+
+    assert _sse_events(response)[-1]["reply"] == "快速记忆回复"
+    assert captured["config"] == {"configurable": {"thread_id": "conv-77"}}
+    assert "used_stateless" not in captured
 

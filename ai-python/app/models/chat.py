@@ -34,6 +34,7 @@ class ChatRequest(ApiModel):
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str = Field(alias="conversationId", min_length=1, max_length=64)
     memory_enabled: bool = Field(default=True, alias="memoryEnabled")
+    fast_mode: bool = Field(default=False, alias="fastMode")
     user_context: UserContext = Field(default_factory=UserContext, alias="userContext")
 
 
