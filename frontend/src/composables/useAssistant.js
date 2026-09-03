@@ -349,7 +349,7 @@ export function useAssistant(user) {
   }
 
   async function respondToPending(message, decision) {
-    const conversationId = runtime.activeId.value
+    const conversationId = message.meta?.confirm?.conversationId || runtime.activeId.value
     const requestId = createRequestId()
     // 确认卡片一旦作答就不再可点，避免重复提交。
     updateSession(runtime, conversationId, (session) => ({
