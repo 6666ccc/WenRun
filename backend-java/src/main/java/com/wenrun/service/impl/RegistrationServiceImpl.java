@@ -16,11 +16,13 @@ import com.wenrun.repository.ScheduleRepository;
 import com.wenrun.service.RegistrationService;
 import com.wenrun.vo.RegistrationVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -80,6 +82,20 @@ public class RegistrationServiceImpl implements RegistrationService {
         if (schedule == null) {
             throw new BusinessException("排班不存在");
         }
+
+        // 行锁已把同一排班的并发挂号串行化，锁内查询能读到前一笔已提交的重放记录。
+        // 幂等命中必须早于过期与号源校验：已经挂上的号在排班过期后被重放时，应当返回原单而不是报错。
+        String idempotencyKey = normalizeIdempotencyKey(dto.getIdempotencyKey());
+        if (idempotencyKey != null) {
+            Registration replayed = registrationMapper.selectByIdempotencyKey(idempotencyKey);
+            if (replayed != null) {
+                if (!Objects.equals(replayed.getPatientId(), patientId)) {
+                    throw new BusinessException("幂等键已被占用，请更换后重试");
+                }
+                return replayed.getId();
+            }
+        }
+
         if (clinicProperties.isExpired(schedule.getWorkDate(), schedule.getTimePeriod())) {
             throw new BusinessException("该排班已过期，无法挂号");
         }
@@ -105,8 +121,23 @@ public class RegistrationServiceImpl implements RegistrationService {
         reg.setStatus(BizStatus.REG_REGISTERED);
         reg.setCashierId(UserContext.getUserId());
         reg.setRegistrantUserId(UserContext.getUserId());
-        registrationMapper.insert(reg);
+        reg.setIdempotencyKey(idempotencyKey);
+        try {
+            registrationMapper.insert(reg);
+        } catch (DuplicateKeyException ex) {
+            // 同一幂等键指向不同排班时锁的不是同一行，行锁挡不住，由唯一索引兜底。
+            throw new BusinessException("请勿重复提交挂号请求");
+        }
         return reg.getId();
+    }
+
+    /** 空白幂等键归一化为 null，避免多张单共用空串撞唯一索引。 */
+    private static String normalizeIdempotencyKey(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     // 取消挂号

@@ -4,16 +4,21 @@ import com.wenrun.config.ClinicProperties;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.dto.RegistrationCreateDTO;
 import com.wenrun.entity.Patient;
+import com.wenrun.entity.Registration;
 import com.wenrun.entity.Schedule;
 import com.wenrun.repository.PatientRepository;
 import com.wenrun.repository.RegistrationRepository;
 import com.wenrun.repository.ScheduleRepository;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -76,5 +81,111 @@ class RegistrationServiceImplTest {
         assertEquals("您已预约该医生此时段，不能重复挂号", error.getMessage());
         verify(scheduleMapper, never()).decrementRemaining(anyLong());
         verify(registrationMapper, never()).insert(org.mockito.ArgumentMatchers.any());
+    }
+
+    private Schedule bookableSchedule() {
+        Schedule schedule = new Schedule();
+        schedule.setId(9L);
+        schedule.setStaffId(8L);
+        schedule.setDeptId(3L);
+        schedule.setWorkDate(clinic.today().plusDays(1));
+        schedule.setTimePeriod("下午");
+        schedule.setRemainingCount(19);
+        return schedule;
+    }
+
+    private void givenPatientAndSchedule(Schedule schedule) {
+        Patient patient = new Patient();
+        patient.setId(1L);
+        when(patientMapper.selectById(1L)).thenReturn(patient);
+        when(scheduleMapper.selectByIdForUpdate(9L)).thenReturn(schedule);
+    }
+
+    private RegistrationCreateDTO dtoWithKey(String idempotencyKey) {
+        RegistrationCreateDTO dto = new RegistrationCreateDTO();
+        dto.setPatientId(1L);
+        dto.setScheduleId(9L);
+        dto.setIdempotencyKey(idempotencyKey);
+        return dto;
+    }
+
+    @Test
+    void registerReturnsExistingOrderWhenIdempotencyKeyIsReplayed() {
+        givenPatientAndSchedule(bookableSchedule());
+        Registration existing = new Registration();
+        existing.setId(77L);
+        existing.setPatientId(1L);
+        when(registrationMapper.selectByIdempotencyKey("ai-reg-001")).thenReturn(existing);
+
+        assertEquals(77L, service.register(dtoWithKey("ai-reg-001")));
+
+        verify(scheduleMapper, never()).decrementRemaining(anyLong());
+        verify(registrationMapper, never()).insert(any());
+    }
+
+    @Test
+    void registerReplaysSuccessfullyEvenAfterScheduleExpired() {
+        Schedule expired = bookableSchedule();
+        expired.setWorkDate(clinic.today().minusDays(2));
+        givenPatientAndSchedule(expired);
+        Registration existing = new Registration();
+        existing.setId(77L);
+        existing.setPatientId(1L);
+        when(registrationMapper.selectByIdempotencyKey("ai-reg-001")).thenReturn(existing);
+
+        assertEquals(77L, service.register(dtoWithKey("ai-reg-001")));
+    }
+
+    @Test
+    void registerRejectsIdempotencyKeyOwnedByAnotherPatient() {
+        givenPatientAndSchedule(bookableSchedule());
+        Registration other = new Registration();
+        other.setId(77L);
+        other.setPatientId(2L);
+        when(registrationMapper.selectByIdempotencyKey("ai-reg-001")).thenReturn(other);
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.register(dtoWithKey("ai-reg-001")));
+
+        assertEquals("幂等键已被占用，请更换后重试", error.getMessage());
+        verify(scheduleMapper, never()).decrementRemaining(anyLong());
+    }
+
+    @Test
+    void registerPersistsIdempotencyKeyOnInsert() {
+        givenPatientAndSchedule(bookableSchedule());
+        when(scheduleMapper.decrementRemaining(9L)).thenReturn(1);
+        ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
+
+        service.register(dtoWithKey("ai-reg-001"));
+
+        verify(registrationMapper).insert(saved.capture());
+        assertEquals("ai-reg-001", saved.getValue().getIdempotencyKey());
+    }
+
+    @Test
+    void registerTreatsBlankIdempotencyKeyAsAbsent() {
+        givenPatientAndSchedule(bookableSchedule());
+        when(scheduleMapper.decrementRemaining(9L)).thenReturn(1);
+        ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
+
+        service.register(dtoWithKey("   "));
+
+        verify(registrationMapper, never()).selectByIdempotencyKey(org.mockito.ArgumentMatchers.anyString());
+        verify(registrationMapper).insert(saved.capture());
+        assertNull(saved.getValue().getIdempotencyKey());
+    }
+
+    @Test
+    void registerTranslatesUniqueIndexViolationIntoBusinessError() {
+        givenPatientAndSchedule(bookableSchedule());
+        when(scheduleMapper.decrementRemaining(9L)).thenReturn(1);
+        when(registrationMapper.insert(any()))
+                .thenThrow(new DuplicateKeyException("uk_registration_idempotency_key"));
+
+        BusinessException error = assertThrows(
+                BusinessException.class, () -> service.register(dtoWithKey("ai-reg-001")));
+
+        assertEquals("请勿重复提交挂号请求", error.getMessage());
     }
 }
