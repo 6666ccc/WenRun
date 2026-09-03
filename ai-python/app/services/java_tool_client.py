@@ -13,6 +13,10 @@ class JavaToolClientError(RuntimeError):
     """Java Tool API 不可用、未授权或返回了不符合契约的数据。"""
 
 
+class JavaToolBusinessError(JavaToolClientError):
+    """Java 依据业务规则拒绝了本次请求，message 是可以直接转达给患者的中文文案。"""
+
+
 @dataclass(frozen=True)
 class Department:
     id: int
@@ -70,6 +74,19 @@ def _optional_str(item: dict[str, Any], key: str) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _to_schedule(item: dict[str, Any]) -> Schedule:
+    return Schedule(
+        id=_required_int(item, "id"),
+        dept_name=_optional_str(item, "deptName"),
+        staff_name=_optional_str(item, "staffName"),
+        work_date=_optional_str(item, "workDate"),
+        time_period=_optional_str(item, "timePeriod"),
+        total_count=_optional_int(item, "totalCount"),
+        remaining_count=_optional_int(item, "remainingCount"),
+        register_fee=_optional_str(item, "registerFee"),
+    )
 
 
 class JavaToolClient:
@@ -163,19 +180,24 @@ class JavaToolClient:
                 "staffId": staff_id,
             },
         )
-        return [
-            Schedule(
-                id=_required_int(item, "id"),
-                dept_name=_optional_str(item, "deptName"),
-                staff_name=_optional_str(item, "staffName"),
-                work_date=_optional_str(item, "workDate"),
-                time_period=_optional_str(item, "timePeriod"),
-                total_count=_optional_int(item, "totalCount"),
-                remaining_count=_optional_int(item, "remainingCount"),
-                register_fee=_optional_str(item, "registerFee"),
-            )
-            for item in data
-        ]
+        return [_to_schedule(item) for item in data]
+
+    def get_schedule(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        *,
+        schedule_id: int,
+    ) -> Schedule:
+        """按 id 查单条排班。确认卡片必须用这里查回来的权威数据，不能用模型复述的。"""
+        data = self._get(
+            f"/api/internal/ai-tools/schedules/{schedule_id}",
+            delegated_token,
+            request_id,
+        )
+        if not isinstance(data, dict):
+            raise JavaToolClientError("Java Tool API returned an invalid schedule")
+        return _to_schedule(data)
 
     def list_my_registrations(
         self,
@@ -205,6 +227,39 @@ class JavaToolClient:
             for item in data
         ]
 
+    def create_registration(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        *,
+        schedule_id: int,
+        idempotency_key: str,
+    ) -> int:
+        """患者维度由 Java 依据委托令牌决定，这里不能也不该传 patientId。"""
+        data = self._post(
+            "/api/internal/ai-tools/registrations",
+            delegated_token,
+            request_id,
+            {"scheduleId": schedule_id, "idempotencyKey": idempotency_key},
+        )
+        if not isinstance(data, int):
+            raise JavaToolClientError("Java Tool API returned an invalid registration id")
+        return data
+
+    def cancel_registration(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        *,
+        registration_id: int,
+    ) -> None:
+        self._post(
+            f"/api/internal/ai-tools/registrations/{registration_id}/cancel",
+            delegated_token,
+            request_id,
+            {},
+        )
+
     def _get_list(
         self,
         path: str,
@@ -227,14 +282,8 @@ class JavaToolClient:
         request_id: str | None,
         params: dict[str, Any] | None = None,
     ) -> Any:
-        if not delegated_token.strip():
-            raise JavaToolClientError("delegated token is missing")
-
-        headers = {"Authorization": f"Bearer {delegated_token}"}
-        if request_id:
-            headers["X-Request-Id"] = request_id
+        headers = self._headers(delegated_token, request_id)
         query = {key: value for key, value in (params or {}).items() if value is not None}
-
         try:
             with httpx.Client(
                 base_url=self._base_url,
@@ -244,7 +293,36 @@ class JavaToolClient:
                 response = client.get(path, headers=headers, params=query or None)
         except httpx.HTTPError as exc:
             raise JavaToolClientError("Java Tool API is unavailable") from exc
+        return self._unwrap(response)
 
+    def _post(
+        self,
+        path: str,
+        delegated_token: str,
+        request_id: str | None,
+        payload: dict[str, Any],
+    ) -> Any:
+        headers = self._headers(delegated_token, request_id)
+        try:
+            with httpx.Client(
+                base_url=self._base_url,
+                timeout=self._timeout,
+                transport=self._transport,
+            ) as client:
+                response = client.post(path, headers=headers, json=payload)
+        except httpx.HTTPError as exc:
+            raise JavaToolClientError("Java Tool API is unavailable") from exc
+        return self._unwrap(response)
+
+    def _headers(self, delegated_token: str, request_id: str | None) -> dict[str, str]:
+        if not delegated_token.strip():
+            raise JavaToolClientError("delegated token is missing")
+        headers = {"Authorization": f"Bearer {delegated_token}"}
+        if request_id:
+            headers["X-Request-Id"] = request_id
+        return headers
+
+    def _unwrap(self, response: httpx.Response) -> Any:
         if response.status_code != 200:
             raise JavaToolClientError(f"Java Tool API returned HTTP {response.status_code}")
         try:
@@ -254,8 +332,9 @@ class JavaToolClient:
         if not isinstance(body, dict):
             raise JavaToolClientError("Java Tool API returned an invalid result envelope")
         # Java 的业务异常同样是 HTTP 200，只在信封里降级 code，必须单独判断。
+        # 这里的 message 是给患者看的中文文案，原样保留，不加英文前缀。
         if body.get("code") != 200:
-            raise JavaToolClientError(
-                f"Java Tool API rejected the request: {body.get('message') or body.get('code')}"
+            raise JavaToolBusinessError(
+                str(body.get("message") or body.get("code"))
             )
         return body.get("data")
