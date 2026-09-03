@@ -38,6 +38,14 @@ class ChatRequest(ApiModel):
     user_context: UserContext = Field(default_factory=UserContext, alias="userContext")
 
 
+class ChatResumeRequest(ApiModel):
+    """患者对确认卡片作出选择后，恢复被挂起的那一轮对话。"""
+
+    conversation_id: str = Field(alias="conversationId", min_length=1, max_length=64)
+    decision: Literal["approve", "reject"]
+    user_context: UserContext = Field(default_factory=UserContext, alias="userContext")
+
+
 class ChatResponse(ApiModel):
     """普通 JSON 聊天响应。"""
 

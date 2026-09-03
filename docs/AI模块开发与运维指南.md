@@ -136,12 +136,15 @@ Python 存活探针为 `GET http://localhost:8000/health`，返回 `{"status":"o
 
 `DELETE /api/ai/conversations/{conversationId}` 用于删除当前用户拥有的会话消息。不存在的会话按成功处理，其他用户的会话会返回拒绝访问。
 
+`POST /api/ai/chat/resume` 用于提交患者对写操作确认卡片的选择并恢复 SSE；请求体为 `{"conversationId": "...", "decision": "approve" | "reject", "clientRequestId": "..."}`。
+
 ### 3.2 Java 到 Python 的内部接口
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | `GET` | `/health` | Python 存活检查，不鉴权 |
 | `POST` | `/v1/chat/stream` | 内部对话 SSE，需要 `X-Api-Key` |
+| `POST` | `/v1/chat/resume` | 内部恢复确认后的对话 SSE，请求体为 `{"conversationId": "...", "decision": "approve" | "reject", "clientRequestId": "..."}` |
 | `POST` | `/v1/chat/documents` | 上传资料并写入 RAG，需要 `X-Api-Key` |
 
 Python 的聊天请求使用驼峰字段：`message`、`conversationId`、`memoryEnabled`、`userContext.userId`、`userContext.patientId`。Java 会透传 `X-Request-Id`，Python 日志会复用或生成该追踪号。
@@ -157,6 +160,7 @@ Python 的聊天请求使用驼峰字段：`message`、`conversationId`、`memor
 | `status` | `content` | 处理阶段提示，如“正在分析您的问题…” |
 | `token` | `content` | 可直接追加到答案的正文片段 |
 | `citation` | `sources` | RAG 命中资料的元数据数组 |
+| `confirm` | 写操作等待患者确认，本次流到此结束，不再发 `done`。字段：`conversationId`、`kind`（`registration_create` / `registration_cancel`）、`prompt`、`detail` | 前端渲染确认卡片，患者选择后调 `POST /api/ai/chat/resume` |
 | `done` | `reply`、`conversationId`、`selectedAgents`、`sources` | 正常结束及完整结果 |
 | `error` | `code`、`message` | 调用失败或幂等冲突 |
 

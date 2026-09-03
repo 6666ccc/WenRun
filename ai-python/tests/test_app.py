@@ -1,6 +1,7 @@
 import json
 from base64 import b64encode
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import jwt
 from fastapi.testclient import TestClient
@@ -624,4 +625,114 @@ def test_chat_stream_prefers_fast_memory_graph(monkeypatch):
     assert _sse_events(response)[-1]["reply"] == "快速记忆回复"
     assert captured["config"] == {"configurable": {"thread_id": "conv-77"}}
     assert "used_stateless" not in captured
+
+
+def test_chat_stream_emits_confirm_event_when_graph_pauses_for_approval(monkeypatch):
+    """写工具挂起时必须发 confirm，而不是把空 final_reply 打成 500。"""
+
+    headers = _chat_auth_headers(monkeypatch)
+
+    class PausedGraph:
+        # 有 checkpointer 才会开启写能力，也才能读到挂起的确认请求。
+        checkpointer = object()
+
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            assert context.writes_enabled is True
+            assert context.conversation_id == "conversation-1"
+            yield {"type": "values", "data": {"selected_agents": ["tools"]}}
+
+        async def aget_state(self, config):
+            return SimpleNamespace(interrupts=(
+                SimpleNamespace(value={
+                    "kind": "registration_create",
+                    "prompt": "请确认是否为您挂 2026-09-04 下午 内科 张伟 的号",
+                    "detail": {"scheduleId": 9, "staffName": "张伟"},
+                }),
+            ))
+
+    monkeypatch.setattr(chat_route, "graph", PausedGraph())
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={"message": "帮我挂明天下午张伟的号", "conversationId": "conversation-1"},
+    )
+
+    assert response.status_code == 200
+    events = _sse_events(response)
+    types = [event["type"] for event in events]
+    assert "confirm" in types
+    assert "done" not in types
+    confirm = next(event for event in events if event["type"] == "confirm")
+    assert confirm["kind"] == "registration_create"
+    assert confirm["detail"]["scheduleId"] == 9
+    assert confirm["conversationId"] == "conversation-1"
+
+
+def test_chat_stream_keeps_writes_disabled_without_a_checkpointer(monkeypatch):
+    """无记忆会话恢复不了中断，必须关掉写能力，否则整轮会静默失败。"""
+
+    headers = _chat_auth_headers(monkeypatch)
+
+    class StatelessGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            assert context.writes_enabled is False
+            yield {"type": "values", "data": {"final_reply": "已生成回复", "selected_agents": ["tools"]}}
+
+    monkeypatch.setattr(chat_route, "graph", StatelessGraph())
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={"message": "帮我挂号", "conversationId": "conversation-2", "memoryEnabled": False},
+    )
+
+    assert [event["type"] for event in _sse_events(response)][-1] == "done"
+
+
+def test_chat_resume_forwards_decision_into_the_graph(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    captured: dict = {}
+
+    class ResumedGraph:
+        checkpointer = object()
+
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            captured["input"] = state
+            captured["thread_id"] = config["configurable"]["thread_id"]
+            yield {
+                "type": "values",
+                "data": {"final_reply": "挂号已办好。", "selected_agents": ["tools"]},
+            }
+
+        async def aget_state(self, config):
+            return SimpleNamespace(interrupts=())
+
+    monkeypatch.setattr(chat_route, "graph", ResumedGraph())
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/resume",
+        headers=headers,
+        json={"conversationId": "conversation-1", "decision": "approve"},
+    )
+
+    assert response.status_code == 200
+    events = _sse_events(response)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["reply"] == "挂号已办好。"
+    assert captured["thread_id"] == "conversation-1"
+    assert captured["input"].resume == "approve"
+
+
+def test_chat_resume_rejects_unknown_decision(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/v1/chat/resume",
+        headers=headers,
+        json={"conversationId": "conversation-1", "decision": "maybe"},
+    )
+
+    assert response.status_code == 422
 
