@@ -15,7 +15,7 @@ function isSession(session) {
 export const createMessageId = () => `message_${Date.now()}_${Math.random().toString(16).slice(2)}`
 export const createRequestId = () => `request_${Date.now()}_${Math.random().toString(16).slice(2)}`
 
-const MESSAGE_STATUSES = new Set(['pending', 'streaming', 'completed', 'error', 'stopped'])
+const MESSAGE_STATUSES = new Set(['pending', 'streaming', 'completed', 'error', 'stopped', 'confirming'])
 
 function normalizeMessage(message, index) {
   const rawMeta = message.meta && typeof message.meta === 'object' ? message.meta : {}

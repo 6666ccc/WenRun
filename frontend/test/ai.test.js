@@ -49,3 +49,41 @@ test('events after done are ignored', async () => {
   assert.equal(result.reply, '已完成')
   assert.doesNotMatch(result.reply, /内部内容/)
 })
+
+test('confirm event ends the stream as a pending confirmation', async () => {
+  const result = await consumeChatEvents([
+    { type: 'status', content: '正在分析您的问题…' },
+    {
+      type: 'confirm',
+      conversationId: 'conversation-1',
+      kind: 'registration_create',
+      prompt: '请确认是否为您挂 2026-09-04 下午 内科 张伟 的号',
+      detail: { scheduleId: 9, staffName: '张伟', registerFee: '50.00' },
+    },
+  ])
+
+  assert.equal(result.status, 'confirming')
+  assert.equal(result.kind, 'registration_create')
+  assert.equal(result.detail.staffName, '张伟')
+  assert.equal(result.conversationId, 'conversation-1')
+})
+
+test('confirm event is not treated as an unexpected end of stream', async () => {
+  const result = await consumeChatEvents([
+    { type: 'confirm', kind: 'registration_cancel', prompt: '请确认是否退号', detail: {} },
+  ])
+
+  assert.equal(result.status, 'confirming')
+  assert.equal(result.prompt, '请确认是否退号')
+})
+
+test('confirm event invokes the onConfirm handler', async () => {
+  const seen = []
+  await consumeChatEvents(
+    [{ type: 'confirm', kind: 'registration_create', prompt: '请确认', detail: { scheduleId: 9 } }],
+    { onConfirm: (payload) => seen.push(payload) },
+  )
+
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].detail.scheduleId, 9)
+})

@@ -1,5 +1,5 @@
 import { computed, onMounted, ref, watch } from 'vue'
-import { chatStream, deleteConversation, listCharges, listRegistrations } from '../api'
+import { chatResume, chatStream, deleteConversation, listCharges, listRegistrations } from '../api'
 import { listVisits } from '../api/modules/consultation'
 import {
   createMessageId,
@@ -238,6 +238,18 @@ function appendAssistantError(runtime, conversationId, requestId, code, message,
   setRequestStatus(runtime, conversationId, requestId, status)
 }
 
+function markAssistantAwaitingConfirm(runtime, conversationId, requestId, confirming) {
+  const request = runtime.requests.get(requestId)
+  if (!request || request.status !== 'running') return
+  request.status = 'confirming'
+  updateAssistant(runtime, conversationId, requestId, (message) => ({
+    ...message,
+    content: confirming.prompt,
+    meta: { ...message.meta, requestId, status: 'confirming', confirm: confirming },
+  }))
+  setRequestStatus(runtime, conversationId, requestId, 'confirming')
+}
+
 function createStreamHandlers(runtime, conversationId, requestId) {
   return {
     signal: runtime.requests.get(requestId)?.controller.signal,
@@ -246,6 +258,7 @@ function createStreamHandlers(runtime, conversationId, requestId) {
     },
     onToken: (chunk) => appendAssistantToken(runtime, conversationId, requestId, chunk),
     onCitation: (source) => appendAssistantSource(runtime, conversationId, requestId, source),
+    onConfirm: (confirming) => markAssistantAwaitingConfirm(runtime, conversationId, requestId, confirming),
     onDone: (result) => finalizeAssistantMessage(runtime, conversationId, requestId, result),
     onError: ({ code, message }) => appendAssistantError(runtime, conversationId, requestId, code, message),
   }
@@ -335,6 +348,46 @@ export function useAssistant(user) {
     request.controller.abort()
   }
 
+  async function respondToPending(message, decision) {
+    const conversationId = runtime.activeId.value
+    const requestId = createRequestId()
+    // 确认卡片一旦作答就不再可点，避免重复提交。
+    updateSession(runtime, conversationId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) => (
+        item.id === message.id
+          ? { ...item, meta: { ...item.meta, status: 'completed', confirm: null } }
+          : item
+      )),
+    }))
+    const controller = new AbortController()
+    runtime.requests.set(requestId, { conversationId, controller, status: 'running' })
+    runtime.activeRequestId.value = requestId
+    runtime.replying.value = true
+    runtime.streaming.value = false
+    runtime.streamStatus.value = null
+    try {
+      await chatResume(
+        { conversationId, decision, clientRequestId: requestId },
+        createStreamHandlers(runtime, conversationId, requestId),
+      )
+    } catch (nextError) {
+      const request = runtime.requests.get(requestId)
+      if (nextError.name === 'AbortError' && request?.status === 'stopped') return
+      if (request?.status === 'running') {
+        appendAssistantError(runtime, conversationId, requestId, nextError.code, nextError.message)
+      }
+    } finally {
+      runtime.requests.delete(requestId)
+      if (runtime.activeRequestId.value === requestId) {
+        runtime.activeRequestId.value = null
+        runtime.replying.value = false
+        runtime.streaming.value = false
+        runtime.streamStatus.value = null
+      }
+    }
+  }
+
   onMounted(() => runtime.refreshContext(user))
 
   return {
@@ -351,6 +404,8 @@ export function useAssistant(user) {
     task: runtime.task,
     sendMessage,
     stopReply: () => stopRequest(),
+    confirmPending: (message) => respondToPending(message, 'approve'),
+    rejectPending: (message) => respondToPending(message, 'reject'),
     newChat,
     deleteSession,
     refreshContext: () => runtime.refreshContext(user),

@@ -27,6 +27,16 @@ function applyChatEvent(raw, acc, handlers) {
     }
     return null
   }
+  if (event.type === 'confirm') {
+    const confirming = {
+      kind: event.kind,
+      prompt: event.prompt || '请确认是否继续办理',
+      detail: event.detail || {},
+      conversationId: event.conversationId,
+    }
+    handlers.onConfirm?.(confirming)
+    return { status: 'confirming', ...confirming }
+  }
   if (event.type === 'done') {
     const done = {
       reply: event.reply || event.content || acc.reply,
@@ -152,6 +162,10 @@ async function streamRequest(url, payload, handlers = {}) {
 
 export function chatStream(payload, handlers = {}) {
   return streamRequest(apiUrl('/api/ai/chat/stream'), payload, handlers)
+}
+
+export function chatResume(payload, handlers = {}) {
+  return streamRequest(apiUrl('/api/ai/chat/resume'), payload, handlers)
 }
 
 export async function deleteConversation(conversationId) {

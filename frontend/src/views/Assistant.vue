@@ -59,6 +59,27 @@ async function copyMessage(message) {
 
 const renderMarkdown = (value) => DOMPurify.sanitize(marked.parse(value || ''))
 
+const CONFIRM_FIELD_LABELS = {
+  deptName: '科室',
+  staffName: '医生',
+  workDate: '日期',
+  timePeriod: '时段',
+  remainingCount: '剩余号源',
+  registerFee: '挂号费',
+  regNo: '挂号单号',
+  regFee: '挂号费',
+}
+
+/** 只展示患者看得懂的字段，scheduleId / registrationId 这类内部 id 不上卡片。 */
+function confirmRows(detail) {
+  const rows = {}
+  for (const [key, label] of Object.entries(CONFIRM_FIELD_LABELS)) {
+    const value = detail?.[key]
+    if (value !== null && value !== undefined && value !== '') rows[label] = value
+  }
+  return rows
+}
+
 function keydown(event) {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault()
@@ -214,6 +235,18 @@ onBeforeUnmount(() => {
                 <div v-if="message.role === 'user'" class="chat-message__user-content">{{ message.content }}</div>
                 <div v-else class="chat-message__assistant-content">
                   <div class="chat-md" v-html="renderMarkdown(message.content)" />
+                  <div v-if="message.meta?.confirm" class="chat-confirm">
+                    <dl class="chat-confirm__detail">
+                      <template v-for="(value, key) in confirmRows(message.meta.confirm.detail)" :key="key">
+                        <dt>{{ key }}</dt>
+                        <dd>{{ value }}</dd>
+                      </template>
+                    </dl>
+                    <div class="chat-confirm__actions">
+                      <button type="button" class="chat-confirm__cancel" @click="assistant.rejectPending(message)">再想想</button>
+                      <button type="button" class="chat-confirm__ok" @click="assistant.confirmPending(message)">确认办理</button>
+                    </div>
+                  </div>
                   <CitationList v-if="message.sources?.length" :sources="message.sources" />
                   <button
                     v-if="message.content"
@@ -907,5 +940,48 @@ onBeforeUnmount(() => {
   border-color: currentColor;
   color: var(--color-primary, #1a7f6b);
   font-weight: 600;
+}
+
+.chat-confirm {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px;
+  background: var(--surface-2, #f8fafc);
+}
+
+.chat-confirm__detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+}
+
+.chat-confirm__detail dt {
+  color: var(--text-muted, #6b7280);
+}
+
+.chat-confirm__detail dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.chat-confirm__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.chat-confirm__actions button {
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line, #e5e7eb);
+  cursor: pointer;
+}
+
+.chat-confirm__ok {
+  background: var(--brand, #0f766e);
+  border-color: transparent;
+  color: #fff;
 }
 </style>
