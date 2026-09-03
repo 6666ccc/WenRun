@@ -57,6 +57,8 @@ def test_fast_node_answers_without_tools(monkeypatch):
     assert result["knowledge_reply"] is None
     assert result["chat_reply"] is None
     assert result["tools_reply"] is None
+    # 快速图没有 begin_node，必须显式清空 checkpoint 里残留的 selected_agents。
+    assert result["selected_agents"] == []
     # 只挂知识与联网两个工具，绝不挂业务写/查工具。
     assert [tool.name for tool in scripted.bound_tools] == [
         "search_hospital_knowledge",
@@ -88,6 +90,7 @@ def test_fast_node_collects_rag_sources_from_knowledge_tool(monkeypatch):
     assert result["rag_sources"] == [
         {"id": "S1", "document_id": None, "title": "院内资料", "page": 2}
     ]
+    assert len(result["messages"]) == 1
     # 第二轮必须带上工具结果。
     second_turn = scripted.seen_messages[1]
     assert any("多休息" in str(message.content) for message in second_turn)

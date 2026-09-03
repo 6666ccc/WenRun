@@ -125,8 +125,10 @@ def fast_node(state: State) -> dict:
 
     final_reply = text.strip() or EMPTY_REPLY_FALLBACK
     # 工具循环里的中间消息不写回 State：checkpoint 结构必须与正常模式保持一致。
+    # 显式清空 selected_agents：快速图没有 begin_node，否则会串出上一轮正常模式的路由。
     return {
         **reset_turn_fields(),
+        "selected_agents": [],
         "final_reply": final_reply,
         "rag_sources": collected,
         "messages": [AIMessage(content=final_reply)],

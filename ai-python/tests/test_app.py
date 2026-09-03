@@ -515,6 +515,60 @@ def test_chat_stream_uses_fast_graph_when_fast_mode_enabled(monkeypatch):
     assert events[-1]["reply"] == "快速回复"
 
 
+def test_chat_stream_fast_mode_suppresses_knowledge_status_from_leftover_agents(
+    monkeypatch,
+):
+    """快速模式不得因 checkpoint 残留 selected_agents 串出知识检索状态。"""
+    headers = _chat_auth_headers(monkeypatch)
+
+    class FastGraph:
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            # 模拟上一轮正常模式留下的 knowledge；fast_node 清空前也可能先看到。
+            yield {
+                "type": "values",
+                "data": {"selected_agents": ["knowledge"]},
+            }
+            yield {
+                "type": "messages",
+                "data": (
+                    AIMessageChunk(content="快速回复"),
+                    {"langgraph_node": "fast_node"},
+                ),
+            }
+            yield {
+                "type": "values",
+                "data": {
+                    "final_reply": "快速回复",
+                    "rag_sources": [],
+                    "selected_agents": [],
+                },
+            }
+
+    monkeypatch.setattr(chat_route, "fast_graph", FastGraph())
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={
+            "message": "你好",
+            "conversationId": "fast-leftover-agents",
+            "memoryEnabled": False,
+            "fastMode": True,
+        },
+    )
+
+    assert response.status_code == 200
+    events = _sse_events(response)
+    status_contents = [
+        event["content"] for event in events if event.get("type") == "status"
+    ]
+    assert "正在检索相关资料…" not in status_contents
+    assert "正在整理答案…" not in status_contents
+    assert any(event.get("type") == "token" for event in events)
+    done = next(event for event in events if event.get("type") == "done")
+    assert done["selectedAgents"] == []
+
+
 def test_chat_stream_defaults_to_normal_graph(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
 

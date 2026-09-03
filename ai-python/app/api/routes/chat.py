@@ -235,7 +235,11 @@ async def chat_stream(
                     agent for agent in incoming_agents if isinstance(agent, str)
                 ]
 
-                if "knowledge" in selected_agents and not retrieval_status_sent:
+                if (
+                    not request.fast_mode
+                    and "knowledge" in selected_agents
+                    and not retrieval_status_sent
+                ):
                     retrieval_status_sent = True
                     yield _sse({"type": "status", "content": "正在检索相关资料…"})
 
@@ -256,7 +260,11 @@ async def chat_stream(
                 if node_name not in visible_nodes or not _is_streamable_message(message_chunk):
                     continue
                 content = _text_from_message_chunk(message_chunk)
-                if "knowledge" in selected_agents and not final_status_sent:
+                if (
+                    not request.fast_mode
+                    and "knowledge" in selected_agents
+                    and not final_status_sent
+                ):
                     final_status_sent = True
                     yield _sse({"type": "status", "content": "正在整理答案…"})
                 if first_token_at is None:
