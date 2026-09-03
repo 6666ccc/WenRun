@@ -122,6 +122,16 @@ def test_tool_system_prompt_includes_beijing_clock():
     assert prompt.startswith(tool_node_module.TOOL_SYSTEM_PROMPT)
 
 
+def test_tool_prompt_guides_registration_instead_of_flatly_refusing():
+    prompt = tool_node_module.TOOL_SYSTEM_PROMPT
+
+    # 旧的一刀切禁令会让被路由过来的挂号请求直接吃闭门羹。
+    assert "不挂号、不取消挂号" not in prompt
+    # 新行为：先查清号源与本人预约，再引导到挂号页面完成最后一步。
+    assert "不直接提交挂号" in prompt
+    assert "挂号页面" in prompt
+
+
 def test_tool_node_returns_unavailable_when_delegated_token_missing():
     assert tool_node_module.tool_node(
         {

@@ -22,6 +22,12 @@ def test_begin_prompt_limits_knowledge_to_medical_topics():
     assert "“儿科在几楼” → knowledge" not in begin.BEGIN_SYSTEM_PROMPT
 
 
+def test_begin_prompt_routes_registration_actions_to_tools():
+    assert "“帮我挂号” → tools" in begin.BEGIN_SYSTEM_PROMPT
+    assert "退号" in begin.BEGIN_SYSTEM_PROMPT
+    assert "办理请求" in begin.BEGIN_SYSTEM_PROMPT
+
+
 def test_begin_node_uses_model_json_without_tool_strategy(monkeypatch):
     stub_model = StubModel(
         [AIMessage(content='{"selected_agents":["knowledge","tools"]}')]
