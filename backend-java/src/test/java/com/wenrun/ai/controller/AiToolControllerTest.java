@@ -2,8 +2,12 @@ package com.wenrun.ai.controller;
 
 import com.wenrun.ai.security.DelegatedToolContext;
 import com.wenrun.ai.security.DelegatedToolPrincipal;
+import com.wenrun.ai.vo.AiRegistrationCreateRequest;
+import com.wenrun.common.constant.AccountType;
 import com.wenrun.common.constant.BizStatus;
 import com.wenrun.common.exception.BusinessException;
+import com.wenrun.dto.RegistrationCreateDTO;
+import org.mockito.ArgumentCaptor;
 import com.wenrun.entity.Dept;
 import com.wenrun.entity.Staff;
 import com.wenrun.service.DeptService;
@@ -22,6 +26,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -208,5 +213,81 @@ class AiToolControllerTest {
         assertThrows(BusinessException.class, () -> controller.listMyRegistrations(null));
         assertThrows(BusinessException.class, controller::listMyPendingRegistrations);
         verifyNoInteractions(registrationService);
+    }
+
+    private AiRegistrationCreateRequest createRequest() {
+        AiRegistrationCreateRequest body = new AiRegistrationCreateRequest();
+        body.setScheduleId(9L);
+        body.setIdempotencyKey("conversation-1:call-1");
+        return body;
+    }
+
+    private void givenWritablePatientToken() {
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
+                Set.of("registrations:write"), "token-1"));
+    }
+
+    @Test
+    void createRegistrationForcesTokenPatientIdAndForwardsIdempotencyKey() {
+        givenWritablePatientToken();
+        when(registrationService.register(any())).thenReturn(55L);
+        ArgumentCaptor<RegistrationCreateDTO> sent = ArgumentCaptor.forClass(RegistrationCreateDTO.class);
+
+        assertEquals(55L, controller.createMyRegistration(createRequest()).getData());
+
+        verify(registrationService).register(sent.capture());
+        assertEquals(11L, sent.getValue().getPatientId());
+        assertEquals(9L, sent.getValue().getScheduleId());
+        assertEquals("conversation-1:call-1", sent.getValue().getIdempotencyKey());
+    }
+
+    @Test
+    void cancelRegistrationDelegatesToBusinessService() {
+        givenWritablePatientToken();
+
+        controller.cancelMyRegistration(55L);
+
+        verify(registrationService).cancel(55L);
+    }
+
+    @Test
+    void writeEndpointsRejectReadOnlyToken() {
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
+                Set.of("registrations:read"), "token-1"));
+
+        assertThrows(BusinessException.class, () -> controller.createMyRegistration(createRequest()));
+        assertThrows(BusinessException.class, () -> controller.cancelMyRegistration(55L));
+        verifyNoInteractions(registrationService);
+    }
+
+    @Test
+    void writeEndpointsRejectNonPatientAccount() {
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.STAFF,
+                Set.of("registrations:write"), "token-1"));
+
+        assertThrows(BusinessException.class, () -> controller.createMyRegistration(createRequest()));
+        assertThrows(BusinessException.class, () -> controller.cancelMyRegistration(55L));
+        verifyNoInteractions(registrationService);
+    }
+
+    @Test
+    void writeEndpointsRejectTokenWithoutPatientProfile() {
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, null, AccountType.PATIENT,
+                Set.of("registrations:write"), "token-1"));
+
+        assertThrows(BusinessException.class, () -> controller.createMyRegistration(createRequest()));
+        assertThrows(BusinessException.class, () -> controller.cancelMyRegistration(55L));
+        verifyNoInteractions(registrationService);
+    }
+
+    @Test
+    void readEndpointsStillWorkWithoutWriteScope() {
+        when(registrationService.list(11L, null, null, null, null)).thenReturn(List.of());
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
+                Set.of("registrations:read"), "token-1"));
+
+        controller.listMyRegistrations(null);
+
+        verify(registrationService).list(11L, null, null, null, null);
     }
 }
