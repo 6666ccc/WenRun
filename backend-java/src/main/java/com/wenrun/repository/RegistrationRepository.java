@@ -5,6 +5,7 @@ import com.wenrun.vo.RegistrationVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Mapper
@@ -26,6 +27,12 @@ public interface RegistrationRepository {
     int countActiveByPatientAndSchedule(@Param("patientId") Long patientId,
                                         @Param("scheduleId") Long scheduleId,
                                         @Param("status") Integer status);
+
+    /** 统计患者对同一医生、同一天、同一时段的有效挂号（已挂号/已就诊） */
+    int countActiveByPatientAndSlot(@Param("patientId") Long patientId,
+                                    @Param("staffId") Long staffId,
+                                    @Param("workDate") LocalDate workDate,
+                                    @Param("timePeriod") String timePeriod);
 
     Registration selectByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
 }

@@ -48,5 +48,15 @@
           AND schedule_id = #{scheduleId}
           AND status = #{status}
     </select>
+    <select id="countActiveByPatientAndSlot" resultType="int">
+        SELECT COUNT(*)
+        FROM registration r
+        INNER JOIN schedule sc ON sc.id = r.schedule_id
+        WHERE r.patient_id = #{patientId}
+          AND r.staff_id = #{staffId}
+          AND sc.work_date = #{workDate}
+          AND sc.time_period = #{timePeriod}
+          AND r.status IN (1, 2)
+    </select>
 
 </mapper>

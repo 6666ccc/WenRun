@@ -50,3 +50,9 @@ wenrun:
   auth:
     token-ttl: ${AUTH_TOKEN_TTL:8h}
     session-store: ${WENRUN_AUTH_SESSION_STORE:redis}
+  # 门诊时段按北京时间计算。morning-end 必须加引号，否则 YAML 会把 12:00 当成数字。
+  clinic:
+    timezone: Asia/Shanghai
+    morning-end: "12:00"
+    afternoon-end: "18:00"
+    evening-end: "21:00"

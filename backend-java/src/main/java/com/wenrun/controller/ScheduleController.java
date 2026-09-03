@@ -21,7 +21,7 @@ public class ScheduleController {
 
     private final ScheduleService scheduleService;
 
-    /** GET /api/schedules — 按科室、日期、医生查询排班 */
+    /** GET /api/schedules — 按科室、日期、医生查询排班；未指定日期时只返回今天及以后 */
     @GetMapping
     public Result<List<ScheduleVO>> list(@RequestParam(required = false) Long deptId,
                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate workDate,

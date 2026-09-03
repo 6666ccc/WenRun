@@ -1,5 +1,6 @@
 package com.wenrun.service.impl;
 
+import com.wenrun.config.ClinicProperties;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.entity.Schedule;
 import com.wenrun.repository.ScheduleRepository;
@@ -19,11 +20,19 @@ import java.util.List;
 public class ScheduleServiceImpl implements ScheduleService {
 
     private final ScheduleRepository scheduleMapper;
+    private final ClinicProperties clinicProperties;
 
-    /** 按科室、日期、医生查询排班列表 */
+    /** 按科室、日期、医生查询排班列表；默认只返回今天及以后、且当前时段尚未截止的号源 */
     @Override
     public List<ScheduleVO> list(Long deptId, LocalDate workDate, Long staffId) {
-        return scheduleMapper.selectList(deptId, workDate, staffId);
+        LocalDate fromDate = workDate == null ? clinicProperties.today() : null;
+        List<ScheduleVO> schedules = scheduleMapper.selectList(deptId, workDate, staffId, fromDate);
+        if (schedules == null || schedules.isEmpty()) {
+            return List.of();
+        }
+        return schedules.stream()
+                .filter(item -> !clinicProperties.isExpired(item.getWorkDate(), item.getTimePeriod()))
+                .toList();
     }
 
     /** 根据 ID 查询排班（含科室、医生名称） */

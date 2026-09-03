@@ -53,7 +53,7 @@ def list_schedules(
     Args:
         department: 科室名，例如「内科」。不填则不按科室过滤。
         doctor: 医生姓名，例如「张伟」或「张伟医生」。不填则不按医生过滤。
-        work_date: 就诊日期，可写「今天」「明天」「后天」或 YYYY-MM-DD。不填则返回全部排班。
+        work_date: 就诊日期，可写「今天」「明天」「后天」或 YYYY-MM-DD。不填则返回今天及以后的排班。
     """
     context = runtime.context
 

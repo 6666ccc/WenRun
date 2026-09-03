@@ -5,6 +5,7 @@ import { useAuth } from '../stores'
 import { listCharges, listRegistrations, listSchedules } from '../api'
 import { listVisits } from '../api/modules/consultation'
 import { formatDate, formatTime, formatTimePeriod, formatVisitSchedule } from '../utils'
+import { isBookableSchedule, todayISO } from '../utils/scheduleDate'
 import AppShell from '../components/AppShell.vue'
 import UiIcon from '../components/UiIcon.vue'
 import UiState from '../components/UiState.vue'
@@ -33,7 +34,7 @@ onMounted(async () => {
   const results = await Promise.allSettled([
     listRegistrations({ userId: user.value.userId }),
     listCharges({ patientId: user.value.patientId }),
-    listSchedules({ workDate: new Date().toISOString().slice(0, 10) }),
+    listSchedules({ workDate: todayISO() }),
     listVisits({ patientId: user.value.patientId }),
   ])
   const value = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
@@ -46,7 +47,7 @@ onMounted(async () => {
   data.value = {
     registrations: value(results[0]),
     pendingCharges: value(results[1]).filter((charge) => charge.payStatus === 0),
-    schedules: value(results[2]),
+    schedules: value(results[2]).filter((item) => Number(item.remainingCount) > 0 && isBookableSchedule(item.workDate, item.timePeriod)),
     visits: value(results[3]),
   }
   if (results.every((result) => result.status === 'rejected')) error.value = '首页数据加载失败，请稍后重试'

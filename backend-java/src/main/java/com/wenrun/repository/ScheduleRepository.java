@@ -13,7 +13,8 @@ public interface ScheduleRepository {
 
     List<ScheduleVO> selectList(@Param("deptId") Long deptId,
                                 @Param("workDate") LocalDate workDate,
-                                @Param("staffId") Long staffId);
+                                @Param("staffId") Long staffId,
+                                @Param("fromDate") LocalDate fromDate);
 
     ScheduleVO selectVOById(@Param("id") Long id);
 

@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { createRegistration, listSchedules } from '../api'
+import { createRegistration, listRegistrations, listSchedules } from '../api'
 import { useAuth } from '../stores'
-import { formatMoney, formatTimePeriod, todayISO } from '../utils'
+import { formatMoney, formatTimePeriod } from '../utils'
+import { isBookableSchedule, isOccupiedSlot, shiftClinicDate, todayISO } from '../utils/scheduleDate'
 import AppShell from '../components/AppShell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import UiIcon from '../components/UiIcon.vue'
@@ -10,6 +11,7 @@ import UiState from '../components/UiState.vue'
 
 const { user } = useAuth()
 const schedules = ref([])
+const myRegistrations = ref([])
 const loading = ref(true)
 const error = ref('')
 const booking = ref(false)
@@ -24,6 +26,8 @@ const doctors = computed(() => [...new Set(
 )])
 const availableSchedules = computed(() => schedules.value.filter((item) => {
   if (Number(item.remainingCount) <= 0) return false
+  if (!isBookableSchedule(item.workDate, item.timePeriod)) return false
+  if (isOccupiedSlot(item, myRegistrations.value)) return false
   if (filters.date && item.workDate !== filters.date) return false
   if (filters.dept && item.deptName !== filters.dept) return false
   if (filters.doctor && item.staffName !== filters.doctor) return false
@@ -36,7 +40,15 @@ watch(() => filters.dept, () => {
 async function load() {
   loading.value = true
   error.value = ''
-  try { schedules.value = (await listSchedules()) || [] }
+  try {
+    schedules.value = (await listSchedules()) || []
+    if (user.value?.userId) {
+      try { myRegistrations.value = (await listRegistrations({ userId: user.value.userId })) || [] }
+      catch { myRegistrations.value = [] }
+    } else {
+      myRegistrations.value = []
+    }
+  }
   catch (nextError) { error.value = nextError.message || '号源加载失败，请稍后重试' }
   finally { loading.value = false }
 }
@@ -44,9 +56,7 @@ onMounted(load)
 
 function clearFilters() { Object.assign(filters, { date: '', dept: '', doctor: '' }) }
 function setDate(offset) {
-  const date = new Date()
-  date.setDate(date.getDate() + offset)
-  filters.date = date.toISOString().slice(0, 10)
+  filters.date = shiftClinicDate(offset)
 }
 function selectSchedule(schedule) { selected.value = schedule; reviewing.value = true }
 async function book() {
@@ -55,6 +65,12 @@ async function book() {
   try {
     await createRegistration({ patientId: user.value.patientId, scheduleId: selected.value.id })
     schedules.value = schedules.value.map((item) => item.id === selected.value.id ? { ...item, remainingCount: Math.max(0, Number(item.remainingCount) - 1) } : item)
+    myRegistrations.value = [...myRegistrations.value, {
+      status: 1,
+      staffId: selected.value.staffId,
+      workDate: selected.value.workDate,
+      timePeriod: selected.value.timePeriod,
+    }]
     message.value = `已为您预约 ${selected.value.deptName} · ${selected.value.staffName}`
     selected.value = null
     reviewing.value = false

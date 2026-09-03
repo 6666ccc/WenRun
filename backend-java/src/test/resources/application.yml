@@ -14,6 +14,11 @@ mybatis:
 wenrun:
   auth:
     session-store: memory
+  clinic:
+    timezone: Asia/Shanghai
+    morning-end: "12:00"
+    afternoon-end: "18:00"
+    evening-end: "21:00"
 
 AI_DELEGATION_SIGNING_SECRET: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
 

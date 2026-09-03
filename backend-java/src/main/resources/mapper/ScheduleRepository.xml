@@ -14,6 +14,7 @@
         <where>
             <if test="deptId != null">AND sc.dept_id = #{deptId}</if>
             <if test="workDate != null">AND sc.work_date = #{workDate}</if>
+            <if test="fromDate != null">AND sc.work_date &gt;= #{fromDate}</if>
             <if test="staffId != null">AND sc.staff_id = #{staffId}</if>
         </where>
         ORDER BY sc.work_date, sc.id
