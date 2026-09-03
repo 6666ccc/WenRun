@@ -26,6 +26,11 @@ public class aiRequest {
      */
     private Boolean memoryEnabled;
 
+    /**
+     * 是否使用快速模式：跳过意图路由，由单个全能 Agent 直接作答。未传时按 false 处理。
+     */
+    private Boolean fastMode;
+
     /** 由 Java 鉴权上下文写入，不接受浏览器请求体覆盖。 */
     @JsonIgnore
     private Long userId;
