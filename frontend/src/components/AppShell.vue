@@ -19,7 +19,7 @@ const nav = [
   { to: '/registration', icon: 'calendar', label: '预约挂号' },
   { to: '/payment', icon: 'wallet', label: '门诊缴费' },
   { to: '/department', icon: 'hospital', label: '科室医生' },
-  { to: '/user', icon: 'user', label: '我的档案' },
+  { to: '/user', icon: 'user', label: '个人中心' },
 ]
 const pageLabel = computed(() => nav.find((item) => route.path === item.to || route.path.startsWith(`${item.to}/`))?.label || '患者服务')
 const active = (path) => route.path === path || route.path.startsWith(`${path}/`)
@@ -55,7 +55,7 @@ async function signOut() {
       <div class="app-shell__account">
         <RouterLink to="/user" class="app-shell__account-link">
           <span class="app-shell__avatar" aria-hidden="true">{{ (user?.realName || user?.username || '患')[0] }}</span>
-          <span><strong>{{ user?.realName || user?.username || '患者' }}</strong><small>查看我的档案</small></span>
+          <span><strong>{{ user?.realName || user?.username || '患者' }}</strong><small>查看个人中心</small></span>
         </RouterLink>
         <button class="app-shell__logout" type="button" @click="signOut"><UiIcon name="logout" :size="18" />退出登录</button>
       </div>

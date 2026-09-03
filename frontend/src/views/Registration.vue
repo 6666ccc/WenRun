@@ -1,111 +1,107 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { createRegistration, listSchedules } from '../api'
 import { useAuth } from '../stores'
-import { cancelRegistration, createRegistration, listRegistrations, listSchedules } from '../api'
-import { REG_STATUS_MAP, formatDateTime, formatMoney, formatTimePeriod, formatVisitSchedule } from '../utils'
+import { formatMoney, formatTimePeriod, todayISO } from '../utils'
 import AppShell from '../components/AppShell.vue'
-import ConfirmDialog from '../components/ConfirmDialog.vue'
 import PageHeader from '../components/PageHeader.vue'
-import StatusBadge from '../components/StatusBadge.vue'
+import UiIcon from '../components/UiIcon.vue'
 import UiState from '../components/UiState.vue'
 
 const { user } = useAuth()
-const registrations = ref([])
 const schedules = ref([])
-const selected = ref(null)
 const loading = ref(true)
-const schedulesLoading = ref(false)
-const schedulesError = ref('')
-const booking = ref(false)
 const error = ref('')
-const message = ref('')
-const successBooking = ref(null)
-const showBook = ref(false)
+const booking = ref(false)
+const selected = ref(null)
 const reviewing = ref(false)
-const cancelState = ref({ show: false, id: null, regNo: '', loading: false })
+const message = ref('')
+const filters = reactive({ date: '', dept: '', doctor: '' })
+
+const departments = computed(() => [...new Set(schedules.value.map((item) => item.deptName).filter(Boolean))])
+const doctors = computed(() => [...new Set(
+  schedules.value.filter((item) => !filters.dept || item.deptName === filters.dept).map((item) => item.staffName).filter(Boolean),
+)])
+const availableSchedules = computed(() => schedules.value.filter((item) => {
+  if (Number(item.remainingCount) <= 0) return false
+  if (filters.date && item.workDate !== filters.date) return false
+  if (filters.dept && item.deptName !== filters.dept) return false
+  if (filters.doctor && item.staffName !== filters.doctor) return false
+  return true
+}))
+watch(() => filters.dept, () => {
+  if (filters.doctor && !doctors.value.includes(filters.doctor)) filters.doctor = ''
+})
 
 async function load() {
-  if (!user.value?.userId) return void (loading.value = false)
   loading.value = true
-  try { registrations.value = await listRegistrations({ userId: user.value.userId }) || [] }
-  catch (nextError) { error.value = nextError.message || '加载失败' }
+  error.value = ''
+  try { schedules.value = (await listSchedules()) || [] }
+  catch (nextError) { error.value = nextError.message || '号源加载失败，请稍后重试' }
   finally { loading.value = false }
 }
 onMounted(load)
 
-async function openBook() {
-  showBook.value = true
-  reviewing.value = false
-  selected.value = null
-  successBooking.value = null
-  message.value = ''
-  schedulesError.value = ''
-  schedulesLoading.value = true
-  try {
-    const list = await listSchedules({ workDate: new Date().toISOString().slice(0, 10) })
-    schedules.value = (list || []).filter((item) => item.remainingCount > 0)
-  } catch (nextError) { schedules.value = []; schedulesError.value = nextError.message || '今日号源暂时无法获取' }
-  finally { schedulesLoading.value = false }
+function clearFilters() { Object.assign(filters, { date: '', dept: '', doctor: '' }) }
+function setDate(offset) {
+  const date = new Date()
+  date.setDate(date.getDate() + offset)
+  filters.date = date.toISOString().slice(0, 10)
 }
+function selectSchedule(schedule) { selected.value = schedule; reviewing.value = true }
 async function book() {
   if (!selected.value || !user.value?.patientId) return
   booking.value = true
   try {
     await createRegistration({ patientId: user.value.patientId, scheduleId: selected.value.id })
-    successBooking.value = { ...selected.value }
-    showBook.value = false; reviewing.value = false; selected.value = null; message.value = '挂号成功'
-    await load()
-  } catch (nextError) { message.value = nextError.message || '挂号失败' }
+    schedules.value = schedules.value.map((item) => item.id === selected.value.id ? { ...item, remainingCount: Math.max(0, Number(item.remainingCount) - 1) } : item)
+    message.value = `已为您预约 ${selected.value.deptName} · ${selected.value.staffName}`
+    selected.value = null
+    reviewing.value = false
+  } catch (nextError) { message.value = nextError.message || '挂号失败，请稍后重试' }
   finally { booking.value = false }
-}
-async function cancel() {
-  cancelState.value.loading = true
-  try { await cancelRegistration(cancelState.value.id); cancelState.value.show = false; await load() }
-  catch (nextError) { error.value = nextError.message || '取消失败'; cancelState.value.loading = false }
 }
 </script>
 
 <template>
   <AppShell>
-    <PageHeader title="预约挂号" subtitle="查看挂号记录，预约新的门诊"><button class="btn btn--accent" @click="openBook">预约挂号</button></PageHeader>
-    <section v-if="message" class="card mb-md vue-message" :class="{ success: message.includes('成功') }" :role="message.includes('成功') ? 'status' : 'alert'"><strong>{{ message }}</strong><template v-if="successBooking"><p>{{ successBooking.deptName }} · {{ successBooking.staffName }}</p><p>{{ successBooking.workDate }} · {{ formatTimePeriod(successBooking.timePeriod) }} · 挂号费 ¥{{ successBooking.registerFee }}</p><div class="vue-success-actions"><RouterLink v-if="registrations[0]" class="btn btn--primary btn--sm" :to="`/registration/${registrations[0].id}`">查看挂号详情</RouterLink><RouterLink class="btn btn--outline btn--sm" to="/home">返回首页</RouterLink></div></template></section>
-    <UiState :loading="loading" :error="error" :empty="!registrations.length" empty-text="暂无挂号记录">
-      <div class="clinic-panel">
-        <div class="clinic-panel__head">挂号记录</div>
-        <div class="view-table-wrap vue-reg-table">
-        <table class="view-table">
-          <thead><tr><th>挂号编号</th><th>患者</th><th>科室 / 医生</th><th>就诊时间</th><th>挂号时间</th><th>挂号费</th><th>状态</th><th>操作</th></tr></thead>
-          <tbody><tr v-for="item in registrations" :key="item.id">
-            <td>{{ item.regNo }}</td><td>{{ item.patientName }}</td><td>{{ item.deptName }} · {{ item.staffName }}</td><td>{{ formatVisitSchedule(item.workDate,item.timePeriod) }}</td><td>{{ formatDateTime(item.regTime) }}</td><td>{{ formatMoney(item.regFee) }}</td>
-            <td><StatusBadge :status="item.status" :map="REG_STATUS_MAP" /></td>
-            <td><div class="vue-actions"><RouterLink :to="`/registration/${item.id}`" class="btn btn--outline btn--sm">详情</RouterLink><button v-if="item.status===1" class="btn btn--danger btn--sm" @click="cancelState={show:true,id:item.id,regNo:item.regNo,loading:false}">取消</button></div></td>
-          </tr></tbody>
-        </table>
-      </div>
-      <div class="vue-reg-cards">
-        <article v-for="item in registrations" :key="item.id" class="card">
-          <div class="flex-between mb-sm"><strong>{{ item.deptName }}</strong><StatusBadge :status="item.status" :map="REG_STATUS_MAP" /></div>
-          <p>患者：{{ item.patientName }}</p><p>医生：{{ item.staffName }}</p><p>就诊时间：{{ formatVisitSchedule(item.workDate,item.timePeriod) }}</p><p>挂号费：{{ formatMoney(item.regFee) }}</p>
-          <div class="vue-actions"><RouterLink :to="`/registration/${item.id}`" class="btn btn--outline btn--sm">查看详情</RouterLink><button v-if="item.status===1" class="btn btn--danger btn--sm" @click="cancelState={show:true,id:item.id,regNo:item.regNo,loading:false}">取消挂号</button></div>
+    <PageHeader title="预约挂号" subtitle="筛选可预约号源，选择合适的医生与时段" />
+    <section v-if="message" class="card mb-md vue-message" :class="{ success: message.startsWith('已为您预约') }" :role="message.startsWith('已为您预约') ? 'status' : 'alert'">{{ message }}</section>
+    <UiState :loading="loading" :error="error">
+      <section class="clinic-panel vue-booking-panel" aria-labelledby="booking-filters-title">
+        <div class="clinic-panel__head"><h2 id="booking-filters-title">查找可预约号源</h2><span>{{ availableSchedules.length }} 个可预约排班</span></div>
+        <div class="clinic-panel__body">
+          <div class="vue-filter-bar">
+            <label><span>就诊日期</span><input v-model="filters.date" class="input" type="date" :min="todayISO()" /></label>
+            <label><span>科室</span><select v-model="filters.dept" class="input"><option value="">全部科室</option><option v-for="dept in departments" :key="dept" :value="dept">{{ dept }}</option></select></label>
+            <label><span>医生</span><select v-model="filters.doctor" class="input"><option value="">全部医生</option><option v-for="doctor in doctors" :key="doctor" :value="doctor">{{ doctor }}</option></select></label>
+            <button class="btn btn--ghost vue-filter-reset" type="button" @click="clearFilters">清空筛选</button>
+          </div>
+          <div class="vue-date-presets" aria-label="快捷选择就诊日期"><button class="btn btn--outline btn--sm" type="button" @click="setDate(0)">今天</button><button class="btn btn--outline btn--sm" type="button" @click="setDate(1)">明天</button><button class="btn btn--outline btn--sm" type="button" @click="filters.date=''">所有日期</button></div>
+        </div>
+      </section>
+      <section class="vue-schedule-results" aria-live="polite" aria-label="可预约号源列表">
+        <article v-for="schedule in availableSchedules" :key="schedule.id" class="vue-schedule-card">
+          <div class="vue-schedule-card__main"><span class="vue-schedule-card__dept">{{ schedule.deptName }}</span><h2>{{ schedule.staffName }}</h2><p>{{ schedule.workDate }} · {{ formatTimePeriod(schedule.timePeriod) }}</p></div>
+          <div class="vue-schedule-card__meta"><strong>余号 {{ schedule.remainingCount }}</strong><span>{{ formatMoney(schedule.registerFee) }}</span></div>
+          <button class="btn btn--primary" type="button" @click="selectSchedule(schedule)">选择号源</button>
         </article>
-      </div>
-      </div>
+        <div v-if="!availableSchedules.length" class="vue-no-schedules"><UiIcon name="search" :size="28" /><strong>没有符合条件的号源</strong><p>可尝试切换日期、科室或医生。</p><button class="btn btn--outline btn--sm" type="button" @click="clearFilters">清空筛选</button></div>
+      </section>
     </UiState>
-    <div v-if="showBook" class="shared-dialog-overlay" role="presentation" @click="showBook=false"><div class="shared-dialog vue-book" role="dialog" aria-modal="true" aria-labelledby="booking-title" @click.stop>
-      <div class="step-flow" aria-label="预约挂号流程"><span class="is-complete">1 选择号源</span><span :class="{ 'is-active': reviewing }">2 核对确认</span><span>3 完成</span></div>
-      <h3 id="booking-title">{{ reviewing ? '核对挂号信息' : '预约挂号' }}</h3><p class="text-sub text-sm">{{ reviewing ? '请确认以下信息，提交后将创建挂号记录。' : '当前仅显示今日有数据的排班，不展示未返回的号源。' }}</p>
-      <div v-if="schedulesLoading" class="shared-loading"><div class="shared-loading__spinner" /></div>
-      <p v-else-if="schedulesError" class="vue-schedule-error" role="alert">{{ schedulesError }}</p>
-      <div v-else-if="!reviewing" class="vue-options"><button v-for="schedule in schedules" :key="schedule.id" type="button" :aria-pressed="selected?.id===schedule.id" :class="{ selected: selected?.id===schedule.id }" @click="selected=schedule"><strong>{{ schedule.deptName }} · {{ schedule.staffName }}</strong><span>{{ formatTimePeriod(schedule.timePeriod) }} · 余号 {{ schedule.remainingCount }} · 挂号费 ¥{{ schedule.registerFee }}</span></button><p v-if="!schedules.length">今日暂无排班</p></div>
-      <dl v-else class="booking-review"><div><dt>患者</dt><dd>{{ user?.realName || user?.username || '当前患者' }}</dd></div><div><dt>科室 / 医生</dt><dd>{{ selected.deptName }} · {{ selected.staffName }}</dd></div><div><dt>日期 / 时段</dt><dd>{{ selected.workDate }} · {{ formatTimePeriod(selected.timePeriod) }}</dd></div><div><dt>挂号费</dt><dd>¥{{ selected.registerFee }}</dd></div><div><dt>余号</dt><dd>{{ selected.remainingCount }}</dd></div></dl>
-      <div class="shared-dialog__actions"><button class="btn btn--ghost" type="button" @click="reviewing ? reviewing=false : showBook=false">{{ reviewing ? '返回修改' : '取消' }}</button><button v-if="!reviewing" class="btn btn--primary" type="button" :disabled="!selected" @click="reviewing=true">继续核对</button><button v-else class="btn btn--primary" type="button" :disabled="booking" @click="book">{{ booking ? '提交中…' : `确认挂号 ¥${selected.registerFee}` }}</button></div>
+    <div v-if="reviewing && selected" class="shared-dialog-overlay" role="presentation" @click="reviewing=false"><div class="shared-dialog vue-review-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-title" @click.stop>
+      <p class="vue-review-dialog__eyebrow">确认预约</p><h3 id="booking-title">核对挂号信息</h3><p>提交后将创建挂号记录，可在个人中心查看和管理。</p>
+      <dl class="booking-review"><div><dt>科室 / 医生</dt><dd>{{ selected.deptName }} · {{ selected.staffName }}</dd></div><div><dt>日期 / 时段</dt><dd>{{ selected.workDate }} · {{ formatTimePeriod(selected.timePeriod) }}</dd></div><div><dt>挂号费</dt><dd>{{ formatMoney(selected.registerFee) }}</dd></div><div><dt>剩余号源</dt><dd>{{ selected.remainingCount }}</dd></div></dl>
+      <div class="shared-dialog__actions"><button class="btn btn--ghost" type="button" @click="reviewing=false">返回筛选</button><button class="btn btn--primary" type="button" :disabled="booking" @click="book">{{ booking ? '提交中…' : '确认挂号' }}</button></div>
     </div></div>
-    <ConfirmDialog :show="cancelState.show" title="取消挂号" :message="`确认取消挂号单 ${cancelState.regNo}？`" :loading="cancelState.loading" @confirm="cancel" @cancel="cancelState.show=false" />
   </AppShell>
 </template>
 
 <style scoped>
-.vue-message{text-align:left;color:var(--c-danger)}.vue-message.success{color:var(--c-success)}.vue-message p{margin:5px 0;color:var(--c-text-secondary);font-size:14px}.vue-success-actions{display:flex;gap:8px;margin-top:12px}.vue-actions{display:flex;gap:6px}.vue-reg-cards{display:none}.vue-reg-cards p{color:var(--c-sub);font-size:.85rem;margin:4px 0}.vue-book{max-width:480px;max-height:80vh;overflow:auto}.vue-options{display:flex;flex-direction:column;gap:8px}.vue-options button{text-align:left;padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-bg);cursor:pointer}.vue-options button.selected{border-color:var(--color-brand-700);background:var(--color-mint-100)}.vue-options strong,.vue-options span{display:block}.vue-options span{font-size:.8rem;color:var(--c-sub)}.vue-schedule-error{margin:18px 0;padding:12px 14px;border:1px solid #e8aaa4;border-radius:var(--radius);background:var(--color-danger-bg);color:var(--color-danger)}
-.step-flow{display:flex;gap:8px;margin-bottom:20px}.step-flow span{flex:1;padding:8px 6px;border-bottom:2px solid var(--c-border);color:var(--c-sub);font-size:12px;text-align:center}.step-flow .is-complete,.step-flow .is-active{border-color:var(--color-brand-700);color:var(--color-brand-700);font-weight:700}.booking-review{display:grid;gap:12px;margin:20px 0}.booking-review>div{display:flex;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid var(--c-border)}.booking-review dt{color:var(--c-sub)}.booking-review dd{margin:0;font-weight:600;text-align:right}
-@media(max-width:800px){.vue-reg-table{display:none}.vue-reg-cards{display:flex;flex-direction:column;gap:12px}}
+.vue-message{color:var(--color-danger);text-align:left}.vue-message.success{color:var(--color-success)}
+.vue-booking-panel{margin-bottom:20px}.vue-booking-panel .clinic-panel__head span{color:var(--color-text-secondary);font-size:13px;font-weight:600}
+.vue-filter-bar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;align-items:end;gap:14px}.vue-filter-bar label{display:grid;gap:7px;color:var(--color-text-secondary);font-size:13px;font-weight:700}.vue-filter-reset{min-height:44px;white-space:nowrap}.vue-date-presets{display:flex;gap:8px;margin-top:14px}
+.vue-schedule-results{display:grid;gap:12px}.vue-schedule-card{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:24px;padding:20px 22px;border:1px solid var(--color-border);border-radius:15px;background:var(--color-surface);box-shadow:var(--shadow-xs)}.vue-schedule-card__dept{color:var(--color-brand-700);font-size:13px;font-weight:750}.vue-schedule-card h2{margin:5px 0;font-size:19px}.vue-schedule-card p{margin:0;color:var(--color-text-secondary);font-size:14px}.vue-schedule-card__meta{display:grid;gap:5px;min-width:96px;text-align:right}.vue-schedule-card__meta strong{color:var(--color-brand-700);font-size:14px}.vue-schedule-card__meta span{color:var(--color-text-secondary);font-size:14px}.vue-no-schedules{display:grid;justify-items:center;gap:7px;padding:52px 20px;border:1px dashed var(--color-border-strong);border-radius:15px;color:var(--color-text-secondary);text-align:center}.vue-no-schedules strong{color:var(--color-text);font-size:17px}.vue-no-schedules p{margin:0;font-size:14px}
+.vue-review-dialog{max-width:480px}.vue-review-dialog__eyebrow{margin:0 0 6px!important;color:var(--color-brand-700)!important;font-size:12px!important;font-weight:750;letter-spacing:.08em}.booking-review{display:grid;gap:12px;margin:20px 0}.booking-review>div{display:flex;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid var(--color-border)}.booking-review dt{color:var(--color-text-secondary)}.booking-review dd{margin:0;font-weight:700;text-align:right}
+@media(max-width:700px){.vue-filter-bar{grid-template-columns:1fr}.vue-filter-reset{width:100%}.vue-schedule-card{grid-template-columns:1fr auto;gap:14px;padding:18px}.vue-schedule-card__meta{grid-column:1;text-align:left}.vue-schedule-card>.btn{grid-column:2;grid-row:1 / span 2;align-self:center}.vue-date-presets{flex-wrap:wrap}}
 </style>

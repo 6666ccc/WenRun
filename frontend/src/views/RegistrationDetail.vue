@@ -30,7 +30,7 @@ onMounted(async () => {
 })
 async function cancel() {
   cancelling.value = true
-  try { await cancelRegistration(Number(route.params.id)); router.replace('/registration') }
+  try { await cancelRegistration(Number(route.params.id)); router.replace('/user') }
   catch (nextError) { error.value = nextError.message || '取消失败'; cancelOpen.value = false }
   finally { cancelling.value = false }
 }
@@ -38,7 +38,7 @@ async function cancel() {
 
 <template>
   <AppShell>
-    <button class="view-back" @click="router.push('/registration')">‹ 返回挂号列表</button>
+    <button class="view-back" @click="router.push('/user')">‹ 返回个人中心</button>
     <UiState :loading="loading" :error="error" :empty="!registration" empty-text="挂号记录不存在">
       <div class="vue-record">
         <section class="clinic-panel"><div class="clinic-panel__head"><h2>挂号详情</h2><StatusBadge :status="registration.status" :map="REG_STATUS_MAP" /></div>

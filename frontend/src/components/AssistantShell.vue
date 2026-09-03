@@ -564,7 +564,7 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
     bottom: 0;
     left: 0;
     z-index: 40;
-    width: min(320px, calc(100% - 44px));
+    width: min(360px, 100%);
     border-right: 0;
     box-shadow: 18px 0 40px rgba(16, 42, 46, .1);
     visibility: hidden;

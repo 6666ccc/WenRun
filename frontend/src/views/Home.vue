@@ -24,8 +24,8 @@ const services = [
   { icon: 'ai', label: '健康助手', description: '查询健康信息与就医事项', to: '/assistant' },
   { icon: 'wallet', label: '门诊缴费', description: '查看账单与缴费状态', to: '/payment' },
   { icon: 'hospital', label: '科室医生', description: '浏览科室和医生团队', to: '/department' },
-  { icon: 'record', label: '就诊记录', description: '回看预约与就诊信息', to: '/registration' },
-  { icon: 'user', label: '我的档案', description: '维护患者与联系信息', to: '/user' },
+  { icon: 'record', label: '我的挂号', description: '查看预约与就诊信息', to: '/user' },
+  { icon: 'user', label: '个人中心', description: '维护档案和挂号记录', to: '/user' },
 ]
 
 onMounted(async () => {
@@ -101,7 +101,7 @@ onMounted(async () => {
 
       <div class="home-columns home-reveal home-reveal--panels">
         <section class="home-section home-panel" aria-labelledby="recent-title">
-          <div class="section-heading"><div><h2 id="recent-title">近期记录</h2></div><RouterLink to="/registration">查看全部</RouterLink></div>
+          <div class="section-heading"><div><h2 id="recent-title">近期记录</h2></div><RouterLink to="/user">查看全部</RouterLink></div>
           <p v-if="sectionErrors.registrations" class="section-error">近期记录暂时无法获取</p>
           <div v-else-if="data.registrations.length" class="record-list">
             <RouterLink v-for="item in data.registrations.slice(0, 3)" :key="item.id" :to="`/registration/${item.id}`" class="record-row">

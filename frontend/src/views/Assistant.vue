@@ -68,6 +68,7 @@ function keydown(event) {
 
 function openTask(task) {
   if (task.type === 'registration') router.push('/registration')
+  else if (task.type === 'records') router.push('/user')
   else assistant.openTask(task)
 }
 
@@ -292,9 +293,9 @@ onBeforeUnmount(() => {
             </div>
           </template>
           <template v-else>
-            <p>就诊记录保留在患者服务中，便于完整查看。</p>
+            <p>挂号与就诊记录保留在个人中心，便于完整查看。</p>
             <div class="assistant-task__empty">你可以查看历史挂号、就诊信息和个人档案。</div>
-            <button class="btn btn--primary btn--full" type="button" @click="router.push('/registration');assistant.closeTask()">查看就诊记录</button>
+            <button class="btn btn--primary btn--full" type="button" @click="router.push('/user');assistant.closeTask()">查看个人中心</button>
           </template>
         </section>
       </div>
@@ -728,7 +729,7 @@ onBeforeUnmount(() => {
 
 .chat-history-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   border-radius: 10px;
 }
 
@@ -738,20 +739,22 @@ onBeforeUnmount(() => {
 .chat-history-item > button:first-child {
   min-width: 0;
   flex: 1;
+  min-height: 42px;
   padding: 9px 10px;
-  overflow: hidden;
   border: 0;
   background: transparent;
   color: #111827;
   cursor: pointer;
   font: inherit;
   font-size: 14px;
+  line-height: 1.5;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .chat-history-item__delete {
+  flex: 0 0 32px;
   width: 32px;
   height: 32px;
   margin-right: 4px;
