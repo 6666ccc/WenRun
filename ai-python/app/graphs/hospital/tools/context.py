@@ -24,3 +24,8 @@ class HospitalToolContext:
     delegated_token: str
     request_id: str | None = None
     now: datetime = field(default_factory=clinic_now)
+    #: 幂等键的前缀来源。与 checkpointer 的 thread_id 相同。
+    conversation_id: str | None = None
+    #: 只有会话带 checkpointer 且不是快速模式时才为 True。为 False 时不挂载写工具，
+    #: 否则 interrupt() 会静默失效：工具不执行，final_reply 为空，整轮对话变成 500。
+    writes_enabled: bool = False

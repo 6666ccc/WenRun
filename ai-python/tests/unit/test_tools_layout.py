@@ -12,6 +12,8 @@ def test_hospital_graph_tools_export_langchain_tools():
     assert hospital_tools.list_doctors.name == "list_doctors"
     assert hospital_tools.list_schedules.name == "list_schedules"
     assert hospital_tools.list_my_registrations.name == "list_my_registrations"
+    assert hospital_tools.create_registration.name == "create_registration"
+    assert hospital_tools.cancel_registration.name == "cancel_registration"
     assert hospital_tools.HospitalToolContext("token", "trace").delegated_token == "token"
 
 

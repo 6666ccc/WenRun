@@ -6,6 +6,10 @@ from app.graphs.hospital.tools.knowledge_base import (
     retrieve_hospital_documents,
     search_hospital_knowledge,
 )
+from app.graphs.hospital.tools.registration_write import (
+    cancel_registration,
+    create_registration,
+)
 from app.graphs.hospital.tools.registrations import list_my_registrations
 from app.graphs.hospital.tools.schedules import list_schedules
 from app.graphs.hospital.tools.search import web_search
@@ -13,6 +17,8 @@ from app.graphs.hospital.tools.staff import list_doctors
 
 __all__ = [
     "HospitalToolContext",
+    "cancel_registration",
+    "create_registration",
     "list_departments",
     "list_doctors",
     "list_my_registrations",
