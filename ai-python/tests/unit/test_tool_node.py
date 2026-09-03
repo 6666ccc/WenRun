@@ -147,3 +147,71 @@ def test_state_schema_never_carries_delegated_token():
 
     assert "delegated_token" not in State.__annotations__
     assert "request_id" not in State.__annotations__
+
+
+def test_write_tools_are_only_mounted_on_the_writable_agent():
+    read_only = {item.name for item in tool_node_module.HOSPITAL_TOOLS}
+    writable = {item.name for item in tool_node_module.HOSPITAL_WRITE_TOOLS}
+
+    assert writable == {"create_registration", "cancel_registration"}
+    assert not (read_only & writable)
+
+
+def test_write_prompt_documents_every_write_tool_and_forbids_faking_success():
+    prompt = tool_node_module.WRITE_TOOL_SYSTEM_PROMPT
+
+    for name in ("create_registration", "cancel_registration"):
+        assert name in prompt
+    # 确认卡片由系统渲染，模型不能自己声称已经办好。
+    assert "不要在患者确认之前说已经挂上" in prompt
+
+
+def test_tool_node_uses_read_only_agent_when_writes_are_disabled(monkeypatch):
+    used: list[str] = []
+
+    class FakeAgent:
+        def __init__(self, label):
+            self.label = label
+
+        def invoke(self, payload, *, context):
+            used.append(self.label)
+            return {"messages": [HumanMessage(content="好的。")]}
+
+    monkeypatch.setattr(tool_node_module, "agent", FakeAgent("read"))
+    monkeypatch.setattr(tool_node_module, "writable_agent", FakeAgent("write"))
+
+    tool_node_module.tool_node(
+        {"selected_agents": ["tools"], "messages": [HumanMessage(content="帮我挂号")]},
+        _graph_runtime(CONTEXT),
+    )
+
+    assert used == ["read"]
+
+
+def test_tool_node_uses_writable_agent_when_writes_are_enabled(monkeypatch):
+    used: list[str] = []
+
+    class FakeAgent:
+        def __init__(self, label):
+            self.label = label
+
+        def invoke(self, payload, *, context):
+            used.append(self.label)
+            return {"messages": [HumanMessage(content="好的。")]}
+
+    monkeypatch.setattr(tool_node_module, "agent", FakeAgent("read"))
+    monkeypatch.setattr(tool_node_module, "writable_agent", FakeAgent("write"))
+    writable_context = HospitalToolContext(
+        "delegated-token",
+        "trace-123",
+        now=FROZEN_NOW,
+        conversation_id="conversation-1",
+        writes_enabled=True,
+    )
+
+    tool_node_module.tool_node(
+        {"selected_agents": ["tools"], "messages": [HumanMessage(content="帮我挂号")]},
+        _graph_runtime(writable_context),
+    )
+
+    assert used == ["write"]
