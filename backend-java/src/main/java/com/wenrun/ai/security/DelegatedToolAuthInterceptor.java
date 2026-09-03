@@ -1,6 +1,7 @@
 package com.wenrun.ai.security;
 
 import com.wenrun.common.ResultCode;
+import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -25,7 +26,12 @@ public class DelegatedToolAuthInterceptor implements HandlerInterceptor {
         if (!StringUtils.hasText(token)) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "缺少 AI 委托令牌");
         }
-        DelegatedToolContext.set(delegationTokenService.verifyForToolApi(token));
+        DelegatedToolPrincipal principal = delegationTokenService.verifyForToolApi(token);
+        DelegatedToolContext.set(principal);
+        // 业务 Service 的「患者本人」校验读的是 UserContext，而这条路径不走 AuthInterceptor。
+        // 不补这两行，退号的归属校验会整段失效，操作人字段也会写成 null。
+        UserContext.setUserId(principal.userId());
+        UserContext.setAccountType(principal.accountType());
         return true;
     }
 
@@ -33,6 +39,7 @@ public class DelegatedToolAuthInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
                                 Object handler, Exception ex) {
         DelegatedToolContext.clear();
+        UserContext.clear();
     }
 
     private String resolveBearerToken(HttpServletRequest request) {

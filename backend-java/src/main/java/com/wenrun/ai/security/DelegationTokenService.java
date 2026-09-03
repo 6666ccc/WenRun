@@ -26,6 +26,16 @@ import io.jsonwebtoken.security.Keys;
 @Service
 public class DelegationTokenService {
 
+    /**
+     * 患者端助手会话签发的固定 scope。写能力只覆盖挂号与退号，不含改排班、不含他人数据。
+     */
+    public static final Set<String> PATIENT_ASSISTANT_SCOPES = Set.of(
+            "departments:read",
+            "schedules:read",
+            "staff:read",
+            "registrations:read",
+            "registrations:write");
+
     private static final int MIN_SECRET_BYTES = 32;
     private final SecretKey secretKey;
     private final Duration ttl;

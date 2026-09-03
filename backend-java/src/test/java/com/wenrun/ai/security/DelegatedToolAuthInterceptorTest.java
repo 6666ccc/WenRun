@@ -1,5 +1,7 @@
 package com.wenrun.ai.security;
 
+import com.wenrun.common.context.UserContext;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -11,6 +13,7 @@ import java.util.Base64;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DelegatedToolAuthInterceptorTest {
@@ -23,6 +26,7 @@ class DelegatedToolAuthInterceptorTest {
     @AfterEach
     void cleanContext() {
         DelegatedToolContext.clear();
+        UserContext.clear();
     }
 
     @Test
@@ -42,5 +46,30 @@ class DelegatedToolAuthInterceptorTest {
     void rejectsRequestWithoutBearerToken() {
         assertThrows(Exception.class,
                 () -> interceptor.preHandle(new MockHttpServletRequest(), new MockHttpServletResponse(), new Object()));
+    }
+
+    @Test
+    void bridgesDelegatedIdentityIntoUserContextForBusinessServices() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        String token = tokenService.issue(7L, "patient", 11L, Set.of("registrations:write"));
+        request.addHeader("Authorization", "Bearer " + token);
+
+        interceptor.preHandle(request, new MockHttpServletResponse(), new Object());
+
+        assertEquals(7L, UserContext.getUserId());
+        assertEquals("patient", UserContext.getAccountType());
+    }
+
+    @Test
+    void clearsBridgedUserContextAfterCompletion() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        String token = tokenService.issue(7L, "patient", 11L, Set.of("registrations:read"));
+        request.addHeader("Authorization", "Bearer " + token);
+        interceptor.preHandle(request, new MockHttpServletResponse(), new Object());
+
+        interceptor.afterCompletion(request, new MockHttpServletResponse(), new Object(), null);
+
+        assertNull(UserContext.getUserId());
+        assertNull(UserContext.getAccountType());
     }
 }

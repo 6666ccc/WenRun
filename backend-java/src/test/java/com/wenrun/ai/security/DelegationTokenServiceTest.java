@@ -40,4 +40,12 @@ class DelegationTokenServiceTest {
         assertThrows(BusinessException.class,
                 () -> service.verifyForToolApi(token + "modified"));
     }
+
+    @Test
+    void patientAssistantScopesCoverReadsAndRegistrationWrites() {
+        assertEquals(
+                Set.of("departments:read", "schedules:read", "staff:read",
+                        "registrations:read", "registrations:write"),
+                DelegationTokenService.PATIENT_ASSISTANT_SCOPES);
+    }
 }

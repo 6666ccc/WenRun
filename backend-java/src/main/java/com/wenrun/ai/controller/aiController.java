@@ -30,7 +30,6 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
@@ -127,11 +126,7 @@ public class aiController {
                         request.getUserId(),
                         UserContext.getAccountType(),
                         request.getPatientId(),
-                        Set.of(
-                                "departments:read",
-                                "schedules:read",
-                                "staff:read",
-                                "registrations:read")));
+                        DelegationTokenService.PATIENT_ASSISTANT_SCOPES));
     }
 
     private SseEmitter stream(StreamAction action, String conversationId, Long userId,
