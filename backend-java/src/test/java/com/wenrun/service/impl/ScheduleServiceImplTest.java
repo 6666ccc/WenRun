@@ -25,13 +25,15 @@ class ScheduleServiceImplTest {
 
     @Test
     void listWithoutWorkDateQueriesFromTodayOnward() {
-        LocalDate today = clinic.today();
+        ClinicProperties morningClinic = clinicAt(LocalDateTime.of(2026, 9, 3, 10, 0));
+        ScheduleServiceImpl morningService = new ScheduleServiceImpl(scheduleMapper, morningClinic);
+        LocalDate today = morningClinic.today();
         ScheduleVO schedule = new ScheduleVO();
         schedule.setWorkDate(today);
         schedule.setTimePeriod("下午");
         when(scheduleMapper.selectList(null, null, null, today)).thenReturn(List.of(schedule));
 
-        List<ScheduleVO> result = service.list(null, null, null);
+        List<ScheduleVO> result = morningService.list(null, null, null);
 
         assertEquals(1, result.size());
         verify(scheduleMapper).selectList(null, null, null, today);
