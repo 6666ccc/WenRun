@@ -4,6 +4,7 @@ import com.wenrun.ai.security.DelegationTokenService;
 import com.wenrun.ai.service.ConversationOwnershipService;
 import com.wenrun.ai.service.aiService;
 import com.wenrun.ai.vo.aiRequest;
+import com.wenrun.ai.vo.aiResumeRequest;
 import com.wenrun.common.Result;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.config.RequestTrace;
@@ -96,6 +97,16 @@ public class aiController {
                 request.getClientRequestId());
     }
 
+    @PostMapping(value = "/chat/resume", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter chatResume(@Valid @RequestBody aiResumeRequest request) {
+        prepareResume(request);
+        return stream(
+                consumer -> aiService.streamResume(request, consumer),
+                request.getConversationId(),
+                request.getUserId(),
+                request.getClientRequestId());
+    }
+
     @DeleteMapping("/conversations/{conversationId}")
     public Result<Void> deleteConversation(@PathVariable String conversationId) {
         Long userId = UserContext.getUserId();
@@ -124,6 +135,30 @@ public class aiController {
         request.setDelegatedToken(
                 delegationTokenService.issue(
                         request.getUserId(),
+                        UserContext.getAccountType(),
+                        request.getPatientId(),
+                        DelegationTokenService.PATIENT_ASSISTANT_SCOPES));
+    }
+
+    /**
+     * 恢复只能发生在已存在且属于当前用户的会话上，所以用 assertOwned 而不是 establishIfAbsent。
+     * 委托令牌必须重新签发：原令牌 5 分钟就过期，而患者盯着确认卡片可能想很久。
+     */
+    private void prepareResume(aiResumeRequest request) {
+        request.setConversationId(request.getConversationId().trim());
+        if (!StringUtils.hasText(request.getClientRequestId())) {
+            request.setClientRequestId("client-" + UUID.randomUUID());
+        } else {
+            request.setClientRequestId(request.getClientRequestId().trim());
+        }
+        Long userId = UserContext.getUserId();
+        ownershipService.assertOwned(request.getConversationId(), userId);
+        request.setUserId(userId);
+        request.setPatientId(currentPatientId(userId));
+        request.setRequestId(RequestTrace.get());
+        request.setDelegatedToken(
+                delegationTokenService.issue(
+                        userId,
                         UserContext.getAccountType(),
                         request.getPatientId(),
                         DelegationTokenService.PATIENT_ASSISTANT_SCOPES));
@@ -162,6 +197,15 @@ public class aiController {
                                 ? value
                                 : accumulatedReply.toString();
                         saveMessage(conversationId, userId, clientRequestId, "assistant", reply);
+                        terminal.set(true);
+                        emitter.complete();
+                    } else if ("confirm".equals(type)) {
+                        // 写操作挂起等患者确认，本轮到此为止：Python 不会再发 done。
+                        // 落一条确认提示语，让历史连贯，也让这条 clientRequestId 的幂等记录闭环。
+                        String prompt = event.get("prompt") instanceof String value && StringUtils.hasText(value)
+                                ? value
+                                : "请确认是否继续办理";
+                        saveMessage(conversationId, userId, clientRequestId, "assistant", prompt);
                         terminal.set(true);
                         emitter.complete();
                     } else if ("error".equals(type)) {

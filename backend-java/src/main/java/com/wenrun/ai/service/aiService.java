@@ -3,6 +3,7 @@ package com.wenrun.ai.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wenrun.ai.vo.aiRequest;
+import com.wenrun.ai.vo.aiResumeRequest;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.config.RequestTrace;
@@ -71,6 +72,12 @@ public class aiService {
 
     public void streamChat(aiRequest request, Consumer<Map<String, Object>> consumer) {
         postStream("/v1/chat/stream", buildChatPayload(request), request.getRequestId(),
+                request.getDelegatedToken(), consumer);
+    }
+
+    /** 恢复被挂起的那一轮。委托令牌是本次请求重新签发的，Python 侧节点重跑时会读到它。 */
+    public void streamResume(aiResumeRequest request, Consumer<Map<String, Object>> consumer) {
+        postStream("/v1/chat/resume", buildResumePayload(request), request.getRequestId(),
                 request.getDelegatedToken(), consumer);
     }
 
@@ -190,6 +197,22 @@ public class aiService {
         payload.put("memoryEnabled", request.getMemoryEnabled() == null
                 ? Boolean.TRUE : request.getMemoryEnabled());
         payload.put("fastMode", request.getFastMode() != null && request.getFastMode());
+        addUserContext(payload, request.getUserId(), request.getPatientId());
+        return payload;
+    }
+
+    private Map<String, Object> buildResumePayload(aiResumeRequest request) {
+        if (request == null || !StringUtils.hasText(request.getConversationId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "会话 ID 不能为空");
+        }
+        String decision = request.getDecision();
+        if (!"approve".equals(decision) && !"reject".equals(decision)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "确认结果只能是 approve 或 reject");
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("conversationId", request.getConversationId().trim());
+        payload.put("decision", decision);
         addUserContext(payload, request.getUserId(), request.getPatientId());
         return payload;
     }

@@ -1,6 +1,7 @@
 package com.wenrun.ai.service;
 
 import com.wenrun.ai.vo.aiRequest;
+import com.wenrun.ai.vo.aiResumeRequest;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
@@ -105,5 +106,51 @@ class AiServiceTest {
 
         assertEquals(ResultCode.SERVICE_UNAVAILABLE, exception.getCode());
         server.verify();
+    }
+
+    @Test
+    void forwardsResumeDecisionToPython() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://python.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        aiService service = new aiService(builder.build(), "service-key");
+        server.expect(requestTo("http://python.test/v1/chat/resume"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("X-Api-Key", "service-key"))
+                .andExpect(header("X-Delegated-Token", "delegated-token"))
+                .andExpect(jsonPath("$.conversationId").value("conversation-1"))
+                .andExpect(jsonPath("$.decision").value("approve"))
+                .andExpect(jsonPath("$.userContext.patientId").value(12))
+                .andRespond(withSuccess("""
+                        data: {"type":"done","reply":"挂号已办好。","conversationId":"conversation-1"}
+
+                        """, MediaType.TEXT_EVENT_STREAM));
+
+        aiResumeRequest request = new aiResumeRequest();
+        request.setConversationId("conversation-1");
+        request.setDecision("approve");
+        request.setUserId(7L);
+        request.setPatientId(12L);
+        request.setDelegatedToken("delegated-token");
+        List<Map<String, Object>> events = new ArrayList<>();
+
+        service.streamResume(request, events::add);
+
+        assertEquals(List.of("done"), events.stream().map(event -> event.get("type")).toList());
+        server.verify();
+    }
+
+    @Test
+    void resumeRejectsBlankDecision() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://python.test");
+        aiService service = new aiService(builder.build(), "");
+
+        aiResumeRequest request = new aiResumeRequest();
+        request.setConversationId("conversation-1");
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.streamResume(request, event -> { }));
+
+        assertEquals(ResultCode.BAD_REQUEST, exception.getCode());
     }
 }
