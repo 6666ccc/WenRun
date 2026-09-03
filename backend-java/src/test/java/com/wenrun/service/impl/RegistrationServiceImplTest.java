@@ -1,6 +1,7 @@
 package com.wenrun.service.impl;
 
 import com.wenrun.config.ClinicProperties;
+import com.wenrun.common.constant.BizStatus;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.dto.RegistrationCreateDTO;
 import com.wenrun.entity.Patient;
@@ -9,11 +10,13 @@ import com.wenrun.entity.Schedule;
 import com.wenrun.repository.PatientRepository;
 import com.wenrun.repository.RegistrationRepository;
 import com.wenrun.repository.ScheduleRepository;
+import com.wenrun.vo.RegistrationVO;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -187,5 +190,89 @@ class RegistrationServiceImplTest {
                 BusinessException.class, () -> service.register(dtoWithKey("ai-reg-001")));
 
         assertEquals("请勿重复提交挂号请求", error.getMessage());
+    }
+
+    private RegistrationVO registeredVO(LocalDate workDate) {
+        RegistrationVO vo = new RegistrationVO();
+        vo.setId(55L);
+        vo.setScheduleId(9L);
+        vo.setStatus(BizStatus.REG_REGISTERED);
+        vo.setWorkDate(workDate);
+        vo.setTimePeriod("上午");
+        return vo;
+    }
+
+    @Test
+    void listReleasesSeatWhenExpiredRegistrationIsAutoCancelled() {
+        RegistrationVO expired = registeredVO(clinic.today().minusDays(1));
+        when(registrationMapper.selectList(1L, null, null, null, null))
+                .thenReturn(List.of(expired));
+        when(registrationMapper.updateStatusIfCurrent(
+                55L, BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED)).thenReturn(1);
+
+        List<RegistrationVO> result = service.list(1L, null, null, null, null);
+
+        assertEquals(BizStatus.REG_CANCELLED, result.get(0).getStatus());
+        verify(scheduleMapper).incrementRemaining(9L);
+    }
+
+    @Test
+    void listDoesNotReleaseSeatWhenAnotherRequestAlreadyCancelled() {
+        RegistrationVO expired = registeredVO(clinic.today().minusDays(1));
+        when(registrationMapper.selectList(1L, null, null, null, null))
+                .thenReturn(List.of(expired));
+        when(registrationMapper.updateStatusIfCurrent(
+                55L, BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED)).thenReturn(0);
+
+        service.list(1L, null, null, null, null);
+
+        verify(scheduleMapper, never()).incrementRemaining(anyLong());
+    }
+
+    @Test
+    void listLeavesUnexpiredRegistrationUntouched() {
+        RegistrationVO upcoming = registeredVO(clinic.today().plusDays(1));
+        when(registrationMapper.selectList(1L, null, null, null, null))
+                .thenReturn(List.of(upcoming));
+
+        List<RegistrationVO> result = service.list(1L, null, null, null, null);
+
+        assertEquals(BizStatus.REG_REGISTERED, result.get(0).getStatus());
+        verify(registrationMapper, never())
+                .updateStatusIfCurrent(anyLong(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+        verify(scheduleMapper, never()).incrementRemaining(anyLong());
+    }
+
+    @Test
+    void cancelReleasesSeatWhenStatusTransitionWins() {
+        Registration reg = new Registration();
+        reg.setId(55L);
+        reg.setPatientId(1L);
+        reg.setScheduleId(9L);
+        reg.setStatus(BizStatus.REG_REGISTERED);
+        when(registrationMapper.selectById(55L)).thenReturn(reg);
+        when(registrationMapper.updateStatusIfCurrent(
+                55L, BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED)).thenReturn(1);
+
+        service.cancel(55L);
+
+        verify(scheduleMapper).incrementRemaining(9L);
+    }
+
+    @Test
+    void cancelRejectsWhenStatusChangedConcurrently() {
+        Registration reg = new Registration();
+        reg.setId(55L);
+        reg.setPatientId(1L);
+        reg.setScheduleId(9L);
+        reg.setStatus(BizStatus.REG_REGISTERED);
+        when(registrationMapper.selectById(55L)).thenReturn(reg);
+        when(registrationMapper.updateStatusIfCurrent(
+                55L, BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED)).thenReturn(0);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.cancel(55L));
+
+        assertEquals("挂号单状态已变化，请刷新后重试", error.getMessage());
+        verify(scheduleMapper, never()).incrementRemaining(anyLong());
     }
 }

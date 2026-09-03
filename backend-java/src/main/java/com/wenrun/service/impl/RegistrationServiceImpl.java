@@ -35,6 +35,7 @@ public class RegistrationServiceImpl implements RegistrationService {
 
     //获取用户挂号的信息
     @Override
+    @Transactional
     public List<RegistrationVO> list(Long patientId, Long userId, Long registrantUserId, Long staffId, Integer status) {
 
         // 患者端的数据范围由登录态决定，不能信任前端传入的 patientId/userId。
@@ -49,21 +50,26 @@ public class RegistrationServiceImpl implements RegistrationService {
         List<RegistrationVO> registrationVOList = registrationMapper.selectList(
                 patientId, userId, registrantUserId, staffId, status);
 
-        //判断当前患者挂号是否过期,如果过期则自动更新数据库状态为已退号
-        for (RegistrationVO registrationVO : registrationVOList){
+        //判断当前患者挂号是否过期,如果过期则自动退号并把号源还回排班
+        for (RegistrationVO registrationVO : registrationVOList) {
             //只处理"已挂号"状态的记录
             if (registrationVO.getStatus() == null || registrationVO.getStatus() != BizStatus.REG_REGISTERED) {
                 continue;
             }
-            if (clinicProperties.isExpired(registrationVO.getWorkDate(), registrationVO.getTimePeriod())) {
-                registrationVO.setStatus(BizStatus.REG_CANCELLED);
-                registrationMapper.updateStatus(registrationVO.getId(), BizStatus.REG_CANCELLED);
+            if (!clinicProperties.isExpired(registrationVO.getWorkDate(), registrationVO.getTimePeriod())) {
+                continue;
             }
+            // 条件更新让状态流转本身成为并发仲裁点：只有抢到这次流转的调用才回补号源，
+            // 否则两个并发查询会把同一张单的号源加两次。
+            boolean transitioned = registrationMapper.updateStatusIfCurrent(
+                    registrationVO.getId(), BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED) == 1;
+            if (transitioned && registrationVO.getScheduleId() != null) {
+                scheduleMapper.incrementRemaining(registrationVO.getScheduleId());
+            }
+            registrationVO.setStatus(BizStatus.REG_CANCELLED);
         }
 
-
         return registrationVOList;
-
     }
 
     // 挂号
@@ -158,7 +164,11 @@ public class RegistrationServiceImpl implements RegistrationService {
                 && !reg.getPatientId().equals(currentPatientId())) {
             throw new BusinessException("无权操作该挂号单");
         }
-        registrationMapper.updateStatus(id, BizStatus.REG_CANCELLED);
+        // 前面的状态判断只为给出友好文案；真正的并发守卫是这次条件更新。
+        if (registrationMapper.updateStatusIfCurrent(
+                id, BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED) != 1) {
+            throw new BusinessException("挂号单状态已变化，请刷新后重试");
+        }
         scheduleMapper.incrementRemaining(reg.getScheduleId());
     }
 

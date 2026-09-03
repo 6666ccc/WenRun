@@ -23,6 +23,11 @@ public interface RegistrationRepository {
 
     int updateStatus(@Param("id") Long id, @Param("status") Integer status);
 
+    /** 仅当当前状态等于 expectedStatus 时才流转；返回受影响行数，用于判断本次调用是否真正生效。 */
+    int updateStatusIfCurrent(@Param("id") Long id,
+                              @Param("expectedStatus") Integer expectedStatus,
+                              @Param("status") Integer status);
+
     /** 统计患者在指定排班下的有效挂号数（已挂号状态） */
     int countActiveByPatientAndSchedule(@Param("patientId") Long patientId,
                                         @Param("scheduleId") Long scheduleId,

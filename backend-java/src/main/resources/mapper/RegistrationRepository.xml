@@ -39,6 +39,10 @@
     <update id="updateStatus">
         UPDATE registration SET status = #{status} WHERE id = #{id}
     </update>
+    <update id="updateStatusIfCurrent">
+        UPDATE registration SET status = #{status}
+        WHERE id = #{id} AND status = #{expectedStatus}
+    </update>
     <select id="selectByIdempotencyKey" resultType="com.wenrun.entity.Registration">
         SELECT * FROM registration WHERE idempotency_key = #{idempotencyKey} LIMIT 1
     </select>
