@@ -9,7 +9,9 @@
 3. 保证根目录 `AI_SERVICE_API_KEY` 与 AI 目录 `AI_INTERNAL_API_KEY` 完全一致。
 4. 运行 `docker compose up --build`，然后访问 `http://localhost:5173`。
 
-开发 Compose 会启动 Redis 8。Java 登录 Session 使用 db0，Python Agent checkpoint 使用 db1（`AI_REDIS_URL`）。未配置 `AI_REDIS_URL` 时，对话图退化为单轮无状态。
+开发 Compose 会启动 Redis 8。Java 登录 Session 使用 db1，Python Agent checkpoint 使用 db0（`AI_REDIS_URL`，RediSearch 只能建在 db0）。未配置 `AI_REDIS_URL` 时，对话图退化为单轮无状态。
+
+健康助手支持「快速模式」开关。开启后跳过意图路由与回复汇总，由单个挂载了院内知识检索与联网检索的 Agent 直接流式作答，响应更快，但查不了号源、排班和本人预约。两种模式共用同一会话记忆。
 
 ## 本地分别启动
 

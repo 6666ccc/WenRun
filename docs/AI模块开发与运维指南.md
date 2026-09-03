@@ -188,8 +188,9 @@ START → begin_node → knowledge_node → chat_node → final_node → END
 2. `knowledge_node` 在命中 `knowledge` 时优先检索院内 Qdrant。命中时只允许依据院内片段回答；未命中时调用带 Tavily 工具的联网 Agent，要求其只根据网页片段摘要。
 3. `chat_node` 在命中 `chat` 时处理问候、感谢和非医疗闲聊，不处理病情或业务。
 4. `final_node` 收集已生成的知识、闲聊和业务回复。只有一个回复时原样输出；多个回复才调用模型合并，失败时确定性拼接。
+5. `fastMode=true` 时整张图被替换为 `START → fast_node → summarize_node → END`。`fast_node` 是单个全能 Agent，自己跑工具循环，只挂院内知识检索与联网检索两个工具，最多 3 轮工具调用，超出后会去掉工具再问一次以逼出答案。它不做意图路由，也不做多节点汇总，因此比正常模式少两轮 LLM 往返。
 
-为避免把路由 JSON、工具参数或检索原文泄漏给患者，纯闲聊只流出 `chat_node` 的模型片段；知识或多意图请求只流出 `final_node` 的最终正文。
+为避免把路由 JSON、工具参数或检索原文泄漏给患者，SSE 只转发根图节点的模型分片，嵌套 Agent（`ns` 非空的子图）分片一律丢弃。单意图时直接流出该节点自身的正文：纯闲聊来自 `chat_node`，纯知识来自 `knowledge_node` 的 RAG 命中分支。多意图请求由 `final_node` 重写正文，只流出 `final_node`。`tool_node` 与知识的 Tavily 兜底走嵌套 Agent，当前不流式，等 `final_node` 透传后一次性下发。快速模式下 token 只来自 `fast_node`。
 
 ### 当前功能边界
 
@@ -269,5 +270,6 @@ npm run build
 | 总是走网页或提示知识库不可用 | Qdrant 是否有资料、相似度阈值 `0.8` 是否过高、Tavily 密钥和外网是否可用 |
 | 流式答案重复或不完整 | 前端是否为同一轮复用 `clientRequestId`、检查 `done.reply`、用 `X-Request-Id` 对照 Java/Python 日志 |
 | “挂号/查排班”没有实际结果 | 这是当前 `tools` 节点未接入的已知限制，不是 Qdrant 故障 |
+| 快速模式答不出号源排班 | 这是设计行为，不是故障。快速模式不挂业务只读工具，请关闭快速模式重问 |
 
 相关实现可从 [`ai-python/README.md`](../ai-python/README.md)、[`aiController.java`](../backend-java/src/main/java/com/wenrun/ai/controller/aiController.java) 和 [`assistant-stream-recovery-highlight.md`](assistant-stream-recovery-highlight.md) 继续阅读。
