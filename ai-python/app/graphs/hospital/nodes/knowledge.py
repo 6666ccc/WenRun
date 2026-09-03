@@ -3,9 +3,9 @@ from app.graphs.hospital.memory import recent_messages
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
+from app.rag.documents import format_rag_context, to_rag_sources
 from app.rag.qdrant import get_hospital_retriever
 from langchain.agents import create_agent
-from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage
 from loguru import logger
 
@@ -75,39 +75,7 @@ def _last_user_query(state: State) -> str:
     return ""
 
 
-# 步骤二：把 Retriever 返回的 Document 转为模型可阅读的院内资料上下文。
-def _format_rag_context(documents: list[Document]) -> str:
-    blocks: list[str] = []
-    for index, document in enumerate(documents, start=1):
-        metadata = document.metadata or {}
-        title = (
-            metadata.get("source_name") or metadata.get("originalName") or "院内知识库"
-        )
-        page = metadata.get("page") or metadata.get("pageNumber") or "未标注"
-        blocks.append(
-            f"[S{index}] 来源：{title}；页码：{page}\n{document.page_content}"
-        )
-    return "\n\n".join(blocks)
-
-
-# 步骤三：把命中资料的元数据保存到 State，最终响应可以展示引用来源。
-def _to_rag_sources(documents: list[Document]) -> list[dict]:
-    sources: list[dict] = []
-    for index, document in enumerate(documents, start=1):
-        metadata = document.metadata or {}
-        sources.append(
-            {
-                "id": f"S{index}",
-                "document_id": metadata.get("document_id")
-                or metadata.get("documentId"),
-                "title": metadata.get("source_name") or metadata.get("originalName"),
-                "page": metadata.get("page") or metadata.get("pageNumber"),
-            }
-        )
-    return sources
-
-
-# 步骤四：院内资料未命中时，保留原有 web_search Agent 作为兜底。
+# 步骤二：院内资料未命中时，保留原有 web_search Agent 作为兜底。
 def _web_fallback_reply(state: State) -> str:
     result = agent.invoke({"messages": recent_messages(state)})
     messages = result.get("messages") or []
@@ -144,10 +112,9 @@ def knowledge_node(state: State) -> dict:
         }
 
     # 步骤八：命中后将资料作为 SystemMessage 上下文，让模型只能依据院内资料回答。
-    # 此分支直接调用不带工具的基础 model，不能调用带 web_search 的 agent：
-    # 1. 从代码层面保证 RAG 已命中时不会再次触发网页搜索；
-    # 2. model.invoke 接收消息列表并直接返回 AIMessage，便于正确读取回答正文。
-    context = _format_rag_context(documents)
+    # 此分支直接调用不带工具的基础 model，不能调用带 web_search 的 agent，
+    # 从代码层面保证 RAG 已命中时不会再次触发网页搜索。
+    context = format_rag_context(documents)
     rag_messages = [
         SystemMessage(
             content=(
@@ -159,11 +126,16 @@ def knowledge_node(state: State) -> dict:
         ),
         *recent_messages(state),
     ]
-    answer = model.invoke(rag_messages)
 
-    # 步骤九：model.invoke 返回 AIMessage；取出正文，并同时保存 RAG 来源元数据。
-    content = getattr(answer, "content", "")
+    # 步骤九：用 stream 而非 invoke，让本节点的模型分片能被 SSE 路由立即转发。
+    # 纯知识提问时 final_node 只做透传，本节点就是患者看到的正文。
+    chunks: list[str] = []
+    for chunk in model.stream(rag_messages):
+        content = getattr(chunk, "content", "")
+        if not isinstance(content, str) or not content:
+            continue
+        chunks.append(content)
     return {
-        "knowledge_reply": content if isinstance(content, str) else str(content),
-        "rag_sources": _to_rag_sources(documents),
+        "knowledge_reply": "".join(chunks),
+        "rag_sources": to_rag_sources(documents),
     }
