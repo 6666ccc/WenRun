@@ -6,6 +6,7 @@ import pytest
 def test_hospital_graph_tools_export_langchain_tools():
     hospital_tools = importlib.import_module("app.graphs.hospital.tools")
 
+    assert hospital_tools.search_hospital_knowledge.name == "search_hospital_knowledge"
     assert hospital_tools.web_search.name == "web_search"
     assert hospital_tools.list_departments.name == "list_departments"
     assert hospital_tools.list_doctors.name == "list_doctors"

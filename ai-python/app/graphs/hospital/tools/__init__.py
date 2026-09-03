@@ -2,6 +2,10 @@
 
 from app.graphs.hospital.tools.context import HospitalToolContext
 from app.graphs.hospital.tools.departments import list_departments
+from app.graphs.hospital.tools.knowledge_base import (
+    retrieve_hospital_documents,
+    search_hospital_knowledge,
+)
 from app.graphs.hospital.tools.registrations import list_my_registrations
 from app.graphs.hospital.tools.schedules import list_schedules
 from app.graphs.hospital.tools.search import web_search
@@ -13,5 +17,7 @@ __all__ = [
     "list_doctors",
     "list_my_registrations",
     "list_schedules",
+    "retrieve_hospital_documents",
+    "search_hospital_knowledge",
     "web_search",
 ]
