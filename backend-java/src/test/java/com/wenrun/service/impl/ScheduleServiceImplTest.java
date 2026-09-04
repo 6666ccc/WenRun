@@ -1,5 +1,6 @@
 package com.wenrun.service.impl;
 
+import com.wenrun.common.exception.BusinessException;
 import com.wenrun.config.ClinicProperties;
 import com.wenrun.repository.ScheduleRepository;
 import com.wenrun.vo.ScheduleVO;
@@ -13,6 +14,7 @@ import java.time.ZoneId;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -64,6 +66,26 @@ class ScheduleServiceImplTest {
 
         assertEquals(1, result.size());
         assertEquals("下午", result.getFirst().getTimePeriod());
+    }
+
+    @Test
+    void getDetailReturnsJoinedScheduleVo() {
+        ScheduleVO schedule = new ScheduleVO();
+        schedule.setId(2L);
+        schedule.setStaffName("张伟");
+        when(scheduleMapper.selectVOById(2L)).thenReturn(schedule);
+
+        assertEquals("张伟", service.getDetail(2L).getStaffName());
+        verify(scheduleMapper).selectVOById(2L);
+    }
+
+    @Test
+    void getDetailRejectsMissingSchedule() {
+        when(scheduleMapper.selectVOById(2L)).thenReturn(null);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.getDetail(2L));
+
+        assertEquals("排班不存在", error.getMessage());
     }
 
     private static ClinicProperties clinicAt(LocalDateTime beijingTime) {

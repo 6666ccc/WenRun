@@ -1,6 +1,6 @@
 """排班与余号查询 Tool。对应 Java 的 /api/internal/ai-tools/schedules。"""
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from langchain.tools import ToolRuntime, tool
 from loguru import logger
@@ -12,6 +12,8 @@ from app.graphs.hospital.tools.staff import resolve_staff_id
 from app.services.java_tool_client import JavaToolClient, JavaToolClientError, Schedule
 
 RELATIVE_DAYS = {"今天": 0, "今日": 0, "明天": 1, "明日": 1, "后天": 2}
+# 与 Java ScheduleCutoffs.defaults() / wenrun.clinic.*-end 默认值对齐。
+PERIOD_ENDS = {"上午": time(12, 0), "下午": time(18, 0), "晚上": time(21, 0)}
 
 
 def clinic_today(now) -> date:
@@ -29,9 +31,30 @@ def resolve_work_date(value: str, today: date) -> date | None:
         return None
 
 
+def slot_is_expired(work_date: str | None, time_period: str | None, now) -> bool:
+    """与 Java ScheduleExpiry 一致：过去的就诊日，或当天已过对应时段截止时刻。"""
+    if not work_date:
+        return False
+    try:
+        work = date.fromisoformat(str(work_date)[:10])
+    except ValueError:
+        return False
+    today = clinic_today(now)
+    if work < today:
+        return True
+    if work > today:
+        return False
+    end = PERIOD_ENDS.get(time_period or "")
+    if end is None:
+        return False
+    local = now.astimezone(CLINIC_TZ) if getattr(now, "tzinfo", None) else now
+    return local.time() >= end
+
+
 def _format_schedule(item: Schedule) -> str:
     parts = [part for part in (item.work_date, item.time_period, item.dept_name, item.staff_name) if part]
-    line = "- " + " ".join(parts)
+    prefix = f"排班id={item.id} " if item.id is not None else ""
+    line = "- " + prefix + " ".join(parts)
     if item.remaining_count is not None:
         line += f"，余号 {item.remaining_count}"
         if item.total_count is not None:

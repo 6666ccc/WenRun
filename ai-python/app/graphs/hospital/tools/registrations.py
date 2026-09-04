@@ -12,7 +12,8 @@ STATUS_TEXT = {1: "已挂号", 2: "已就诊", 3: "已退号"}
 
 def _format_registration(item: Registration) -> str:
     parts = [part for part in (item.work_date, item.time_period, item.dept_name, item.staff_name) if part]
-    line = "- " + " ".join(parts)
+    prefix = f"挂号单id={item.id} " if item.id is not None else ""
+    line = "- " + prefix + " ".join(parts)
     status_text = STATUS_TEXT.get(item.status) if item.status is not None else None
     if status_text:
         line += f"，状态 {status_text}"

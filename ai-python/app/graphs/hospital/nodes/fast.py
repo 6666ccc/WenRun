@@ -4,11 +4,19 @@
 才会被 SSE 路由转发，嵌套子图的分片会被命名空间过滤掉，那样快速模式就没有流式了。
 """
 
+from datetime import datetime
+
 from langchain_core.messages import AIMessage, AIMessageChunk, SystemMessage, ToolMessage
+from langgraph.runtime import Runtime
 from loguru import logger
 
 from app.graphs.hospital.memory import recent_messages, reset_turn_fields
 from app.graphs.hospital.state import State
+from app.graphs.hospital.tools.context import (
+    HospitalToolContext,
+    clinic_now,
+    format_clinic_clock,
+)
 from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
 
@@ -28,7 +36,8 @@ FAST_SYSTEM_PROMPT = """你是温润诊所患者端的快速助手。患者主�
 检索规则（需要事实依据时必须先查再答，不要凭记忆回答用药和剂量）：
 1. 只调用 web_search。query 只能是整理后的短检索词，不要把患者原话整段丢进去。
 2. 只根据检索片段作答，不要用自己的医学知识补全。没有依据时，如实说明公开资料不足，请患者到院评估。
-3. 纯寒暄、情绪陪伴、明显不需要事实依据的问题，不要调用任何工具，直接回答。
+3. 纯寒暄、情绪陪伴、问今天几号或星期几、明显不需要事实依据的问题，不要调用任何工具，直接回答。
+   问今天几号、星期几：直接根据系统给出的当前时间回答。
 4. 决定调用工具的那一轮不要输出任何对患者说的话，等工具结果回来再作答。
 5. 不要检索本院内部规定。你没有院内知识库。
 
@@ -45,12 +54,18 @@ FAST_SYSTEM_PROMPT = """你是温润诊所患者端的快速助手。患者主�
 
 示例：
 - 「你好」→ 简短问好，询问可以帮什么。
+- 「今天星期几」→ 按系统当前时间直接回答，不联网。
 - 「感冒吃什么药」→ 调用 web_search，按片段作答并列出参考来源。
 - 「儿科在几楼」→ 说明快速模式查不了本院内部信息，请关闭快速模式再问。不联网，不编造楼层。
 - 「明天下午张医生还有号吗」→ 说明快速模式查不了实时号源，请关闭快速模式再问，或到挂号页面查看。
 - 「帮我挂明天内科」→ 说明不能代为挂号，请到挂号页面办理。
 - 「谢谢你啊，顺便问问感冒吃什么药」→ 先致谢一两句，再按检索规则回答用药。
 """
+
+
+def build_fast_system_prompt(now: datetime) -> str:
+    """静态职责说明 + 本次请求的北京时间。"""
+    return FAST_SYSTEM_PROMPT + f"\n\n当前时间：{format_clinic_clock(now)}。"
 
 
 def _stream_turn(bound_model, messages) -> tuple[AIMessageChunk | None, str]:
@@ -82,9 +97,10 @@ def _run_tool_call(call: dict) -> str:
     return f"（没有名为 {name} 的工具，请直接回答或改用其他工具。）"
 
 
-def fast_node(state: State) -> dict:
+def fast_node(state: State, runtime: Runtime[HospitalToolContext] | None = None) -> dict:
     bound_model = model.bind_tools(FAST_TOOLS)
-    messages = [SystemMessage(content=FAST_SYSTEM_PROMPT), *recent_messages(state)]
+    now = runtime.context.now if runtime is not None else clinic_now()
+    messages = [SystemMessage(content=build_fast_system_prompt(now)), *recent_messages(state)]
     text = ""
 
     for _ in range(MAX_TOOL_ITERATIONS):

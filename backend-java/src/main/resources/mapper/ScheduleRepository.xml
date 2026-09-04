@@ -2,12 +2,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.wenrun.repository.ScheduleRepository">
+    <sql id="Schedule_VO_Columns">
+        sc.id, sc.dept_id AS deptId, d.dept_name AS deptName,
+        sc.staff_id AS staffId, st.name AS staffName,
+        sc.work_date AS workDate, sc.time_period AS timePeriod,
+        sc.total_count AS totalCount, sc.remaining_count AS remainingCount,
+        sc.register_fee AS registerFee
+    </sql>
     <select id="selectList" resultType="com.wenrun.vo.ScheduleVO">
-        SELECT sc.id, sc.dept_id AS deptId, d.dept_name AS deptName,
-               sc.staff_id AS staffId, st.name AS staffName,
-               sc.work_date AS workDate, sc.time_period AS timePeriod,
-               sc.total_count AS totalCount, sc.remaining_count AS remainingCount,
-               sc.register_fee AS registerFee
+        SELECT <include refid="Schedule_VO_Columns"/>
         FROM schedule sc
         LEFT JOIN dept d ON d.id = sc.dept_id
         LEFT JOIN staff st ON st.id = sc.staff_id
@@ -18,6 +21,13 @@
             <if test="staffId != null">AND sc.staff_id = #{staffId}</if>
         </where>
         ORDER BY sc.work_date, sc.id
+    </select>
+    <select id="selectVOById" resultType="com.wenrun.vo.ScheduleVO">
+        SELECT <include refid="Schedule_VO_Columns"/>
+        FROM schedule sc
+        LEFT JOIN dept d ON d.id = sc.dept_id
+        LEFT JOIN staff st ON st.id = sc.staff_id
+        WHERE sc.id = #{id}
     </select>
     <select id="selectById" resultType="com.wenrun.entity.Schedule">
         SELECT * FROM schedule WHERE id = #{id}

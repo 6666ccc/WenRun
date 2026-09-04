@@ -12,6 +12,7 @@ from loguru import logger
 
 from app.graphs.hospital.tools.base import UNAVAILABLE_MESSAGE
 from app.graphs.hospital.tools.context import HospitalToolContext
+from app.graphs.hospital.tools.schedules import slot_is_expired
 from app.services.java_tool_client import (
     JavaToolBusinessError,
     JavaToolClient,
@@ -52,6 +53,9 @@ def create_registration(schedule_id: int, runtime: ToolRuntime[HospitalToolConte
             schedule_id,
         )
         return UNAVAILABLE_MESSAGE
+
+    if slot_is_expired(schedule.work_date, schedule.time_period, context.now):
+        return "这个排班已过期，无法挂号。请重新查询可用号源后再试。"
 
     if schedule.remaining_count is not None and schedule.remaining_count <= 0:
         return "这个时段的号已约满，请换一个时段。"

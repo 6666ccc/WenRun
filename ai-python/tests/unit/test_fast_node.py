@@ -7,9 +7,20 @@ os.environ.setdefault(
     "https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
+from datetime import datetime
+
 from langchain_core.messages import AIMessageChunk, HumanMessage
+from langgraph.runtime import Runtime
 
 from app.graphs.hospital.nodes import fast as fast_mod
+from app.graphs.hospital.tools.context import CLINIC_TZ, HospitalToolContext
+
+FROZEN_NOW = datetime(2026, 9, 1, 11, 15, tzinfo=CLINIC_TZ)
+CONTEXT = HospitalToolContext("delegated-token", "trace-123", now=FROZEN_NOW)
+
+
+def _graph_runtime(context: HospitalToolContext) -> Runtime:
+    return Runtime(context=context)
 
 
 class _ScriptedModel:
@@ -151,3 +162,28 @@ def test_fast_graph_has_no_routing_or_summarizing_hop():
     assert "begin_node" not in nodes
     assert "final_node" not in nodes
     assert "knowledge_node" not in nodes
+
+
+def test_fast_system_prompt_includes_beijing_clock():
+    prompt = fast_mod.build_fast_system_prompt(FROZEN_NOW)
+
+    assert "当前时间：2026-09-01 星期二 11:15（北京时间）。" in prompt
+    assert prompt.startswith(fast_mod.FAST_SYSTEM_PROMPT)
+
+
+def test_fast_prompt_answers_weekday_from_clock():
+    assert "星期几" in fast_mod.FAST_SYSTEM_PROMPT
+
+
+def test_fast_node_uses_request_clock(monkeypatch):
+    scripted = _ScriptedModel([[_text("今天是星期二。")]])
+    monkeypatch.setattr(fast_mod, "model", scripted)
+
+    result = fast_mod.fast_node(
+        {"messages": [HumanMessage(content="今天星期几")], "conversation_id": "c1"},
+        _graph_runtime(CONTEXT),
+    )
+
+    assert result["final_reply"] == "今天是星期二。"
+    system = scripted.seen_messages[0][0]
+    assert "当前时间：2026-09-01 星期二 11:15（北京时间）。" in system.content

@@ -1,8 +1,16 @@
 ##该节点主要是简单聊天，不需要专业知识，不需要工具，只需要根据患者的问题，给出回复即可。
+from datetime import datetime
+
 from app.graphs.hospital.memory import recent_messages
 from app.graphs.hospital.state import State
+from app.graphs.hospital.tools.context import (
+    HospitalToolContext,
+    clinic_now,
+    format_clinic_clock,
+)
 from app.models.chat import model
 from langchain_core.messages import SystemMessage
+from langgraph.runtime import Runtime
 
 CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短、尊重、有温度的中文直接回复患者。
 
@@ -12,6 +20,7 @@ CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短�
 - 情绪倾诉、陪伴（不评判、不说教）
 - 与就诊无关的日常话题，可礼貌接住，并轻轻引回「需要看病或挂号可以继续说」
 - 本院楼层、营业时间、就诊须知等非医疗院务：礼貌说明请到前台或电话确认，不编造
+- 问今天几号、星期几：直接根据系统给出的当前时间回答
 
 你不要做：
 - 不解释症状、用药、是否需要就医、某科看什么病
@@ -29,10 +38,17 @@ CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短�
 - 「今天好累，不想说话」→ 共情陪伴，不追问病历。
 - 「谢谢你啊，顺便问问儿科在几楼」→ 致谢后说明楼层请到前台或电话确认，不编造具体楼层。
 - 「诊所几点开门」→ 说明营业时间请到前台或电话确认。
+- 「今天星期几」→ 按系统当前时间直接回答。
 - 「感冒吃什么药」→ 不要在本节点回答；若仍被问到，只说医疗问题会由知识助手处理。
 """
 
-def chat_node(state: State) -> dict:
+
+def build_chat_system_prompt(now: datetime) -> str:
+    """静态职责说明 + 本次请求的北京时间。"""
+    return CHAT_SYSTEM_PROMPT + f"\n\n当前时间：{format_clinic_clock(now)}。"
+
+
+def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None) -> dict:
     ##任务一：看起始节点是否把 chat 写进 selected_agents
     selected = state.get("selected_agents") or []
     if "chat" not in selected:
@@ -42,8 +58,9 @@ def chat_node(state: State) -> dict:
     # ``invoke`` waits for the whole model answer. ``stream`` lets LangGraph's
     # messages stream forward each model chunk immediately to the SSE route.
     chunks: list[str] = []
+    now = runtime.context.now if runtime is not None else clinic_now()
     for chunk in model.stream([
-        SystemMessage(content=CHAT_SYSTEM_PROMPT),
+        SystemMessage(content=build_chat_system_prompt(now)),
         *recent_messages(state),
     ]):
         content = getattr(chunk, "content", "")

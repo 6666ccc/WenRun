@@ -157,6 +157,31 @@ def test_create_registration_stops_before_confirming_when_slot_is_full(monkeypat
     assert client.writes == []
 
 
+def test_create_registration_stops_before_confirming_when_slot_is_expired(monkeypatch):
+    client = _install(
+        monkeypatch,
+        FakeClient(
+            schedule=Schedule(
+                id=1,
+                dept_name="内科",
+                staff_name="张伟",
+                work_date="2026-08-24",
+                time_period="下午",
+                remaining_count=10,
+            )
+        ),
+    )
+
+    def fail_interrupt(payload):
+        raise AssertionError("过期排班不应该弹确认卡片")
+
+    monkeypatch.setattr(write_module, "interrupt", fail_interrupt)
+
+    reply = write_module.create_registration.func(schedule_id=1, runtime=_runtime())
+    assert "已过期" in reply
+    assert client.writes == []
+
+
 def test_create_registration_relays_business_rejection_in_chinese(monkeypatch):
     _install(monkeypatch, FakeClient(create_error=JavaToolBusinessError("您已预约该医生此时段，不能重复挂号")))
     _install_decision(monkeypatch, "approve")

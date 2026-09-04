@@ -7,7 +7,7 @@ os.environ.setdefault(
     "https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from langchain.tools import ToolRuntime
 
@@ -108,6 +108,8 @@ def test_list_schedules_resolves_relative_work_date(monkeypatch):
     assert dept_id == 1
     assert staff_id is None
     assert work_date == date(2026, 9, 2)
+    # 写工具必须拿到真实排班 id，否则模型会猜成 1 之类的过期号。
+    assert "排班id=9" in reply
     assert "余号 5/20" in reply
     assert "挂号费 10.00" in reply
 
@@ -148,3 +150,15 @@ def test_list_my_registrations_renders_status_in_chinese(monkeypatch):
 
     assert "状态 已挂号" in reply
     assert "R-2026-0001" in reply
+    assert "挂号单id=5" in reply
+
+
+def test_slot_is_expired_matches_java_cutoffs():
+    morning = datetime(2026, 9, 1, 11, 59, tzinfo=CLINIC_TZ)
+    noon = datetime(2026, 9, 1, 12, 0, tzinfo=CLINIC_TZ)
+
+    assert not schedules_module.slot_is_expired("2026-09-01", "上午", morning)
+    assert schedules_module.slot_is_expired("2026-09-01", "上午", noon)
+    assert schedules_module.slot_is_expired("2026-08-24", "下午", FROZEN_NOW)
+    assert not schedules_module.slot_is_expired("2026-09-04", "上午", FROZEN_NOW)
+

@@ -164,6 +164,9 @@ def test_write_prompt_documents_every_write_tool_and_forbids_faking_success():
         assert name in prompt
     # 确认卡片由系统渲染，模型不能自己声称已经办好。
     assert "不要在患者确认之前说已经挂上" in prompt
+    # 排班 id 必须从 list_schedules 的「排班id=」抄过来，不能猜成 1。
+    assert "排班id=" in prompt
+    assert "不能猜" in prompt
 
 
 def test_tool_node_uses_read_only_agent_when_writes_are_disabled(monkeypatch):
