@@ -1,6 +1,7 @@
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.graphs.hospital.nodes import begin
+from app.intent import LocalRouteResult
 
 
 class StubModel:
@@ -16,10 +17,22 @@ class StubModel:
         return response
 
 
+def _force_llm(monkeypatch):
+    monkeypatch.setattr(
+        begin,
+        "_route_locally",
+        lambda text: LocalRouteResult(
+            accepted=False,
+            escalation_reason="test_forces_llm",
+        ),
+    )
+
+
 def test_begin_prompt_limits_knowledge_to_medical_topics():
     assert "只处理医疗知识" in begin.BEGIN_SYSTEM_PROMPT
     assert "“儿科在几楼” → chat" in begin.BEGIN_SYSTEM_PROMPT
     assert "“儿科在几楼” → knowledge" not in begin.BEGIN_SYSTEM_PROMPT
+    assert "out_of_scope" in begin.BEGIN_SYSTEM_PROMPT
 
 
 def test_begin_prompt_routes_registration_actions_to_tools():
@@ -29,6 +42,7 @@ def test_begin_prompt_routes_registration_actions_to_tools():
 
 
 def test_begin_node_uses_model_json_without_tool_strategy(monkeypatch):
+    _force_llm(monkeypatch)
     stub_model = StubModel(
         [AIMessage(content='{"selected_agents":["knowledge","tools"]}')]
     )
@@ -43,6 +57,7 @@ def test_begin_node_uses_model_json_without_tool_strategy(monkeypatch):
 
 
 def test_begin_node_asks_model_to_repair_invalid_json_once(monkeypatch):
+    _force_llm(monkeypatch)
     stub_model = StubModel(
         [
             AIMessage(content="我建议走 knowledge"),
@@ -60,6 +75,7 @@ def test_begin_node_asks_model_to_repair_invalid_json_once(monkeypatch):
 
 
 def test_begin_node_falls_back_to_chat_after_invalid_repair(monkeypatch):
+    _force_llm(monkeypatch)
     stub_model = StubModel(
         [AIMessage(content='{"selected_agents":["other"]}'), AIMessage(content="[]")]
     )
@@ -68,10 +84,13 @@ def test_begin_node_falls_back_to_chat_after_invalid_repair(monkeypatch):
     result = begin.begin_node({"messages": [HumanMessage(content="随便说点什么")]})
 
     assert result["selected_agents"] == ["chat"]
+    assert result["router_fallback"] is True
+    assert result["intent_route"]["stage"] == "fallback"
     assert len(stub_model.calls) == 2
 
 
 def test_begin_node_retries_once_when_model_call_fails(monkeypatch):
+    _force_llm(monkeypatch)
     stub_model = StubModel(
         [RuntimeError("temporary error"), AIMessage(content='{"selected_agents":["chat"]}')]
     )
@@ -83,49 +102,62 @@ def test_begin_node_retries_once_when_model_call_fails(monkeypatch):
     assert len(stub_model.calls) == 2
 
 
-def test_begin_node_forces_tools_and_drops_knowledge_for_department_catalog(monkeypatch):
+def test_begin_node_handles_explicit_out_of_scope_without_freeform_chat(monkeypatch):
+    _force_llm(monkeypatch)
     stub_model = StubModel(
-        [AIMessage(content='{"selected_agents":["knowledge"]}')]
+        [AIMessage(content='{"selected_agents":[],"out_of_scope":true}')]
     )
+    monkeypatch.setattr(begin, "model", stub_model)
+
+    result = begin.begin_node({"messages": [HumanMessage(content="帮我写一个排序算法")]})
+
+    assert result["selected_agents"] == ["chat"]
+    assert result["router_fallback"] is False
+    assert result["intent_route"]["out_of_scope"] is True
+    assert "超出了当前健康助手" in result["router_response"]
+    assert len(stub_model.calls) == 1
+
+
+def test_begin_node_routes_department_catalog_before_calling_model(monkeypatch):
+    stub_model = StubModel([])
     monkeypatch.setattr(begin, "model", stub_model)
 
     result = begin.begin_node({"messages": [HumanMessage(content="你们医院有哪些科室？")]})
 
     assert result["selected_agents"] == ["tools"]
-    assert len(stub_model.calls) == 1
+    assert result["intent_route"]["stage"] == "rules"
+    assert len(stub_model.calls) == 0
 
 
 def test_begin_node_keeps_knowledge_when_department_query_has_medical_context(monkeypatch):
-    stub_model = StubModel(
-        [AIMessage(content='{"selected_agents":["knowledge"]}')]
-    )
+    stub_model = StubModel([])
     monkeypatch.setattr(begin, "model", stub_model)
 
     result = begin.begin_node({"messages": [HumanMessage(content="感冒了该看哪科")]})
 
     assert result["selected_agents"] == ["knowledge", "tools"]
+    assert len(stub_model.calls) == 0
 
 
 def test_begin_node_does_not_force_tools_for_department_floor_question(monkeypatch):
-    stub_model = StubModel(
-        [AIMessage(content='{"selected_agents":["knowledge"]}')]
-    )
+    stub_model = StubModel([])
     monkeypatch.setattr(begin, "model", stub_model)
 
     result = begin.begin_node({"messages": [HumanMessage(content="儿科在几楼")]})
 
-    assert result["selected_agents"] == ["knowledge"]
+    assert result["selected_agents"] == ["chat"]
+    assert result["intent_route"]["matched_rules"] == ["hospital_static_information"]
+    assert len(stub_model.calls) == 0
 
 
-def test_begin_node_uses_tools_only_when_classifier_fails_on_department_catalog(monkeypatch):
-    stub_model = StubModel(
-        [AIMessage(content='{"selected_agents":["other"]}'), AIMessage(content="[]")]
-    )
+def test_begin_node_uses_tools_without_llm_for_department_catalog(monkeypatch):
+    stub_model = StubModel([])
     monkeypatch.setattr(begin, "model", stub_model)
 
     result = begin.begin_node({"messages": [HumanMessage(content="你们医院有哪些科室？")]})
 
     assert result["selected_agents"] == ["tools"]
+    assert len(stub_model.calls) == 0
 
 
 def test_begin_node_resets_previous_turn_outputs(monkeypatch):

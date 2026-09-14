@@ -153,14 +153,20 @@ def test_write_tools_are_only_mounted_on_the_writable_agent():
     read_only = {item.name for item in tool_node_module.HOSPITAL_TOOLS}
     writable = {item.name for item in tool_node_module.HOSPITAL_WRITE_TOOLS}
 
-    assert writable == {"create_registration", "cancel_registration"}
+    assert writable == {
+        "create_registration", "cancel_registration",
+        "remember_preference", "forget_preference",
+    }
     assert not (read_only & writable)
 
 
 def test_write_prompt_documents_every_write_tool_and_forbids_faking_success():
     prompt = tool_node_module.WRITE_TOOL_SYSTEM_PROMPT
 
-    for name in ("create_registration", "cancel_registration"):
+    for name in (
+        "create_registration", "cancel_registration",
+        "remember_preference", "forget_preference",
+    ):
         assert name in prompt
     # 确认卡片由系统渲染，模型不能自己声称已经办好。
     assert "不要在患者确认之前说已经挂上" in prompt

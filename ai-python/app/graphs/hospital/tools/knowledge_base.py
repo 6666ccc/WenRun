@@ -6,6 +6,7 @@ from loguru import logger
 
 from app.rag.documents import format_rag_context
 from app.rag.qdrant import get_hospital_retriever
+from app.rag.safety import prepare_rag_documents
 
 
 def retrieve_hospital_documents(query: str) -> list[Document]:
@@ -14,8 +15,10 @@ def retrieve_hospital_documents(query: str) -> list[Document]:
     if not query.strip():
         return []
     try:
-        return get_hospital_retriever().invoke(query)
-    except Exception:
+        documents = get_hospital_retriever().invoke(query)
+        safe, _ = prepare_rag_documents(documents)
+        return safe
+    except Exception:  # noqa: BLE001 - retrieval is an optional fallback tool
         logger.exception("hospital_knowledge_retrieval_failed")
         return []
 

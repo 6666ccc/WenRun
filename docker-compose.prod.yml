@@ -11,10 +11,10 @@
 #      wenrun/backend-java:latest
 #      wenrun/frontend:latest
 #   4. 官方镜像也要在本机有（load 或 pull）：
-#      mysql:latest、qdrant/qdrant:latest、redis:8-alpine
+#      mysql:8.4.11、qdrant/qdrant:v1.19.1、redis:8.8.2-alpine
 #      Redis 是这次新增的，旧 tar 包里通常没有，需单独准备
-#   5. mkdir -p /data/wenrun-mysql /data/wenrun-qdrant
-#   6. 同目录放 .env（含 MYSQL_ROOT_PASSWORD、AI_SERVICE_API_KEY、
+#   5. mkdir -p /data/wenrun-mysql /data/wenrun-qdrant /data/wenrun-redis
+#   6. 同目录放 .env（含 MYSQL_ROOT_PASSWORD、RAG_METADATA_MYSQL_PASSWORD、AI_SERVICE_API_KEY、
 #      AI_DELEGATION_SIGNING_SECRET、DASHSCOPE_* 等，不要写进本文件）
 #   7. docker compose -f docker-compose.prod.yml --env-file .env up -d
 
@@ -26,7 +26,7 @@ x-logging: &default-logging
 
 services:
   mysql:
-    image: mysql:latest
+    image: mysql:8.4.11
     container_name: wenrun-mysql
     restart: unless-stopped
     mem_limit: 320m
@@ -55,7 +55,7 @@ services:
       - wenrun-net
 
   redis:
-    image: redis:8-alpine
+    image: redis:8.8.2-alpine
     container_name: wenrun-redis
     restart: unless-stopped
     mem_limit: 192m
@@ -67,9 +67,12 @@ services:
     command: >
       redis-server
       --maxmemory 128mb
-      --maxmemory-policy allkeys-lru
-      --save ""
-      --appendonly no
+      --maxmemory-policy noeviction
+      --save 900 1
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - /data/wenrun-redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -79,7 +82,7 @@ services:
       - wenrun-net
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.19.1
     container_name: wenrun-qdrant
     restart: unless-stopped
     mem_limit: 160m
@@ -106,6 +109,8 @@ services:
     cpus: 0.50
     logging: *default-logging
     depends_on:
+      mysql:
+        condition: service_healthy
       qdrant:
         condition: service_healthy
       redis:
@@ -120,14 +125,19 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-wenrun}
       QDRANT_HOSPITAL_COLLECTION: ${QDRANT_HOSPITAL_COLLECTION:-wenrun_hospital_custom}
       QDRANT_MEDICAL_COLLECTION: ${QDRANT_MEDICAL_COLLECTION:-wenrun_medical_general}
-      QDRANT_MEMORY_COLLECTION: ${QDRANT_MEMORY_COLLECTION:-wenrun_conversation_memory}
       AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/0}
+      RAG_METADATA_MYSQL_HOST: ${RAG_METADATA_MYSQL_HOST:-mysql}
+      RAG_METADATA_MYSQL_PORT: ${RAG_METADATA_MYSQL_PORT:-3306}
+      RAG_METADATA_MYSQL_DATABASE: ${RAG_METADATA_MYSQL_DATABASE:-wenrun}
+      RAG_METADATA_MYSQL_USER: ${RAG_METADATA_MYSQL_USER:-root}
+      RAG_METADATA_MYSQL_PASSWORD: ${RAG_METADATA_MYSQL_PASSWORD:?请在 .env 中设置 RAG_METADATA_MYSQL_PASSWORD}
       AI_CHECKPOINT_TTL_MINUTES: ${AI_CHECKPOINT_TTL_MINUTES:-1440}
       AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:?请在 .env 中设置 AI_SERVICE_API_KEY}
       AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:?请在 .env 中设置 AI_DELEGATION_SIGNING_SECRET}
       JAVA_TOOL_BASE_URL: ${JAVA_TOOL_BASE_URL:-http://backend-java:8080}
       JAVA_TOOL_TIMEOUT_SECONDS: ${JAVA_TOOL_TIMEOUT_SECONDS:-5}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TZ: Asia/Shanghai
     networks:
       - wenrun-net
 
@@ -147,7 +157,8 @@ services:
       ai-python:
         condition: service_started
     environment:
-      JAVA_TOOL_OPTIONS: -Xmx256m -Xms128m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai -Xmx256m -Xms128m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m
+      TZ: Asia/Shanghai
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/wenrun?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}

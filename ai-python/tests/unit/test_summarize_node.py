@@ -23,15 +23,38 @@ def test_summarize_node_compresses_old_messages(monkeypatch):
     class FakeModel:
         def invoke(self, messages):
             captured["messages"] = messages
-            return AIMessage(content="患者先后咨询了感冒用药与内科号源。")
+            return AIMessage(content='''{
+                "patient_self_reports":["症状：感冒"],
+                "preferences":["科室：内科"],
+                "verified_business_facts":[],
+                "pending_tasks":["确认内科号源"],
+                "superseded_items":[],
+                "version":1
+            }''')
 
     monkeypatch.setattr(summarize_module, "model", FakeModel())
     history = _history(7)
     result = summarize_module.summarize_node({"messages": history, "summary": "已有摘要"})
-    assert result["summary"].startswith("患者")
+    assert result["summary"]["patient_self_reports"] == ["已有摘要", "症状：感冒"]
+    assert result["summary"]["pending_tasks"] == ["确认内科号源"]
     assert all(isinstance(item, RemoveMessage) for item in result["messages"])
     assert [item.id for item in result["messages"]] == [m.id for m in history[:-6]]
     assert "已有摘要" in captured["messages"][-1].content
+
+
+def test_new_summary_fact_supersedes_old_value():
+    existing = summarize_module.ConversationSummary(
+        preferences=["回复长度：简短"], version=2
+    )
+    incoming = summarize_module.ConversationSummary(
+        preferences=["回复长度：详细"], version=1
+    )
+
+    merged = summarize_module.merge_summary(existing, incoming)
+
+    assert merged.preferences == ["回复长度：详细"]
+    assert "回复长度：简短" in merged.superseded_items
+    assert merged.version == 3
 
 
 def test_summarize_node_does_not_break_turn_on_model_error(monkeypatch):

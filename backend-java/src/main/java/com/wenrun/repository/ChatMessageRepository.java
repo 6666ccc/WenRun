@@ -8,7 +8,20 @@ import java.util.List;
 
 @Mapper
 public interface ChatMessageRepository {
-    List<ChatMessage> selectByConversationId(@Param("conversationId") String conversationId);
+    List<ChatMessage> selectByConversationIdAndUserId(
+            @Param("conversationId") String conversationId,
+            @Param("userId") Long userId);
+
+    List<ChatMessage> selectRecentByConversationIdAndUserId(
+            @Param("conversationId") String conversationId,
+            @Param("userId") Long userId,
+            @Param("limit") int limit);
+
+    List<ChatMessage> selectPageByConversationIdAndUserId(
+            @Param("conversationId") String conversationId,
+            @Param("userId") Long userId,
+            @Param("offset") int offset,
+            @Param("limit") int limit);
 
     int insert(ChatMessage message);
 
@@ -17,10 +30,10 @@ public interface ChatMessageRepository {
                                         @Param("clientRequestId") String clientRequestId,
                                         @Param("role") String role);
 
-    boolean existsByConversationIdAndUserId(@Param("conversationId") String conversationId,
-                                            @Param("userId") Long userId);
+    int deleteByConversationIdAndUserId(@Param("conversationId") String conversationId,
+                                        @Param("userId") Long userId);
 
-    boolean existsByConversationId(@Param("conversationId") String conversationId);
-
-    int deleteByConversationId(@Param("conversationId") String conversationId);
+    int completeLatestConfirmation(@Param("conversationId") String conversationId,
+                                   @Param("userId") Long userId,
+                                   @Param("interruptId") String interruptId);
 }

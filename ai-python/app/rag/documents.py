@@ -13,8 +13,11 @@ def format_rag_context(documents: list[Document], start: int = 1) -> str:
             metadata.get("source_name") or metadata.get("originalName") or "院内知识库"
         )
         page = metadata.get("page") or metadata.get("pageNumber") or "未标注"
+        version = metadata.get("version") or "未标注"
+        updated_at = metadata.get("updated_at") or "未标注"
         blocks.append(
-            f"[S{index}] 来源：{title}；页码：{page}\n{document.page_content}"
+            f"[S{index}] 来源：{title}；版本：{version}；页码：{page}；"
+            f"更新时间：{updated_at}\n{document.page_content}"
         )
     return "\n\n".join(blocks)
 
@@ -31,7 +34,10 @@ def to_rag_sources(documents: list[Document], start: int = 1) -> list[dict]:
                 "document_id": metadata.get("document_id")
                 or metadata.get("documentId"),
                 "title": metadata.get("source_name") or metadata.get("originalName"),
+                "version": metadata.get("version"),
                 "page": metadata.get("page") or metadata.get("pageNumber"),
+                "chunk_id": metadata.get("chunk_id") or metadata.get("chunkId"),
+                "updated_at": metadata.get("updated_at") or metadata.get("updatedAt"),
             }
         )
     return sources

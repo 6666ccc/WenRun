@@ -9,9 +9,13 @@
 3. 保证根目录 `AI_SERVICE_API_KEY` 与 AI 目录 `AI_INTERNAL_API_KEY` 完全一致。
 4. 运行 `docker compose up --build`，然后访问 `http://localhost:5173`。
 
-开发 Compose 会启动 Redis 8。Java 登录 Session 使用 db1，Python Agent checkpoint 使用 db0（`AI_REDIS_URL`，RediSearch 只能建在 db0）。未配置 `AI_REDIS_URL` 时，对话图退化为单轮无状态。
+新数据库会由 `docs/SQL/schema.sql` 初始化。已有数据库升级到本轮上下文架构时，应在备份后按顺序执行 `docs/SQL/migrations/2026-09-13-ai-chat-message-metadata.sql`、`2026-09-13-ai-conversation-registry.sql`、`2026-09-13-ai-patient-memory.sql`、`2026-09-13-ai-knowledge-lifecycle.sql`；这些迁移不会因已有 MySQL volume 而自动重跑。
+
+开发 Compose 会启动 Redis 8。Java 登录 Session 使用 db1，Python Agent checkpoint 与会话锁使用 db0（`AI_REDIS_URL`，RediSearch 只能建在 db0）。未配置 `AI_REDIS_URL` 时不保存跨轮 checkpoint，但当前请求仍可使用 Java 从 MySQL 提供的有限消息窗口恢复上下文。
 
 健康助手支持「快速模式」开关。开启后跳过意图路由与回复汇总，由单个挂载了联网检索的 Agent 直接流式作答，并沿用同一会话记忆。快速模式没有院内 RAG，也查不了号源、排班、本人预约和本院楼层/就诊须知；问这些请关闭快速模式。症状和用药可以查公开网页，不能代替面诊。
+
+正常模式采用级联意图路由：高精度规则 → CPU 轻量多标签分类器 → 低置信度时升级 LLM，并带有域外拒识、急症安全短路、分层指标和离线评测集。实现与评测命令见 [`ai-python/README.md`](ai-python/README.md)。
 
 ## 本地分别启动
 
@@ -38,13 +42,25 @@ npm run dev
 cd frontend; npm test; npm run build; npm run lint
 cd ../backend-java; mvn test
 cd ../ai-python; python -m pytest
+python scripts/evaluate_intent_router.py
+python scripts/evaluate_context.py
 ```
 
-主要联调入口为 `POST /api/ai/chat/stream` 和 `DELETE /api/ai/conversations/{conversationId}`。删除会话时 Java 会级联调用 Python 的 `DELETE /v1/chat/memory/{conversationId}` 清理 checkpoint。
+主要联调入口为 `POST /api/ai/chat/stream`、`GET /api/ai/conversations` 和 `DELETE /api/ai/conversations/{conversationId}`。删除会话时 Java 会级联清理 Python checkpoint。知识库管理接口支持幂等发布、版本替换、停用、删除和带文件重建。
+
+## 上下文权威边界
+
+- MySQL：会话归属、聊天消息、确认卡片元数据、患者长期偏好与知识文档审计记录的权威存储。
+- Redis db0：带 TTL 的 LangGraph checkpoint 与按用户/会话的执行锁；可丢失，不是历史事实源。
+- Redis db1：Java 登录 Session；生产配置使用 AOF，不能与 checkpoint 混用数据库编号。
+- Qdrant：院内资料的可重建向量索引；检索只接受 `active` 且在有效期内的版本。
+- Context Builder：按 token 预算选择结构化摘要、近期消息、最多 5 条长期偏好及外部资料；患者文本、记忆和检索片段均按不可信数据处理。
+
+生产 Redis 使用 `appendonly yes` + `appendfsync everysec`，同时保留周期 RDB，数据目录固定为 `/data/wenrun-redis`。这只解决进程/容器重启恢复，不等同于备份：运维应定期执行 `BGSAVE` 后把该目录快照复制到异机或对象存储，并做恢复演练。checkpoint 本身仍允许丢失；MySQL 才是消息、长期偏好和文档元数据的灾备核心。
 
 ## 已知限制
 
-- **同一会话并发写 checkpoint 未加锁。** Java 侧 `clientRequestId` 只能拦住重复提交的同一条消息；同一 `conversationId` 并发发送两条不同消息时，后写的 checkpoint 会覆盖先写的。前端是单输入框串行发送，实际触发概率低。
-- **记忆只是患者自述，不是病历。** 摘要会标注自述来源、禁止新增诊断与药名，但模型仍可能把旧症状当成当前事实。医疗结论仍必须走 RAG 引用或 Tool 返回的真实数据。
-- **checkpoint 有 TTL 且可被 LRU 淘汰。** 生产 Redis 是 `allkeys-lru` + 128mb，默认 TTL 24 小时。超期或内存压力下记忆会消失，会话退化为单轮，不报错。MySQL `chat_messages` 仍保留完整消息。
-- **摘要会让最后一个 token 到 `done` 事件之间多一次 LLM 调用。** 只在消息超过 12 条时触发。
+- **长期记忆不是病历。** 仅允许患者明确确认的沟通、预约和无障碍偏好；症状、诊断、药物、剂量和过敏等内容会被服务端拒绝。
+- **checkpoint 可丢失。** 默认 TTL 24 小时；超期后从 MySQL 最近消息恢复，恢复窗口以外的信息只能依赖结构化摘要或长期偏好。
+- **RAG 安全过滤不是医学事实核验。** 版本、有效期、引用和提示注入扫描能降低风险，但不能证明回答医学正确，仍不能替代面诊。
+- **确定性评测不等于真实线上质量。** `context_cases.jsonl` 用于阻断隔离、泄漏和恢复回归；概率型回答质量仍需人工抽检和线上指标。

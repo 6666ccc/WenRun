@@ -1,6 +1,6 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 from time import perf_counter
-from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -8,14 +8,14 @@ from loguru import logger
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-from app.api.routes import chat, health
-from app.graphs.hospital.checkpointing import memory_lifespan
+from app.api.routes import chat, health, metrics
 from app.core.logging import (
     configure_logging,
     new_request_id,
     reset_request_id,
     set_request_id,
 )
+from app.graphs.hospital.checkpointing import memory_lifespan
 
 configure_logging()
 
@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="WenRun AI API", version="0.1.0", lifespan=lifespan)
     app.include_router(chat.router)
     app.include_router(health.router)
+    app.include_router(metrics.router)
 
     @app.middleware("http")
     async def request_trace(request: Request, call_next):

@@ -1,7 +1,10 @@
 """会话记忆策略：回合字段重置、统一上下文窗口与历史压缩。"""
 
 from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages.utils import count_tokens_approximately
 
+from app.core.config import get_settings
+from app.graphs.hospital.context_builder import build_context
 from app.graphs.hospital.state import State
 
 RECENT_MESSAGE_WINDOW = 6
@@ -35,9 +38,17 @@ def recent_messages(
 
 
 def needs_summary(state: State) -> bool:
-    return len(state.get("messages") or []) > SUMMARY_TRIGGER_MESSAGES
+    messages = list(state.get("messages") or [])
+    settings = get_settings()
+    return (
+        len(messages) > settings.summary_message_limit
+        or count_tokens_approximately(messages) > settings.summary_trigger_tokens
+    )
 
 
 def split_for_summary(state: State) -> tuple[list[BaseMessage], list[BaseMessage]]:
     messages = list(state.get("messages") or [])
-    return messages[:-SUMMARY_KEEP_MESSAGES], messages[-SUMMARY_KEEP_MESSAGES:]
+    kept = build_context({"messages": messages}, purpose="chat")[-SUMMARY_KEEP_MESSAGES:]
+    keep_ids = {id(message) for message in kept}
+    dropped = [message for message in messages if id(message) not in keep_ids]
+    return dropped, kept

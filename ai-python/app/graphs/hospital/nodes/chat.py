@@ -1,7 +1,9 @@
 ##该节点主要是简单聊天，不需要专业知识，不需要工具，只需要根据患者的问题，给出回复即可。
 from datetime import datetime
 
-from app.graphs.hospital.memory import recent_messages
+from langgraph.runtime import Runtime
+
+from app.graphs.hospital.context_builder import bounded_system_message, build_context
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tools.context import (
     HospitalToolContext,
@@ -9,8 +11,6 @@ from app.graphs.hospital.tools.context import (
     format_clinic_clock,
 )
 from app.models.chat import model
-from langchain_core.messages import SystemMessage
-from langgraph.runtime import Runtime
 
 CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短、尊重、有温度的中文直接回复患者。
 
@@ -54,14 +54,18 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
     if "chat" not in selected:
         return {}
 
+    router_response = state.get("router_response")
+    if isinstance(router_response, str) and router_response.strip():
+        return {"chat_reply": router_response.strip()}
+
     ##任务二：调用闲聊 agent，把回复写入 chat_reply 供汇总节点使用
     # ``invoke`` waits for the whole model answer. ``stream`` lets LangGraph's
     # messages stream forward each model chunk immediately to the SSE route.
     chunks: list[str] = []
     now = runtime.context.now if runtime is not None else clinic_now()
     for chunk in model.stream([
-        SystemMessage(content=build_chat_system_prompt(now)),
-        *recent_messages(state),
+        bounded_system_message(build_chat_system_prompt(now)),
+        *build_context(state, purpose="chat"),
     ]):
         content = getattr(chunk, "content", "")
         if not isinstance(content, str) or not content:

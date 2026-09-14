@@ -17,6 +17,39 @@ def test_knowledge_node_skips_when_not_selected():
     assert knowledge_node({"selected_agents": ["chat"], "messages": []}) == {}
 
 
+def test_knowledge_node_returns_deterministic_emergency_reply_without_rag(monkeypatch):
+    monkeypatch.setattr(
+        knowledge_mod,
+        "get_hospital_retriever",
+        lambda: (_ for _ in ()).throw(AssertionError("urgent route must not query RAG")),
+    )
+
+    result = knowledge_node(
+        {
+            "selected_agents": ["knowledge"],
+            "intent_route": {"safety_flags": ["breathing_difficulty"]},
+            "messages": [HumanMessage(content="我喘不上气")],
+        }
+    )
+
+    assert "立即拨打 120" in result["knowledge_reply"]
+    assert "不要等待线上回复" in result["knowledge_reply"]
+    assert result["rag_sources"] == []
+
+
+def test_knowledge_node_self_harm_reply_says_not_to_be_alone():
+    result = knowledge_node(
+        {
+            "selected_agents": ["knowledge"],
+            "intent_route": {"safety_flags": ["self_harm"]},
+            "messages": [HumanMessage(content="我想伤害自己")],
+        }
+    )
+
+    assert "请不要独处" in result["knowledge_reply"]
+    assert "120 或 110" in result["knowledge_reply"]
+
+
 def test_knowledge_node_lets_agent_receive_raw_history(monkeypatch):
     captured: dict = {}
     history = [
@@ -54,7 +87,12 @@ def test_knowledge_node_streams_answer_when_rag_hits(monkeypatch):
             return [
                 Document(
                     page_content="多休息、多喝水",
-                    metadata={"source_name": "院内资料", "page": 3},
+                    metadata={
+                        "source_name": "院内资料",
+                        "page": 3,
+                        "status": "active",
+                        "effective_from": "2025-01-01T00:00:00+00:00",
+                    },
                 )
             ]
 
@@ -75,5 +113,8 @@ def test_knowledge_node_streams_answer_when_rag_hits(monkeypatch):
 
     assert reply["knowledge_reply"] == "院内资料显示，请多休息。"
     assert reply["rag_sources"] == [
-        {"id": "S1", "document_id": None, "title": "院内资料", "page": 3}
+        {
+            "id": "S1", "document_id": None, "title": "院内资料",
+            "version": None, "page": 3, "chunk_id": None, "updated_at": None,
+        }
     ]

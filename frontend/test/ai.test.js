@@ -59,6 +59,7 @@ test('confirm event ends the stream as a pending confirmation', async () => {
       kind: 'registration_create',
       prompt: '请确认是否为您挂 2026-09-04 下午 内科 张伟 的号',
       detail: { scheduleId: 9, staffName: '张伟', registerFee: '50.00' },
+      interruptId: 'int-1',
     },
   ])
 
@@ -66,6 +67,7 @@ test('confirm event ends the stream as a pending confirmation', async () => {
   assert.equal(result.kind, 'registration_create')
   assert.equal(result.detail.staffName, '张伟')
   assert.equal(result.conversationId, 'conversation-1')
+  assert.equal(result.interruptId, 'int-1')
 })
 
 test('confirm event is not treated as an unexpected end of stream', async () => {
@@ -77,13 +79,24 @@ test('confirm event is not treated as an unexpected end of stream', async () => 
   assert.equal(result.prompt, '请确认是否退号')
 })
 
-test('confirm event invokes the onConfirm handler', async () => {
+test('confirm event after tokens still ends as a pending confirmation', async () => {
   const seen = []
-  await consumeChatEvents(
-    [{ type: 'confirm', kind: 'registration_create', prompt: '请确认', detail: { scheduleId: 9 } }],
+  const result = await consumeChatEvents(
+    [
+      { type: 'token', content: '已经为您提交了挂号，请在确认卡片上点击确认。' },
+      {
+        type: 'confirm',
+        conversationId: 'conversation-1',
+        kind: 'registration_create',
+        prompt: '请确认是否为您挂 2026-09-05 下午 儿科 赵敏 的号',
+        detail: { staffName: '赵敏' },
+        interruptId: 'int-2',
+      },
+    ],
     { onConfirm: (payload) => seen.push(payload) },
   )
 
-  assert.equal(seen.length, 1)
-  assert.equal(seen[0].detail.scheduleId, 9)
+  assert.equal(result.status, 'confirming')
+  assert.equal(result.interruptId, 'int-2')
+  assert.equal(seen[0].prompt, '请确认是否为您挂 2026-09-05 下午 儿科 赵敏 的号')
 })

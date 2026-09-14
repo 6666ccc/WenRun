@@ -37,8 +37,7 @@ class _ScriptedModel:
 
     def stream(self, messages):
         self.seen_messages.append(list(messages))
-        for chunk in self.turns.pop(0):
-            yield chunk
+        yield from self.turns.pop(0)
 
 
 def _text(content):

@@ -54,3 +54,18 @@ def test_chat_node_streams_with_request_clock(monkeypatch):
     assert result == {"chat_reply": "今天是星期二。"}
     system = captured["messages"][0]
     assert "当前时间：2026-09-01 星期二 11:15（北京时间）。" in system.content
+
+
+def test_chat_node_uses_deterministic_clarification_after_router_failure():
+    result = chat_mod.chat_node(
+        {
+            "selected_agents": ["chat"],
+            "router_fallback": True,
+            "router_response": "抱歉，我暂时没能准确判断您的需求。您可以查询科室或号源。",
+            "messages": [],
+        },
+        _graph_runtime(CONTEXT),
+    )
+
+    assert "没能准确判断" in result["chat_reply"]
+    assert "查询科室或号源" in result["chat_reply"]

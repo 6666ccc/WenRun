@@ -7,7 +7,8 @@ os.environ.setdefault(
     "https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
-from datetime import date, datetime, time
+from datetime import date, datetime
+from typing import ClassVar
 
 from langchain.tools import ToolRuntime
 
@@ -35,7 +36,7 @@ def _tool_runtime() -> ToolRuntime:
 class FakeJavaToolClient:
     """记录调用参数的假客户端，让断言集中在 Python 侧的参数换算与措辞上。"""
 
-    calls: dict = {}
+    calls: ClassVar[dict] = {}
 
     def list_departments(self, delegated_token, request_id):
         assert delegated_token == "delegated-token"

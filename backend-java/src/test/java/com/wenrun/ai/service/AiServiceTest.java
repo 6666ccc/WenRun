@@ -4,6 +4,8 @@ import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.ai.vo.aiResumeRequest;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.exception.BusinessException;
+import com.wenrun.entity.AiPatientMemory;
+import com.wenrun.entity.ChatMessage;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -37,6 +39,12 @@ class AiServiceTest {
                 .andExpect(jsonPath("$.userContext.userId").value(7))
                 .andExpect(jsonPath("$.userContext.patientId").value(12))
                 .andExpect(jsonPath("$.fastMode").value(true))
+                .andExpect(jsonPath("$.recoveryMessages[0].id").value(91))
+                .andExpect(jsonPath("$.recoveryMessages[0].role").value("user"))
+                .andExpect(jsonPath("$.recoveryMessages[0].content").value("上一轮问题"))
+                .andExpect(jsonPath("$.longTermMemories[0].memoryId").value("memory-1"))
+                .andExpect(jsonPath("$.longTermMemories[0].type").value("communication_preference"))
+                .andExpect(jsonPath("$.longTermMemories[0].content").value("请用简短中文"))
                 .andRespond(withSuccess("""
                         data: {"type":"status","content":"正在分析"}
 
@@ -53,6 +61,17 @@ class AiServiceTest {
         request.setPatientId(12L);
         request.setFastMode(true);
         request.setRequestId("request-123");
+        ChatMessage recoveryMessage = new ChatMessage();
+        recoveryMessage.setId(91L);
+        recoveryMessage.setRole("user");
+        recoveryMessage.setContent("上一轮问题");
+        request.setRecoveryMessages(List.of(recoveryMessage));
+        AiPatientMemory memory = new AiPatientMemory();
+        memory.setMemoryId("memory-1");
+        memory.setType("communication_preference");
+        memory.setContent("请用简短中文");
+        memory.setStatus("active");
+        request.setLongTermMemories(List.of(memory));
         List<Map<String, Object>> events = new ArrayList<>();
 
         service.streamChat(request, events::add);
@@ -69,6 +88,7 @@ class AiServiceTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         aiService service = new aiService(builder.build(), "");
         server.expect(requestTo("http://python.test/v1/chat/stream"))
+                .andExpect(jsonPath("$.recoveryMessages").doesNotExist())
                 .andRespond(withSuccess("""
                         : keep-alive
                         data: {"type":"token",
@@ -78,6 +98,12 @@ class AiServiceTest {
 
         aiRequest request = new aiRequest();
         request.setMessage("测试 SSE 解析");
+        request.setMemoryEnabled(false);
+        ChatMessage ignoredRecovery = new ChatMessage();
+        ignoredRecovery.setId(92L);
+        ignoredRecovery.setRole("user");
+        ignoredRecovery.setContent("禁用记忆时不得发送");
+        request.setRecoveryMessages(List.of(ignoredRecovery));
         List<Map<String, Object>> events = new ArrayList<>();
 
         service.streamChat(request, events::add);
@@ -119,6 +145,7 @@ class AiServiceTest {
                 .andExpect(header("X-Delegated-Token", "delegated-token"))
                 .andExpect(jsonPath("$.conversationId").value("conversation-1"))
                 .andExpect(jsonPath("$.decision").value("approve"))
+                .andExpect(jsonPath("$.interruptId").value("int-1"))
                 .andExpect(jsonPath("$.userContext.patientId").value(12))
                 .andRespond(withSuccess("""
                         data: {"type":"done","reply":"挂号已办好。","conversationId":"conversation-1"}
@@ -128,6 +155,7 @@ class AiServiceTest {
         aiResumeRequest request = new aiResumeRequest();
         request.setConversationId("conversation-1");
         request.setDecision("approve");
+        request.setInterruptId("int-1");
         request.setUserId(7L);
         request.setPatientId(12L);
         request.setDelegatedToken("delegated-token");

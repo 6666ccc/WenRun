@@ -18,6 +18,10 @@ public class aiResumeRequest {
     @Pattern(regexp = "approve|reject", message = "确认结果只能是 approve 或 reject")
     private String decision;
 
+    /** 前端从 confirm 事件原样带回，用于在多个挂起 interrupt 中精确续跑。 */
+    @Size(max = 128, message = "中断 ID 长度不能超过 128 个字符")
+    private String interruptId;
+
     /** 恢复也是独立的一轮，需要自己的幂等键，不能复用被挂起那一轮的。 */
     @Size(max = 64, message = "请求 ID 长度不能超过 64 个字符")
     private String clientRequestId;

@@ -1,19 +1,29 @@
 import { computed, onMounted, ref, watch } from 'vue'
-import { chatResume, chatStream, deleteConversation, listCharges, listRegistrations } from '../api'
+import {
+  chatResume,
+  chatStream,
+  deleteConversation,
+  listAiConversationMessages,
+  listAiConversations,
+  listCharges,
+  listRegistrations,
+} from '../api'
 import { listVisits } from '../api/modules/consultation'
 import {
   createMessageId,
   createRequestId,
   createSession,
-  normalizeSessions,
+  createSessionId,
+  clearLegacySessions,
+  normalizeServerConversations,
+  readOwnedLegacySessions,
+  sessionHasPendingConfirm,
   shouldRemoveLocalSessionAfterDeleteError,
 } from '../features/assistant/session'
 import { toTask } from '../features/assistant/task'
 
-const STORAGE_KEY = 'wenrun_ai_sessions'
 const FAST_MODE_KEY = 'wenrun_ai_fast_mode'
-const LEGACY_OWNER_KEY = 'wenrun_ai_sessions_owner'
-const makeId = () => `session_${Date.now()}_${Math.random().toString(16).slice(2)}`
+const ACTIVE_ID_KEY = 'wenrun_ai_active_conversation'
 const fulfilled = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
 const runtimes = new Map()
 
@@ -21,12 +31,12 @@ function runtimeKey(user) {
   return String(user?.value?.userId || user?.value?.patientId || 'anonymous')
 }
 
-function scopedStorageKey(key) {
-  return `${STORAGE_KEY}:${key}`
-}
-
 function scopedFastModeKey(key) {
   return `${FAST_MODE_KEY}:${key}`
+}
+
+function scopedActiveIdKey(key) {
+  return `${ACTIVE_ID_KEY}:${key}`
 }
 
 function readFastMode(key) {
@@ -34,26 +44,13 @@ function readFastMode(key) {
 }
 
 function readSessions(key) {
-  try {
-    const scoped = localStorage.getItem(scopedStorageKey(key))
-    if (scoped) return normalizeSessions(scoped)
-    // 兼容升级前的单用户存储；迁移后新写入只使用按用户隔离的键。
-    const owner = localStorage.getItem(LEGACY_OWNER_KEY)
-    if (owner && owner !== key) return normalizeSessions(null)
-    const legacy = localStorage.getItem(STORAGE_KEY)
-    if (legacy) {
-      localStorage.setItem(LEGACY_OWNER_KEY, key)
-      localStorage.setItem(scopedStorageKey(key), legacy)
-    }
-    return normalizeSessions(legacy)
-  } catch {
-    return normalizeSessions(null)
-  }
+  return readOwnedLegacySessions(localStorage, key)
 }
 
 function createRuntime(key) {
   const sessions = ref(readSessions(key))
-  const activeId = ref(sessions.value[0]?.id || 'default')
+  const savedActiveId = localStorage.getItem(scopedActiveIdKey(key))
+  const activeId = ref(savedActiveId || sessions.value[0]?.id || createSessionId())
   const context = ref({ appointments: [], charges: [], visits: [], loading: true, errors: {} })
   const replying = ref(false)
   const streaming = ref(false)
@@ -66,11 +63,9 @@ function createRuntime(key) {
   let contextPromise = null
   let destroyed = false
 
-  watch(sessions, (value) => {
-    if (!destroyed) {
-      localStorage.setItem(scopedStorageKey(key), JSON.stringify(value))
-    }
-  }, { deep: true })
+  watch(activeId, (value) => {
+    if (!destroyed && value) localStorage.setItem(scopedActiveIdKey(key), value)
+  })
 
   watch(fastMode, (value) => {
     if (!destroyed) {
@@ -129,6 +124,26 @@ function createRuntime(key) {
       })
       return contextPromise
     },
+    async hydrateSessions() {
+      try {
+        const summaries = await listAiConversations({ page: 0, size: 30 })
+        const messages = await Promise.all((summaries || []).map(async (summary) => [
+          summary.conversationId,
+          await listAiConversationMessages(summary.conversationId, { page: 0, size: 100 }),
+        ]))
+        const serverSessions = normalizeServerConversations(summaries, Object.fromEntries(messages))
+        const serverIds = new Set(serverSessions.map((session) => session.id))
+        const unsyncedLegacy = sessions.value.filter((session) => !serverIds.has(session.id))
+        sessions.value = [...serverSessions, ...unsyncedLegacy]
+        if (!sessions.value.length) sessions.value = [createSession()]
+        if (!sessions.value.some((session) => session.id === activeId.value)) {
+          activeId.value = sessions.value[0].id
+        }
+        clearLegacySessions(localStorage)
+      } catch (error) {
+        sessionError.value = error.message || '加载历史会话失败，本次仍可继续聊天。'
+      }
+    },
   }
 }
 
@@ -152,6 +167,9 @@ export function resetAssistantRuntime(key) {
 export function resetAllAssistantRuntimes() {
   for (const runtime of runtimes.values()) runtime.destroy()
   runtimes.clear()
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith('wenrun_ai_')) localStorage.removeItem(key)
+  }
 }
 
 function updateSession(runtime, id, updater) {
@@ -240,14 +258,13 @@ function appendAssistantError(runtime, conversationId, requestId, code, message,
 
 function markAssistantAwaitingConfirm(runtime, conversationId, requestId, confirming) {
   const request = runtime.requests.get(requestId)
-  if (!request || request.status !== 'running') return
-  request.status = 'confirming'
+  if (request?.status === 'stopped') return
+  if (request) request.status = 'confirming'
   updateAssistant(runtime, conversationId, requestId, (message) => ({
     ...message,
-    content: confirming.prompt,
+    content: message.content?.trim() ? message.content : (confirming.prompt || ''),
     meta: { ...message.meta, requestId, status: 'confirming', confirm: confirming },
   }))
-  setRequestStatus(runtime, conversationId, requestId, 'confirming')
 }
 
 function createStreamHandlers(runtime, conversationId, requestId) {
@@ -268,8 +285,10 @@ export function useAssistant(user) {
   const runtime = getRuntime(user)
   const activeSession = computed(() => runtime.sessions.value.find((item) => item.id === runtime.activeId.value) || runtime.sessions.value[0])
 
+  const awaitingConfirm = computed(() => sessionHasPendingConfirm(activeSession.value))
+
   function newChat() {
-    const next = createSession(makeId())
+    const next = createSession()
     runtime.sessions.value.push(next)
     runtime.activeId.value = next.id
   }
@@ -299,13 +318,20 @@ export function useAssistant(user) {
     updateSession(runtime, conversationId, (session) => ({
       ...session,
       title: session.messages.length ? session.title : content.slice(0, 18),
-      messages: [...session.messages, {
-        id: createMessageId(),
-        role: 'user',
-        content,
-        sources: [],
-        meta: { requestId, status: 'pending' },
-      }],
+      messages: [
+        ...session.messages.map((item) => (
+          item.meta?.confirm
+            ? { ...item, meta: { ...item.meta, status: item.meta.status === 'confirming' ? 'completed' : item.meta.status, confirm: null } }
+            : item
+        )),
+        {
+          id: createMessageId(),
+          role: 'user',
+          content,
+          sources: [],
+          meta: { requestId, status: 'pending' },
+        },
+      ],
     }))
     const controller = new AbortController()
     runtime.requests.set(requestId, { conversationId, controller, status: 'running' })
@@ -350,6 +376,7 @@ export function useAssistant(user) {
 
   async function respondToPending(message, decision) {
     const conversationId = message.meta?.confirm?.conversationId || runtime.activeId.value
+    const interruptId = message.meta?.confirm?.interruptId
     const requestId = createRequestId()
     // 确认卡片一旦作答就不再可点，避免重复提交。
     updateSession(runtime, conversationId, (session) => ({
@@ -368,7 +395,12 @@ export function useAssistant(user) {
     runtime.streamStatus.value = null
     try {
       await chatResume(
-        { conversationId, decision, clientRequestId: requestId },
+        {
+          conversationId,
+          decision,
+          clientRequestId: requestId,
+          interruptId,
+        },
         createStreamHandlers(runtime, conversationId, requestId),
       )
     } catch (nextError) {
@@ -388,7 +420,10 @@ export function useAssistant(user) {
     }
   }
 
-  onMounted(() => runtime.refreshContext(user))
+  onMounted(() => {
+    runtime.refreshContext(user)
+    runtime.hydrateSessions()
+  })
 
   return {
     sessions: runtime.sessions,
@@ -396,6 +431,7 @@ export function useAssistant(user) {
     activeSession,
     context: runtime.context,
     replying: runtime.replying,
+    awaitingConfirm,
     streaming: runtime.streaming,
     streamStatus: runtime.streamStatus,
     sessionError: runtime.sessionError,

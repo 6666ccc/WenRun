@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -16,6 +17,7 @@ embedding_model = os.getenv("EMBEDDING_MODEL")
 embedding_apikey = os.getenv("DASHSCOPE_API_KEY")
 embedding_url = os.getenv("DASHSCOPE_BASE_URL")
 hospital_collection = os.getenv("QDRANT_HOSPITAL_COLLECTION", "wenrun_hospital_custom")
+RAG_METADATA_SCHEMA_VERSION = "rag-metadata-v2"
 
 
 # 步骤二：创建并缓存 Qdrant 客户端。
@@ -76,7 +78,107 @@ def ensure_collection(
     )
 
 
-@lru_cache
+def active_document_filter(now: datetime | None = None) -> models.Filter:
+    """Qdrant-side lifecycle filter; safety.py repeats the check after retrieval."""
+
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    return models.Filter(must=[
+        models.FieldCondition(
+            key="metadata.status", match=models.MatchValue(value="active")
+        ),
+        models.FieldCondition(
+            key="metadata.effective_from",
+            range=models.DatetimeRange(lte=current),
+        ),
+        models.Filter(should=[
+            models.IsNullCondition(
+                is_null=models.PayloadField(key="metadata.expires_at")
+            ),
+            models.FieldCondition(
+                key="metadata.expires_at",
+                range=models.DatetimeRange(gt=current),
+            ),
+        ]),
+    ])
+
+
+def document_filter(
+    document_id: str, *, version: int | None = None, checksum: str | None = None
+) -> models.Filter:
+    conditions: list[models.Condition] = [
+        models.FieldCondition(
+            key="metadata.document_id", match=models.MatchValue(value=document_id)
+        )
+    ]
+    if version is not None:
+        conditions.append(models.FieldCondition(
+            key="metadata.version", match=models.MatchValue(value=version)
+        ))
+    if checksum is not None:
+        conditions.append(models.FieldCondition(
+            key="metadata.checksum", match=models.MatchValue(value=checksum)
+        ))
+    return models.Filter(must=conditions)
+
+
+def list_document_records(document_id: str) -> list[dict]:
+    """Read one representative metadata record for every indexed version."""
+
+    client = get_qdrant_client()
+    records: dict[int, dict] = {}
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=hospital_collection,
+            scroll_filter=document_filter(document_id),
+            limit=256,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        for point in points:
+            payload = getattr(point, "payload", None) or {}
+            metadata = payload.get("metadata") if isinstance(payload, dict) else None
+            if not isinstance(metadata, dict):
+                continue
+            version = metadata.get("version")
+            if isinstance(version, int):
+                records.setdefault(version, dict(metadata))
+        if offset is None:
+            break
+    return [records[key] for key in sorted(records)]
+
+
+def set_document_status(
+    document_id: str,
+    status: str,
+    *,
+    version: int | None = None,
+    updated_at: str | None = None,
+) -> None:
+    client = get_qdrant_client()
+    client.set_payload(
+        collection_name=hospital_collection,
+        payload={
+            "status": status,
+            "updated_at": updated_at or datetime.now(UTC).isoformat(),
+        },
+        key="metadata",
+        points=models.FilterSelector(filter=document_filter(document_id, version=version)),
+        wait=True,
+    )
+
+
+def delete_document_points(document_id: str, *, version: int | None = None) -> None:
+    get_qdrant_client().delete(
+        collection_name=hospital_collection,
+        points_selector=models.FilterSelector(
+            filter=document_filter(document_id, version=version)
+        ),
+        wait=True,
+    )
+
+
 def get_hospital_retriever():
     client = get_qdrant_client()
     embeddings = get_embeddings()
@@ -94,5 +196,6 @@ def get_hospital_retriever():
         search_kwargs={
             "k": 5,
             "score_threshold": 0.8,
+            "filter": active_document_filter(),
         },
     )

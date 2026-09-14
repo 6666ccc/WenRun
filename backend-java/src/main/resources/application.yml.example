@@ -48,6 +48,10 @@ AI_SERVICE_BASE_URL: http://localhost:8000
 AI_DELEGATION_TTL: 5m
 
 wenrun:
+  ai:
+    conversation-lock:
+      lease: ${AI_CONVERSATION_LOCK_LEASE:330s}
+      renew-every: ${AI_CONVERSATION_LOCK_RENEW_EVERY:30s}
   auth:
     token-ttl: ${AUTH_TOKEN_TTL:8h}
     session-store: ${WENRUN_AUTH_SESSION_STORE:redis}

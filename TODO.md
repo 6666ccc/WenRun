@@ -2,7 +2,7 @@
 
 > 目标：把项目做到「可写进 2027 秋招简历、可现场演示、经得起追代码」。
 > 定位：Java 后端 / AI 应用开发 / AI 全栈。不作为纯算法岗主项目。
-> 当前综合：**7.6 / 10**。会话记忆与快速模式已落地；面试最大风险仍是文档过时、公网 HTTP、仓库与线上不完全同构。完成剩余 P0 + 前三项 P1 后，可作为简历第一项目。
+> 当前综合：**8.2 / 10（代码侧）**。R1 上下文隔离、R2 可执行 Agent、R3 RAG 治理与 context eval 已落地；上线迁移、真实 Compose E2E、HTTPS、压测和告警仍未验收。
 
 线上 Demo：`http://47.100.11.196/home`（目前仍是裸 IP + HTTP）。
 
@@ -12,13 +12,16 @@
 
 ## 近期已落地（不要再当成待办）
 
-- [x] LangGraph Redis checkpoint：`conversationId` 作为 `thread_id`，Shallow saver + TTL；委托令牌只走 `HospitalToolContext`，不进 State
+- [x] LangGraph Redis checkpoint：`user:{verifiedUserId}:conversation:{conversationId}` 作为 `thread_id`，Shallow saver + TTL；委托令牌只走 `HospitalToolContext`，不进 State
 - [x] 删除会话时 Java 级联调用 `DELETE /v1/chat/memory/{conversationId}` 清理 checkpoint
 - [x] Java 登录 Session 可走 Redis db1（`WENRUN_AUTH_SESSION_STORE=redis`），不再只有单机内存 Token
-- [x] 只读业务 Tool：科室、医生、排班、本人挂号（写操作仍不在 Agent 上）
+- [x] 业务 Tool：科室、医生、排班、本人挂号查询，以及经 interrupt 确认的挂号/退号
 - [x] 健康助手「快速模式」：`fast_graph = START → fast_node → summarize_node → END`，只挂 Tavily 联网 + 会话记忆，不挂院内 RAG；与正常模式共用同一 `thread_id`
 - [x] 开发 Compose 已加入 Redis 8；Java Session 用 db1，Python checkpoint 用 db0
 - [x] 根 README 已写 Docker 启动、已知限制（并发写 checkpoint、摘要拖尾、TTL/LRU）和快速模式边界
+- [x] Context Builder、结构化摘要、MySQL history 重建、受治理的长期偏好和同会话 Redis 锁
+- [x] RAG checksum/版本/有效期/停用/删除/重建、MySQL 元数据权威层与 Qdrant 双层安全过滤
+- [x] 60 条 context eval、脱敏 context trace、聚合指标接口与核心安全 CI
 
 ---
 
@@ -38,26 +41,17 @@
 
 ### 删掉或改写过时表述
 
-- [ ] 修订 [`docs/求职项目评估与流程图.md`](docs/求职项目评估与流程图.md)
-  - [ ] 推荐表述里的「人工确认」——当前 AI 只能查询号源，不能执行挂号；HITL 尚未做
-  - [ ] 「适合挂号这种固定步骤加人工确认的流程」——当前图是固定顺序多意图，不是 interrupt 挂号
-  - [ ] 「登录态仍是单机内存 Token」——代码已支持 Redis Session，文档还在写旧方案
-  - [ ] 「通过包装 saver 避免令牌被持久化」——现实现是 Runtime Context，不是包装 saver
-  - [ ] 更正测试数量：文档写 Java 61、Python 83；源码统计为前端 16、Java 43、Python 88（本机缺 Maven，Java 未复跑）
-  - [ ] 补上已实现能力：Redis Session、checkpoint、快速模式、四类只读 Tool
-- [ ] 修订 [`docs/AI模块开发与运维指南.md`](docs/AI模块开发与运维指南.md)
-  - [ ] 第 4 节图示仍写 `begin → knowledge → chat → final`，缺 `tool_node` / `summarize_node`
-  - [ ] 「尚未接入排班、我的挂号」已过时；排障表「挂号/查排班没有实际结果」会误导（正常模式已有只读 Tool，快速模式才查不了）
-  - [ ] 聊天请求 JSON 示例补 `fastMode`
-- [ ] 修订根目录 [`README.md`](README.md)：补能力边界、演示账号、已知限制入口；不要再写「当前图没有 checkpointer」
-- [ ] 全文检索「人工确认 / interrupt / 单机内存 / 没有 checkpointer / 尚未接入排班」并逐条核对代码
+- [x] 修订 [`docs/求职项目评估与流程图.md`](docs/求职项目评估与流程图.md)，对齐 HITL、用户作用域 thread、Redis Session、RAG 生命周期和 context eval
+- [x] 修订 [`docs/AI模块开发与运维指南.md`](docs/AI模块开发与运维指南.md)，对齐完整图、业务 Tool、恢复/锁和知识生命周期
+- [x] 修订根目录 [`README.md`](README.md)：补权威边界、降级行为、评测和已知限制
+- [x] 全文核对关键旧口径；历史事故记录保留当时现象并明确其历史属性
 
 ### 同步事实口径
 
-- [ ] 在面试稿 / README 中写死：
+- [x] 在面试稿 / README 中写清：
   - 正常模式：查询号源 + RAG + SSE + 会话记忆
   - 快速模式：跳过路由，闲聊 + 联网 + 记忆，**没有院内 RAG，查不了号源排班和本院规定**
-  - 都不是「可执行挂号 Agent」
+  - 正常模式可在患者确认后执行挂号/退号；快速模式不可执行任何业务 Tool
 - [ ] 本机补齐 Maven（或加 Maven Wrapper），复跑 `mvn test`，把三端测试数量写进文档并保持更新
 
 **完成标准：** 任意文档里出现的能力，都能在对应源码里指到实现；指不到的一律删除。
@@ -95,13 +89,13 @@
 - [`frontend/Dockerfile`](frontend/Dockerfile) 启动的是 Vite 开发服务器（5173）
 - 开发 Compose 没有 Qdrant（Python RAG 仍依赖宿主机或 `host.docker.internal`）
 - Python 依赖未锁版本（[`ai-python/pyproject.toml`](ai-python/pyproject.toml)）
-- 生产镜像仍使用 `mysql:latest`、`qdrant/qdrant:latest`
+- 官方 MySQL、Qdrant、Redis 镜像已固定；业务镜像仍以本项目构建的 `latest` tag 交付
 
 ### 镜像与生产对齐
 
 - [ ] 前端改为多阶段镜像：Node 构建 + Nginx 运行静态资源，不再在生产跑 Vite
 - [ ] 生产 Compose 的前端端口、反向代理与真实线上一致
-- [ ] 固定 MySQL / Qdrant / Redis / Node 镜像版本，禁止业务依赖 `latest`
+- [x] 固定 MySQL / Qdrant / Redis 镜像版本；Node/业务镜像锁定仍待构建链治理
 
 ### 一条命令启动开发环境
 
@@ -151,10 +145,10 @@
 
 - [ ] 意图正确率（正常模式）
 - [ ] Tool 成功率（含「当天内科号源」这类已验证场景）
-- [ ] RAG 命中率、引用覆盖率
-- [ ] 首 Token 延迟、P95 延迟；**对比快速模式 vs 正常模式**
-- [ ] 单次 / 批量 Token 成本
-- [ ] 把评测脚本、数据集、最新报告放进仓库（例如 `docs/eval/`）
+- [x] Context eval 覆盖 RAG 引用、过期文档、隔离、恢复、提示注入和工具选择；真实线上 RAG 命中率仍待采样
+- [x] 报告输出确定性 P95 模拟延迟；**真实快速模式 vs 正常模式延迟**仍待线上采样
+- [x] 输出按来源的近似 token 成本；实际账单成本仍待模型供应商计量
+- [x] 评测脚本、60 条数据集和最新报告已放入 `ai-python/evals`、`ai-python/scripts` 与 `docs/eval`
 - [ ] README 用一张表展示最新数字，避免口头夸大
 
 **完成标准：** 面试能拿出可复跑的数字，而不是「感觉挺准」。
@@ -166,8 +160,8 @@
 不必上完整 Grafana，但必须有一张能演示的数据图。
 
 - [ ] Spring Actuator + Micrometer（健康、JVM、请求耗时）
-- [ ] 结构化日志：`requestId`、用户/会话、Tool 名、耗时、错误码、是否 `fastMode`
-- [ ] 暴露或汇总：接口错误率、AI 流式失败率、Tool 调用耗时、快速/正常模式首 Token
+- [x] AI context 结构化日志：`requestId`、哈希 thread、Tool 名、来源 token、耗时、错误码、模式和版本；不记录患者原文
+- [x] `/v1/metrics/context` 暴露当前进程的上下文错误、P95、模式和 token 聚合；持久化监控后端仍待接入
 - [ ] 一份可展示的图或面板截图（Prometheus 文本 + 简单页面也可）
 - [ ] 文档说明「如何在演示环境打开这张图」
 
@@ -188,7 +182,7 @@
 
 ### 限流与资源保护
 
-- [ ] 聊天并发上限、单用户频率限制（同一 `conversationId` 并发写 checkpoint 目前未加锁，见 README）
+- [x] 同一用户/会话 Redis 分布式锁；单用户频率限制和全局并发上限仍待实现
 - [ ] SSE 超时与取消
 - [ ] 模型调用预算（次数 / Token）
 - [ ] 文档上传限制大小，禁止一次性读入超大文件（[`ai-python/app/api/routes/chat.py`](ai-python/app/api/routes/chat.py)）
@@ -213,16 +207,16 @@
 
 > AI 查询号源 → 生成挂号计划 → 用户确认 → 短期写权限 JWT → Java 事务锁号 → 幂等创建 → 审计记录 → LangGraph 恢复
 
-- [x] LangGraph 接入 checkpointer，`conversationId` 作为 `thread_id`（HITL interrupt 的前置条件已就绪：委托令牌不进 State、回合字段重置、Shallow Redis checkpoint）
+- [x] LangGraph 接入 checkpointer，使用用户作用域 thread key（委托令牌不进 State、回合字段重置、Shallow Redis checkpoint）
 - [x] 快速模式作为第二条只读路径已落地，**不替代**下面的写操作闭环
-- [ ] 挂号人工确认 interrupt（HITL），未确认不写库
-- [ ] 确认后签发短期、最小权限写操作 JWT（scope + 患者绑定 + 过期）
-- [ ] Java 事务锁号 + 幂等键创建挂号
-- [ ] 审计记录（谁、何时、哪个号源、哪次会话、结果）
-- [ ] 断线 / 刷新后可从 checkpoint 恢复待确认状态
-- [ ] Tool 仍不能绕过 Java 直接写业务库
-- [ ] 对应测试：确认前不落库、重复确认不重复挂号、过期 JWT 拒绝、跨患者拒绝
-- [ ] 文档与流程图改回「已实现」，且能指到代码
+- [x] 挂号/退号人工确认 interrupt，未确认不写库
+- [x] 短期最小权限委托 JWT（scope + 患者绑定 + 过期）
+- [x] Java 复用事务锁号与请求幂等创建挂号
+- [x] 写操作关联用户、患者、会话、请求及结果日志；完整合规审计台账仍待建设
+- [x] 断线 / 刷新后可从 checkpoint 恢复待确认状态
+- [x] Tool 不能绕过 Java 直接写 HIS 业务库
+- [x] 单元/集成测试覆盖确认、幂等、令牌和跨患者边界；真实容器 E2E 仍待执行
+- [x] 文档与流程图按代码实现更新
 
 **完成标准：** 现场演示「问号源 → 确认 → 真的挂上号 → 刷新会话仍在确认点」，并能讲清权限边界。
 

@@ -37,6 +37,46 @@ class Settings(BaseSettings):
         validation_alias="AI_CHECKPOINT_TTL_MINUTES",
     )
     tavily_api_key: str = Field("", validation_alias="TAVILY_API_KEY")
+    intent_lightweight_enabled: bool = Field(
+        True,
+        validation_alias="INTENT_LIGHTWEIGHT_ENABLED",
+    )
+    context_total_tokens: int = Field(8_000, ge=1_000, validation_alias="AI_CONTEXT_TOTAL_TOKENS")
+    context_system_tokens: int = Field(2_000, ge=500, validation_alias="AI_CONTEXT_SYSTEM_TOKENS")
+    context_summary_tokens: int = Field(1_200, ge=200, validation_alias="AI_CONTEXT_SUMMARY_TOKENS")
+    context_recent_tokens: int = Field(2_400, ge=400, validation_alias="AI_CONTEXT_RECENT_TOKENS")
+    context_external_tokens: int = Field(2_400, ge=400, validation_alias="AI_CONTEXT_EXTERNAL_TOKENS")
+    rag_metadata_mysql_host: str = Field("", validation_alias="RAG_METADATA_MYSQL_HOST")
+    rag_metadata_mysql_port: int = Field(3306, ge=1, le=65535, validation_alias="RAG_METADATA_MYSQL_PORT")
+    rag_metadata_mysql_database: str = Field("wenrun", validation_alias="RAG_METADATA_MYSQL_DATABASE")
+    rag_metadata_mysql_user: str = Field("", validation_alias="RAG_METADATA_MYSQL_USER")
+    rag_metadata_mysql_password: str = Field("", validation_alias="RAG_METADATA_MYSQL_PASSWORD")
+    summary_trigger_tokens: int = Field(5_000, ge=500, validation_alias="AI_SUMMARY_TRIGGER_TOKENS")
+    summary_message_limit: int = Field(12, ge=10, validation_alias="AI_SUMMARY_MESSAGE_LIMIT")
+    intent_label_threshold: float = Field(
+        0.50,
+        ge=0.0,
+        le=1.0,
+        validation_alias="INTENT_LABEL_THRESHOLD",
+    )
+    intent_acceptance_threshold: float = Field(
+        0.60,
+        ge=0.0,
+        le=1.0,
+        validation_alias="INTENT_ACCEPTANCE_THRESHOLD",
+    )
+    intent_ambiguity_margin: float = Field(
+        0.12,
+        ge=0.0,
+        le=1.0,
+        validation_alias="INTENT_AMBIGUITY_MARGIN",
+    )
+    intent_ood_similarity_threshold: float = Field(
+        0.08,
+        ge=0.0,
+        le=1.0,
+        validation_alias="INTENT_OOD_SIMILARITY_THRESHOLD",
+    )
 
 
 @lru_cache

@@ -33,6 +33,7 @@ function applyChatEvent(raw, acc, handlers) {
       prompt: event.prompt || '请确认是否继续办理',
       detail: event.detail || {},
       conversationId: event.conversationId,
+      interruptId: event.interruptId,
     }
     handlers.onConfirm?.(confirming)
     return { status: 'confirming', ...confirming }
@@ -171,4 +172,14 @@ export function chatResume(payload, handlers = {}) {
 export async function deleteConversation(conversationId) {
   const { default: request } = await import('../request.js')
   return request.delete(`/api/ai/conversations/${encodeURIComponent(conversationId)}`)
+}
+
+export async function listAiConversations(params = { page: 0, size: 30 }) {
+  const { default: request } = await import('../request.js')
+  return request.get('/api/ai/conversations', { params })
+}
+
+export async function listAiConversationMessages(conversationId, params = { page: 0, size: 100 }) {
+  const { default: request } = await import('../request.js')
+  return request.get(`/api/ai/conversations/${encodeURIComponent(conversationId)}/messages`, { params })
 }

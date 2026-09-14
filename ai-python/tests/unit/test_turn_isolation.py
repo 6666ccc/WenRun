@@ -16,7 +16,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.graphs.hospital import graphs
 from app.graphs.hospital.nodes import begin as begin_module
 from app.graphs.hospital.nodes import chat as chat_module
-from app.graphs.hospital.nodes import final as final_module
 from app.graphs.hospital.nodes import knowledge as knowledge_module
 from app.graphs.hospital.tools.context import HospitalToolContext
 
@@ -26,7 +25,20 @@ CONFIG = {"configurable": {"thread_id": "isolation-thread"}}
 
 class _StubRetriever:
     def invoke(self, query):
-        return [Document(page_content="多休息多喝水", metadata={"source_name": "院内资料", "page": 1})]
+        return [Document(
+            page_content="多休息多喝水",
+            metadata={
+                "source_name": "院内资料",
+                "page": 1,
+                "document_id": "guide",
+                "version": 1,
+                "chunk_id": "guide-1",
+                "status": "active",
+                "effective_from": "2020-01-01T00:00:00+00:00",
+                "expires_at": None,
+                "updated_at": "2026-09-13T00:00:00+00:00",
+            },
+        )]
 
 
 class _StubAgent:
@@ -115,7 +127,10 @@ def test_long_conversation_gets_compressed_into_summary(monkeypatch):
     _stub_nodes(monkeypatch, [["chat"]] * 8)
     monkeypatch.setattr(
         "app.graphs.hospital.nodes.summarize.model",
-        type("M", (), {"invoke": staticmethod(lambda messages: AIMessage(content="患者多次寒暄致谢。"))})(),
+        type("M", (), {"invoke": staticmethod(lambda messages: AIMessage(content='''{
+            "patient_self_reports":[], "preferences":[], "verified_business_facts":[],
+            "pending_tasks":[], "superseded_items":[], "version":1
+        }'''))})(),
     )
     graph = graphs.build_graph(checkpointer=InMemorySaver())
 
@@ -130,6 +145,6 @@ def test_long_conversation_gets_compressed_into_summary(monkeypatch):
             config=CONFIG,
         )
 
-    assert state["summary"] == "患者多次寒暄致谢。"
+    assert state["summary"]["version"] >= 2
     # 压缩后消息数被压回窗口附近，不再随轮次线性增长。
     assert len(state["messages"]) <= 8

@@ -56,6 +56,15 @@ class Registration:
     reg_fee: str | None = None
 
 
+@dataclass(frozen=True)
+class PatientMemory:
+    memory_id: str
+    type: str
+    content: str
+    status: str
+    version: int | None = None
+
+
 def _required_int(item: dict[str, Any], key: str) -> int:
     value = item.get(key)
     if not isinstance(value, int):
@@ -260,6 +269,65 @@ class JavaToolClient:
             {},
         )
 
+    def list_memories(self, delegated_token: str, request_id: str | None) -> list[PatientMemory]:
+        data = self._get_list(
+            "/api/internal/ai-tools/memories", delegated_token, request_id
+        )
+        memories: list[PatientMemory] = []
+        for item in data:
+            memory_id = _optional_str(item, "memoryId")
+            memory_type = _optional_str(item, "type")
+            content = _optional_str(item, "content")
+            if not memory_id or not memory_type or not content:
+                raise JavaToolClientError("Java Tool API returned an incomplete memory")
+            memories.append(PatientMemory(
+                memory_id=memory_id,
+                type=memory_type,
+                content=content,
+                status=_optional_str(item, "status") or "active",
+                version=_optional_int(item, "version"),
+            ))
+        return memories
+
+    def create_memory(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        *,
+        memory_type: str,
+        content: str,
+        source_conversation_id: str,
+    ) -> PatientMemory:
+        data = self._post(
+            "/api/internal/ai-tools/memories",
+            delegated_token,
+            request_id,
+            {
+                "type": memory_type,
+                "content": content,
+                "sourceConversationId": source_conversation_id,
+            },
+        )
+        if not isinstance(data, dict):
+            raise JavaToolClientError("Java Tool API returned an invalid memory")
+        memory_id = _optional_str(data, "memoryId")
+        if not memory_id:
+            raise JavaToolClientError("Java Tool API returned an incomplete memory")
+        return PatientMemory(
+            memory_id=memory_id,
+            type=_optional_str(data, "type") or memory_type,
+            content=_optional_str(data, "content") or content,
+            status=_optional_str(data, "status") or "active",
+            version=_optional_int(data, "version"),
+        )
+
+    def delete_memory(
+        self, delegated_token: str, request_id: str | None, *, memory_id: str
+    ) -> None:
+        self._delete(
+            f"/api/internal/ai-tools/memories/{memory_id}", delegated_token, request_id
+        )
+
     def _get_list(
         self,
         path: str,
@@ -310,6 +378,19 @@ class JavaToolClient:
                 transport=self._transport,
             ) as client:
                 response = client.post(path, headers=headers, json=payload)
+        except httpx.HTTPError as exc:
+            raise JavaToolClientError("Java Tool API is unavailable") from exc
+        return self._unwrap(response)
+
+    def _delete(self, path: str, delegated_token: str, request_id: str | None) -> Any:
+        headers = self._headers(delegated_token, request_id)
+        try:
+            with httpx.Client(
+                base_url=self._base_url,
+                timeout=self._timeout,
+                transport=self._transport,
+            ) as client:
+                response = client.delete(path, headers=headers)
         except httpx.HTTPError as exc:
             raise JavaToolClientError("Java Tool API is unavailable") from exc
         return self._unwrap(response)

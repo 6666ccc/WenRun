@@ -5,7 +5,11 @@ from loguru import logger
 
 from app.graphs.hospital.tools.base import MAX_ROWS, UNAVAILABLE_MESSAGE
 from app.graphs.hospital.tools.context import HospitalToolContext
-from app.services.java_tool_client import JavaToolClient, JavaToolClientError, Registration
+from app.services.java_tool_client import (
+    JavaToolClient,
+    JavaToolClientError,
+    Registration,
+)
 
 STATUS_TEXT = {1: "已挂号", 2: "已就诊", 3: "已退号"}
 

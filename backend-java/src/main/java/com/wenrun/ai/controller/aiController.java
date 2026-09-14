@@ -1,12 +1,20 @@
 package com.wenrun.ai.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wenrun.ai.concurrency.ConversationExecutionLock;
+import com.wenrun.ai.concurrency.ConversationLockUnavailableException;
 import com.wenrun.ai.security.DelegationTokenService;
 import com.wenrun.ai.service.ConversationOwnershipService;
+import com.wenrun.ai.service.AiPatientMemoryService;
 import com.wenrun.ai.service.aiService;
 import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.ai.vo.aiResumeRequest;
+import com.wenrun.ai.vo.AiConversationVO;
+import com.wenrun.ai.vo.AiChatMessageVO;
 import com.wenrun.common.Result;
+import com.wenrun.common.ResultCode;
 import com.wenrun.common.context.UserContext;
+import com.wenrun.common.exception.BusinessException;
 import com.wenrun.config.RequestTrace;
 import com.wenrun.entity.ChatMessage;
 import com.wenrun.entity.Patient;
@@ -20,15 +28,18 @@ import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -43,6 +54,8 @@ import java.util.function.Consumer;
 public class aiController {
 
     private static final long STREAM_TIMEOUT_MILLIS = 300_000L;
+    private static final int RECOVERY_MESSAGE_LIMIT = 24;
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final aiService aiService;
     private final PatientRepository patientRepository;
@@ -50,6 +63,9 @@ public class aiController {
     private final ConversationOwnershipService ownershipService;
     private final AsyncTaskExecutor streamExecutor;
     private final DelegationTokenService delegationTokenService;
+    private final ConversationExecutionLock conversationExecutionLock;
+    private final AiPatientMemoryService memoryService;
+    private final com.wenrun.repository.AiConversationRepository conversationRepository;
 
     public aiController(
             aiService aiService,
@@ -57,13 +73,44 @@ public class aiController {
             ChatMessageRepository chatMessageRepository,
             ConversationOwnershipService ownershipService,
             @Qualifier("aiStreamExecutor") AsyncTaskExecutor streamExecutor,
-            DelegationTokenService delegationTokenService) {
+            DelegationTokenService delegationTokenService,
+            ConversationExecutionLock conversationExecutionLock,
+            AiPatientMemoryService memoryService,
+            com.wenrun.repository.AiConversationRepository conversationRepository) {
         this.aiService = aiService;
         this.patientRepository = patientRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.ownershipService = ownershipService;
         this.streamExecutor = streamExecutor;
         this.delegationTokenService = delegationTokenService;
+        this.conversationExecutionLock = conversationExecutionLock;
+        this.memoryService = memoryService;
+        this.conversationRepository = conversationRepository;
+    }
+
+    @GetMapping("/conversations")
+    public Result<List<AiConversationVO>> listConversations(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "30") int size) {
+        Long userId = UserContext.getUserId();
+        int boundedSize = Math.max(1, Math.min(size, 50));
+        int offset = Math.max(0, page) * boundedSize;
+        return Result.success(conversationRepository.selectSummariesByUserId(
+                userId, offset, boundedSize));
+    }
+
+    @GetMapping("/conversations/{conversationId}/messages")
+    public Result<List<AiChatMessageVO>> listMessages(
+            @PathVariable String conversationId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        Long userId = UserContext.getUserId();
+        ownershipService.assertOwned(conversationId, userId);
+        int boundedSize = Math.max(1, Math.min(size, 100));
+        int offset = Math.max(0, page) * boundedSize;
+        return Result.success(chatMessageRepository.selectPageByConversationIdAndUserId(
+                        conversationId, userId, offset, boundedSize)
+                .stream().map(AiChatMessageVO::from).toList());
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -79,41 +126,88 @@ public class aiController {
                     request.getConversationId(), request.getUserId(), request.getClientRequestId(), "assistant");
             return duplicateRequestStream(request, existingAssistant);
         }
-        if (!saveMessage(request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user",
-                request.getMessage())) {
-            ChatMessage racedUser = chatMessageRepository.selectByClientRequestId(
-                    request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user");
-            if (racedUser != null) {
-                ChatMessage racedAssistant = chatMessageRepository.selectByClientRequestId(
-                        request.getConversationId(), request.getUserId(), request.getClientRequestId(), "assistant");
-                return duplicateRequestStream(request, racedAssistant);
-            }
-            throw new IllegalStateException("AI 用户消息保存失败");
+        ConversationExecutionLock.Handle lock;
+        try {
+            lock = acquireConversationLock(request.getUserId(), request.getConversationId());
+        } catch (ConversationLockUnavailableException ex) {
+            return rejectedRequestStream(request, "AI_CONVERSATION_LOCK_UNAVAILABLE", "会话服务暂不可用，请稍后再试");
         }
-        return stream(
-                consumer -> aiService.streamChat(request, consumer),
-                request.getConversationId(),
-                request.getUserId(),
-                request.getClientRequestId());
+        if (lock == null) {
+            return rejectedRequestStream(request, "AI_CONVERSATION_BUSY", "该会话正在处理上一条消息，请稍后再试");
+        }
+        try {
+            if (!Boolean.FALSE.equals(request.getMemoryEnabled())) {
+                request.setRecoveryMessages(chatMessageRepository.selectRecentByConversationIdAndUserId(
+                        request.getConversationId(), request.getUserId(), RECOVERY_MESSAGE_LIMIT));
+                if (request.getPatientId() != null) {
+                    request.setLongTermMemories(memoryService.listActive(request.getPatientId(), 20));
+                }
+            }
+            if (!saveMessage(request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user",
+                    request.getMessage())) {
+                ChatMessage racedUser = chatMessageRepository.selectByClientRequestId(
+                        request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user");
+                if (racedUser != null) {
+                    lock.close();
+                    ChatMessage racedAssistant = chatMessageRepository.selectByClientRequestId(
+                            request.getConversationId(), request.getUserId(), request.getClientRequestId(), "assistant");
+                    return duplicateRequestStream(request, racedAssistant);
+                }
+                throw new IllegalStateException("AI 用户消息保存失败");
+            }
+            return stream(
+                    consumer -> aiService.streamChat(request, consumer),
+                    request.getConversationId(),
+                    request.getUserId(),
+                    request.getClientRequestId(),
+                    lock,
+                    null);
+        } catch (RuntimeException ex) {
+            lock.close();
+            throw ex;
+        }
     }
 
     @PostMapping(value = "/chat/resume", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatResume(@Valid @RequestBody aiResumeRequest request) {
         prepareResume(request);
+        ConversationExecutionLock.Handle lock;
+        try {
+            lock = acquireConversationLock(request.getUserId(), request.getConversationId());
+        } catch (ConversationLockUnavailableException ex) {
+            return immediateErrorStream("AI_CONVERSATION_LOCK_UNAVAILABLE", "会话服务暂不可用，请稍后再试");
+        }
+        if (lock == null) {
+            return immediateErrorStream("AI_CONVERSATION_BUSY", "该会话正在处理上一条消息，请稍后再试");
+        }
         return stream(
                 consumer -> aiService.streamResume(request, consumer),
                 request.getConversationId(),
                 request.getUserId(),
-                request.getClientRequestId());
+                request.getClientRequestId(),
+                lock,
+                request.getInterruptId() == null ? "" : request.getInterruptId());
     }
 
     @DeleteMapping("/conversations/{conversationId}")
     public Result<Void> deleteConversation(@PathVariable String conversationId) {
         Long userId = UserContext.getUserId();
-        ownershipService.assertOwned(conversationId, userId);
-        chatMessageRepository.deleteByConversationId(conversationId);
-        aiService.deleteConversationMemory(conversationId);
-        return Result.success();
+        ConversationExecutionLock.Handle lock;
+        try {
+            lock = acquireConversationLock(userId, conversationId);
+        } catch (ConversationLockUnavailableException ex) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "会话服务暂不可用，请稍后再试");
+        }
+        if (lock == null) {
+            throw new BusinessException(409, "该会话正在处理消息，请稍后再删除");
+        }
+        try {
+            ownershipService.delete(conversationId, userId);
+            aiService.deleteConversationMemory(conversationId, userId);
+            return Result.success();
+        } finally {
+            lock.close();
+        }
     }
 
     private void prepare(aiRequest request) {
@@ -128,9 +222,10 @@ public class aiController {
             request.setClientRequestId(request.getClientRequestId().trim());
         }
         Long userId = UserContext.getUserId();
-        ownershipService.establishIfAbsent(request.getConversationId(), userId);
         request.setUserId(userId);
         request.setPatientId(currentPatientId(userId));
+        ownershipService.establishIfAbsent(
+                request.getConversationId(), userId, request.getPatientId());
         request.setRequestId(RequestTrace.get());
         request.setDelegatedToken(
                 delegationTokenService.issue(
@@ -165,7 +260,8 @@ public class aiController {
     }
 
     private SseEmitter stream(StreamAction action, String conversationId, Long userId,
-            String clientRequestId) {
+            String clientRequestId, ConversationExecutionLock.Handle lock,
+            String resumeInterruptId) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
         AtomicBoolean terminal = new AtomicBoolean(false);
         AtomicReference<Future<?>> upstreamTask = new AtomicReference<>();
@@ -180,9 +276,11 @@ public class aiController {
         emitter.onError(error -> cancelUpstream.run());
         emitter.onCompletion(cancelUpstream);
 
-        Future<?> task = streamExecutor.submit(() -> {
-            StringBuilder accumulatedReply = new StringBuilder();
-            try {
+        Future<?> task;
+        try {
+            task = streamExecutor.submit(() -> {
+                StringBuilder accumulatedReply = new StringBuilder();
+                try {
                 action.run(event -> {
                     if (event == null || terminal.get()) {
                         return;
@@ -193,22 +291,33 @@ public class aiController {
                     }
                     send(emitter, event);
                     if ("done".equals(type)) {
+                        log.info("ai_stream_event type=done conversationId={} clientRequestId={}",
+                                conversationId, clientRequestId);
                         String reply = event.get("reply") instanceof String value && StringUtils.hasText(value)
                                 ? value
                                 : accumulatedReply.toString();
+                        if (resumeInterruptId != null) {
+                            chatMessageRepository.completeLatestConfirmation(
+                                    conversationId, userId, resumeInterruptId);
+                        }
                         saveMessage(conversationId, userId, clientRequestId, "assistant", reply);
                         terminal.set(true);
                         emitter.complete();
                     } else if ("confirm".equals(type)) {
                         // 写操作挂起等患者确认，本轮到此为止：Python 不会再发 done。
                         // 落一条确认提示语，让历史连贯，也让这条 clientRequestId 的幂等记录闭环。
+                        log.info("ai_stream_event type=confirm conversationId={} kind={} interruptId={}",
+                                conversationId, event.get("kind"), event.get("interruptId"));
                         String prompt = event.get("prompt") instanceof String value && StringUtils.hasText(value)
                                 ? value
                                 : "请确认是否继续办理";
-                        saveMessage(conversationId, userId, clientRequestId, "assistant", prompt);
+                        saveMessage(conversationId, userId, clientRequestId, "assistant", prompt,
+                                confirmationMetadata(event));
                         terminal.set(true);
                         emitter.complete();
                     } else if ("error".equals(type)) {
+                        log.warn("ai_stream_event type=error conversationId={} code={} message={}",
+                                conversationId, event.get("code"), event.get("message"));
                         terminal.set(true);
                         emitter.complete();
                     }
@@ -217,15 +326,21 @@ public class aiController {
                     sendError(emitter, "AI_STREAM_INCOMPLETE", "AI 流式响应意外结束");
                     emitter.complete();
                 }
-            } catch (Exception ex) {
-                log.warn("AI 流式聊天失败: {}", ex.getMessage());
-                if (terminal.compareAndSet(false, true)) {
-                    sendError(emitter, "AI_STREAM_FAILED",
-                            ex.getMessage() == null ? "AI 流式聊天失败" : ex.getMessage());
-                    emitter.complete();
+                } catch (Exception ex) {
+                    log.warn("AI 流式聊天失败 conversationId={}: {}", conversationId, ex.getMessage());
+                    if (terminal.compareAndSet(false, true)) {
+                        sendError(emitter, "AI_STREAM_FAILED",
+                                ex.getMessage() == null ? "AI 流式聊天失败" : ex.getMessage());
+                        emitter.complete();
+                    }
+                } finally {
+                    lock.close();
                 }
-            }
-        });
+            });
+        } catch (RuntimeException ex) {
+            lock.close();
+            throw ex;
+        }
         upstreamTask.set(task);
         if (terminal.get()) {
             task.cancel(true);
@@ -262,6 +377,19 @@ public class aiController {
         return requestResultStream(request, code, message, null);
     }
 
+    private SseEmitter immediateErrorStream(String code, String message) {
+        SseEmitter emitter = new SseEmitter(10_000L);
+        streamExecutor.submit(() -> {
+            sendError(emitter, code, message);
+            emitter.complete();
+        });
+        return emitter;
+    }
+
+    private ConversationExecutionLock.Handle acquireConversationLock(Long userId, String conversationId) {
+        return conversationExecutionLock.tryAcquire(userId, conversationId).orElse(null);
+    }
+
     private SseEmitter requestResultStream(aiRequest request, String errorCode, String errorMessage,
             ChatMessage existingAssistant) {
         SseEmitter emitter = new SseEmitter(10_000L);
@@ -286,6 +414,11 @@ public class aiController {
 
     private boolean saveMessage(String conversationId, Long userId, String clientRequestId,
             String role, String content) {
+        return saveMessage(conversationId, userId, clientRequestId, role, content, null);
+    }
+
+    private boolean saveMessage(String conversationId, Long userId, String clientRequestId,
+            String role, String content, String metadataJson) {
         if (!StringUtils.hasText(conversationId) || userId == null || !StringUtils.hasText(content)) {
             return false;
         }
@@ -296,12 +429,32 @@ public class aiController {
             message.setClientRequestId(clientRequestId);
             message.setRole(role);
             message.setContent(content);
+            message.setMetadataJson(metadataJson);
             return chatMessageRepository.insert(message) > 0;
         } catch (DuplicateKeyException ex) {
             return false;
         } catch (Exception ex) {
             log.warn("保存 AI 对话消息失败: {}", ex.getMessage());
             return false;
+        }
+    }
+
+    private String confirmationMetadata(Map<String, Object> event) {
+        try {
+            Map<String, Object> confirm = new LinkedHashMap<>();
+            confirm.put("kind", event.get("kind"));
+            confirm.put("prompt", event.get("prompt"));
+            confirm.put("detail", event.get("detail"));
+            confirm.put("conversationId", event.get("conversationId"));
+            confirm.put("interruptId", event.get("interruptId"));
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("status", "confirming");
+            metadata.put("confirm", confirm);
+            return JSON.writeValueAsString(metadata);
+        } catch (Exception ex) {
+            log.warn("序列化确认状态失败 conversationId={}: {}",
+                    event.get("conversationId"), ex.getMessage());
+            return null;
         }
     }
 

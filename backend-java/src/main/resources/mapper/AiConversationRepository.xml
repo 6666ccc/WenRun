@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.AiConversationRepository">
+
+    <resultMap id="BaseResultMap" type="com.wenrun.entity.AiConversation">
+        <id column="user_id" property="userId"/>
+        <id column="conversation_id" property="conversationId"/>
+        <result column="patient_id" property="patientId"/>
+        <result column="status" property="status"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="deleted_time" property="deletedTime"/>
+    </resultMap>
+
+    <insert id="insertIfAbsent">
+        INSERT INTO ai_conversations
+            (user_id, conversation_id, patient_id, status, version, deleted_time)
+        VALUES
+            (#{userId}, #{conversationId}, #{patientId}, 'active', 0, NULL)
+        ON DUPLICATE KEY UPDATE
+            patient_id = IF(deleted_time IS NOT NULL, VALUES(patient_id), patient_id),
+            status = IF(deleted_time IS NOT NULL, 'active', status),
+            version = IF(deleted_time IS NOT NULL, version + 1, version),
+            deleted_time = NULL
+    </insert>
+
+    <select id="selectByUserIdAndConversationId" resultMap="BaseResultMap">
+        SELECT user_id, conversation_id, patient_id, status, version,
+               create_time, update_time, deleted_time
+        FROM ai_conversations
+        WHERE user_id = #{userId}
+          AND conversation_id = #{conversationId}
+          AND status = 'active'
+          AND deleted_time IS NULL
+        LIMIT 1
+    </select>
+
+    <update id="softDeleteByUserIdAndConversationId">
+        UPDATE ai_conversations
+        SET status = 'deleted',
+            deleted_time = CURRENT_TIMESTAMP,
+            version = version + 1
+        WHERE user_id = #{userId}
+          AND conversation_id = #{conversationId}
+          AND deleted_time IS NULL
+    </update>
+
+    <select id="selectSummariesByUserId" resultType="com.wenrun.ai.vo.AiConversationVO">
+        SELECT c.conversation_id,
+               COALESCE((
+                 SELECT LEFT(m.content, 60)
+                 FROM chat_messages m
+                 WHERE m.user_id = c.user_id AND m.conversation_id = c.conversation_id
+                   AND m.role = 'user'
+                 ORDER BY m.create_time ASC, m.id ASC LIMIT 1
+               ), '新的问诊') AS title,
+               (
+                 SELECT LEFT(m.content, 120)
+                 FROM chat_messages m
+                 WHERE m.user_id = c.user_id AND m.conversation_id = c.conversation_id
+                 ORDER BY m.create_time DESC, m.id DESC LIMIT 1
+               ) AS last_message,
+               (
+                 SELECT COUNT(*) FROM chat_messages m
+                 WHERE m.user_id = c.user_id AND m.conversation_id = c.conversation_id
+               ) AS message_count,
+               COALESCE((
+                 SELECT MAX(m.create_time) FROM chat_messages m
+                 WHERE m.user_id = c.user_id AND m.conversation_id = c.conversation_id
+               ), c.update_time) AS update_time
+        FROM ai_conversations c
+        WHERE c.user_id = #{userId} AND c.status = 'active' AND c.deleted_time IS NULL
+        ORDER BY update_time DESC, c.conversation_id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+</mapper>

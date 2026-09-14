@@ -1,9 +1,10 @@
 """汇总各业务节点的回复，生成唯一一条面向患者的最终回复。"""
 
-from app.graphs.hospital.state import State
-from app.models.chat import model
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from loguru import logger
+
+from app.graphs.hospital.state import State
+from app.models.chat import model
 
 FINAL_SYSTEM_PROMPT = """你是温润诊所患者端的回复汇总助手。
 你的任务是把多个内部助手已经生成的内容整理成一条自然、简洁、连贯的中文回复。
@@ -77,7 +78,7 @@ def final_node(state: State) -> dict:
     else:
         try:
             final_reply = _summarize_replies(replies)
-        except Exception:  
+        except Exception:  # noqa: BLE001 - deterministic fallback covers provider errors
             logger.exception("Final reply summarization failed")
             final_reply = ""
 

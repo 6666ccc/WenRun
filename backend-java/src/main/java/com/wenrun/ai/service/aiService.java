@@ -23,6 +23,7 @@ import java.io.InputStreamReader;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -82,13 +83,16 @@ public class aiService {
     }
 
     /** 删除会话时清理 Python 侧的 checkpoint。记忆清理失败不应阻塞用户删除操作。 */
-    public void deleteConversationMemory(String conversationId) {
-        if (!StringUtils.hasText(conversationId)) {
+    public void deleteConversationMemory(String conversationId, Long userId) {
+        if (!StringUtils.hasText(conversationId) || userId == null) {
             return;
         }
         try {
             pythonClient.delete()
-                    .uri("/v1/chat/memory/{conversationId}", conversationId)
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/v1/chat/memory/{conversationId}")
+                            .queryParam("userId", userId)
+                            .build(conversationId))
                     .headers(headers -> {
                         if (StringUtils.hasText(apiKey)) {
                             headers.set("X-Api-Key", apiKey);
@@ -101,7 +105,8 @@ public class aiService {
                     .retrieve()
                     .toBodilessEntity();
         } catch (Exception ex) {
-            log.warn("清理会话记忆失败 conversationId={}: {}", conversationId, ex.getMessage());
+            log.warn("清理会话记忆失败 userId={} conversationId={}: {}",
+                    userId, conversationId, ex.getMessage());
         }
     }
 
@@ -197,6 +202,38 @@ public class aiService {
         payload.put("memoryEnabled", request.getMemoryEnabled() == null
                 ? Boolean.TRUE : request.getMemoryEnabled());
         payload.put("fastMode", request.getFastMode() != null && request.getFastMode());
+        if (!Boolean.FALSE.equals(request.getMemoryEnabled())
+                && request.getRecoveryMessages() != null && !request.getRecoveryMessages().isEmpty()) {
+            List<Map<String, Object>> recoveryMessages = request.getRecoveryMessages().stream()
+                    .filter(message -> "user".equals(message.getRole()) || "assistant".equals(message.getRole()))
+                    .map(message -> {
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("id", message.getId());
+                        item.put("role", message.getRole());
+                        item.put("content", message.getContent());
+                        item.put("createTime", message.getCreateTime());
+                        return item;
+                    })
+                    .toList();
+            if (!recoveryMessages.isEmpty()) {
+                payload.put("recoveryMessages", recoveryMessages);
+            }
+        }
+        if (request.getLongTermMemories() != null && !request.getLongTermMemories().isEmpty()) {
+            List<Map<String, Object>> memories = request.getLongTermMemories().stream()
+                    .limit(20)
+                    .map(memory -> {
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("memoryId", memory.getMemoryId());
+                        item.put("type", memory.getType());
+                        item.put("content", memory.getContent());
+                        item.put("status", memory.getStatus());
+                        item.put("updateTime", memory.getUpdateTime());
+                        return item;
+                    })
+                    .toList();
+            payload.put("longTermMemories", memories);
+        }
         addUserContext(payload, request.getUserId(), request.getPatientId());
         return payload;
     }
@@ -213,6 +250,9 @@ public class aiService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("conversationId", request.getConversationId().trim());
         payload.put("decision", decision);
+        if (StringUtils.hasText(request.getInterruptId())) {
+            payload.put("interruptId", request.getInterruptId().trim());
+        }
         addUserContext(payload, request.getUserId(), request.getPatientId());
         return payload;
     }

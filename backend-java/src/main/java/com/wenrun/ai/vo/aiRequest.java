@@ -1,10 +1,14 @@
 package com.wenrun.ai.vo;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.wenrun.entity.ChatMessage;
+import com.wenrun.entity.AiPatientMemory;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.ToString;
+
+import java.util.List;
 
 @Data
 public class aiRequest {
@@ -46,4 +50,12 @@ public class aiRequest {
 
     @JsonIgnore
     private String DelegatedToken;
+
+    /** 仅在 Python checkpoint 丢失时使用的有限窗口，浏览器不能注入。 */
+    @JsonIgnore
+    private List<ChatMessage> recoveryMessages = List.of();
+
+    /** Java 按 delegated patient 读取的 active 偏好；浏览器不能注入。 */
+    @JsonIgnore
+    private List<AiPatientMemory> longTermMemories = List.of();
 }

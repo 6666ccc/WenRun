@@ -44,14 +44,20 @@ def test_tool_reports_miss_without_raising(monkeypatch):
 
 
 def test_tool_formats_hits(monkeypatch):
-    documents = [
-        Document(page_content="多休息", metadata={"source_name": "院内资料", "page": 1})
-    ]
+    documents = [Document(
+        page_content="多休息",
+        metadata={
+            "source_name": "院内资料",
+            "page": 1,
+            "status": "active",
+            "effective_from": "2025-01-01T00:00:00+00:00",
+        },
+    )]
     monkeypatch.setattr(kb, "get_hospital_retriever", lambda: _Retriever(documents))
 
     text = kb.search_hospital_knowledge.invoke({"query": "感冒"})
 
-    assert "[S1] 来源：院内资料；页码：1" in text
+    assert "[S1] 来源：院内资料；版本：未标注；页码：1" in text
     assert "多休息" in text
 
 

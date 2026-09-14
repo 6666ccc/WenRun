@@ -2,14 +2,17 @@ package com.wenrun.ai.controller;
 
 import com.wenrun.ai.security.DelegatedToolContext;
 import com.wenrun.ai.security.DelegatedToolPrincipal;
+import com.wenrun.ai.service.AiPatientMemoryService;
+import com.wenrun.ai.vo.AiMemoryWriteRequest;
 import com.wenrun.ai.vo.AiRegistrationCreateRequest;
 import com.wenrun.common.constant.AccountType;
 import com.wenrun.common.constant.BizStatus;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.dto.RegistrationCreateDTO;
-import org.mockito.ArgumentCaptor;
+import com.wenrun.entity.ChatMessage;
 import com.wenrun.entity.Dept;
 import com.wenrun.entity.Staff;
+import com.wenrun.repository.ChatMessageRepository;
 import com.wenrun.service.DeptService;
 import com.wenrun.service.RegistrationService;
 import com.wenrun.service.ScheduleService;
@@ -19,6 +22,7 @@ import com.wenrun.vo.ScheduleVO;
 import com.wenrun.vo.StaffVO;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -38,8 +42,11 @@ class AiToolControllerTest {
     private final ScheduleService scheduleService = mock(ScheduleService.class);
     private final StaffService staffService = mock(StaffService.class);
     private final RegistrationService registrationService = mock(RegistrationService.class);
+    private final AiPatientMemoryService memoryService = mock(AiPatientMemoryService.class);
+    private final ChatMessageRepository chatMessageRepository = mock(ChatMessageRepository.class);
     private final AiToolController controller =
-            new AiToolController(deptService, scheduleService, staffService, registrationService);
+            new AiToolController(deptService, scheduleService, staffService, registrationService,
+                    memoryService, chatMessageRepository);
 
     @AfterEach
     void clearContext() {
@@ -289,5 +296,28 @@ class AiToolControllerTest {
         controller.listMyRegistrations(null);
 
         verify(registrationService).list(11L, null, null, null, null);
+    }
+
+    @Test
+    void memoryCreateResolvesSourceMessageInsideDelegatedUserScope() {
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
+                Set.of("memories:write"), "token-1"));
+        ChatMessage userMessage = new ChatMessage();
+        userMessage.setId(42L);
+        userMessage.setRole("user");
+        when(chatMessageRepository.selectRecentByConversationIdAndUserId(
+                "conversation-1", 7L, 10)).thenReturn(List.of(userMessage));
+        AiMemoryWriteRequest body = new AiMemoryWriteRequest();
+        body.setType("communication_preference");
+        body.setContent("请用简短中文");
+        body.setSourceConversationId("conversation-1");
+        body.setSourceMessageId(999L);
+
+        controller.createMyMemory(body);
+
+        assertEquals(42L, body.getSourceMessageId());
+        verify(chatMessageRepository).selectRecentByConversationIdAndUserId(
+                "conversation-1", 7L, 10);
+        verify(memoryService).createConfirmed(11L, body);
     }
 }

@@ -10,23 +10,53 @@
         <result column="client_request_id" property="clientRequestId"/>
         <result column="role" property="role"/>
         <result column="content" property="content"/>
+        <result column="metadata_json" property="metadataJson"/>
         <result column="create_time" property="createTime"/>
     </resultMap>
 
-    <select id="selectByConversationId" resultMap="BaseResultMap">
-        SELECT id, conversation_id, user_id, client_request_id, role, content, create_time
+    <select id="selectByConversationIdAndUserId" resultMap="BaseResultMap">
+        SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
         FROM chat_messages
         WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+        ORDER BY create_time ASC, id ASC
+    </select>
+
+    <select id="selectPageByConversationIdAndUserId" resultMap="BaseResultMap">
+        SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
+        FROM (
+          SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
+          FROM chat_messages
+          WHERE conversation_id = #{conversationId}
+            AND user_id = #{userId}
+          ORDER BY create_time DESC, id DESC
+          LIMIT #{offset}, #{limit}
+        ) page_messages
+        ORDER BY create_time ASC, id ASC
+    </select>
+
+    <select id="selectRecentByConversationIdAndUserId" resultMap="BaseResultMap">
+        SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
+        FROM (
+            SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
+            FROM chat_messages
+            WHERE conversation_id = #{conversationId}
+              AND user_id = #{userId}
+            ORDER BY create_time DESC, id DESC
+            LIMIT #{limit}
+        ) recent_messages
         ORDER BY create_time ASC, id ASC
     </select>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO chat_messages (conversation_id, user_id, client_request_id, role, content)
-        VALUES (#{conversationId}, #{userId}, #{clientRequestId}, #{role}, #{content})
+        INSERT INTO chat_messages
+          (conversation_id, user_id, client_request_id, role, content, metadata_json)
+        VALUES
+          (#{conversationId}, #{userId}, #{clientRequestId}, #{role}, #{content}, #{metadataJson})
     </insert>
 
     <select id="selectByClientRequestId" resultMap="BaseResultMap">
-        SELECT id, conversation_id, user_id, client_request_id, role, content, create_time
+        SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
         FROM chat_messages
         WHERE conversation_id = #{conversationId}
           AND user_id = #{userId}
@@ -36,20 +66,24 @@
         LIMIT 1
     </select>
 
-    <select id="existsByConversationIdAndUserId" resultType="boolean">
-        SELECT COUNT(1) > 0
-        FROM chat_messages
+    <delete id="deleteByConversationIdAndUserId">
+        DELETE FROM chat_messages
         WHERE conversation_id = #{conversationId}
           AND user_id = #{userId}
-    </select>
-
-    <select id="existsByConversationId" resultType="boolean">
-        SELECT COUNT(1) > 0
-        FROM chat_messages
-        WHERE conversation_id = #{conversationId}
-    </select>
-
-    <delete id="deleteByConversationId">
-        DELETE FROM chat_messages WHERE conversation_id = #{conversationId}
     </delete>
+
+    <update id="completeLatestConfirmation">
+        UPDATE chat_messages
+        SET metadata_json = JSON_OBJECT('status', 'completed')
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+          AND role = 'assistant'
+          AND metadata_json IS NOT NULL
+          AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.status')) = 'confirming'
+          <if test="interruptId != null and interruptId != ''">
+            AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.confirm.interruptId')) = #{interruptId}
+          </if>
+        ORDER BY id DESC
+        LIMIT 1
+    </update>
 </mapper>

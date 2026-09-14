@@ -45,7 +45,8 @@ class DelegationTokenServiceTest {
     void patientAssistantScopesCoverReadsAndRegistrationWrites() {
         assertEquals(
                 Set.of("departments:read", "schedules:read", "staff:read",
-                        "registrations:read", "registrations:write"),
+                        "registrations:read", "registrations:write",
+                        "memories:read", "memories:write"),
                 DelegationTokenService.PATIENT_ASSISTANT_SCOPES);
     }
 }

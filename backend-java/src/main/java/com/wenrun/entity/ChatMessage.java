@@ -12,5 +12,6 @@ public class ChatMessage {
     private String clientRequestId;
     private String role;
     private String content;
+    private String metadataJson;
     private LocalDateTime createTime;
 }

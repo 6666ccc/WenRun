@@ -28,7 +28,11 @@ const urgent = computed(() => /胸痛|呼吸困难|意识障碍|大量出血/.te
 const totalCharges = computed(() => assistant.context.value.charges.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0))
 const hasMessages = computed(() => Boolean(assistant.activeSession.value?.messages.length))
 const visibleMessages = computed(() => (assistant.activeSession.value?.messages || []).filter((message) => (
-  message.role === 'user' || message.content || message.meta?.status === 'error' || message.meta?.status === 'stopped'
+  message.role === 'user'
+  || message.content
+  || message.meta?.confirm
+  || message.meta?.status === 'error'
+  || message.meta?.status === 'stopped'
 )))
 const visibleSessions = computed(() => filterSessionsByTitle(assistant.sessions.value, query.value))
 const nextAppointment = computed(() => assistant.context.value.appointments[0])

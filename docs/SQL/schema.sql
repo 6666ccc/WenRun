@@ -319,6 +319,19 @@ CREATE TABLE IF NOT EXISTS charge_detail (
 -- 6. AI 对话与知识库元数据
 -- ---------------------------------------------------------------------------
 
+CREATE TABLE IF NOT EXISTS ai_conversations (
+  user_id          BIGINT       NOT NULL COMMENT '会话所有者用户ID',
+  conversation_id  VARCHAR(64)  NOT NULL COMMENT '用户作用域内的会话ID',
+  patient_id       BIGINT       NULL COMMENT '会话创建时绑定的患者ID',
+  status           VARCHAR(24)  NOT NULL DEFAULT 'active' COMMENT 'active',
+  version          BIGINT       NOT NULL DEFAULT 0 COMMENT '会话状态乐观版本',
+  create_time      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  deleted_time     DATETIME     NULL COMMENT '软删除时间',
+  PRIMARY KEY (user_id, conversation_id),
+  KEY idx_ai_conversations_update_time (update_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI会话归属';
+
 CREATE TABLE IF NOT EXISTS chat_messages (
   id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   conversation_id   VARCHAR(64)  NOT NULL COMMENT '会话ID',
@@ -326,25 +339,52 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   client_request_id VARCHAR(64)  NULL COMMENT '客户端对话轮次幂等键',
   role              VARCHAR(32)  NOT NULL COMMENT 'user/assistant',
   content           MEDIUMTEXT   NOT NULL COMMENT '消息纯文本',
+  metadata_json     JSON         NULL COMMENT 'SSE确认状态等可恢复UI元数据',
   create_time       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (id),
   KEY idx_chat_messages_conversation_id (conversation_id),
   KEY idx_chat_messages_user_id (user_id),
   KEY idx_chat_messages_create_time (create_time),
+  KEY idx_chat_messages_user_conversation_time (user_id, conversation_id, create_time, id),
   UNIQUE KEY uk_chat_messages_client_request (user_id, conversation_id, client_request_id, role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI对话消息';
+
+CREATE TABLE IF NOT EXISTS ai_patient_memories (
+  id                     BIGINT       NOT NULL AUTO_INCREMENT COMMENT '修订记录主键',
+  memory_id              VARCHAR(64)  NOT NULL COMMENT '跨修订稳定的记忆ID',
+  patient_id             BIGINT       NOT NULL COMMENT '患者ID',
+  type                   VARCHAR(40)  NOT NULL COMMENT '受控记忆类型',
+  content                VARCHAR(500) NOT NULL COMMENT '患者明确声明的偏好',
+  source_conversation_id VARCHAR(64)  NOT NULL COMMENT '来源会话',
+  source_message_id      BIGINT       NOT NULL COMMENT '来源用户消息',
+  status                 VARCHAR(24)  NOT NULL DEFAULT 'active' COMMENT 'pending/active/superseded/deleted',
+  version                INT          NOT NULL DEFAULT 1 COMMENT '修订版本',
+  confidence             DECIMAL(5,4) NOT NULL DEFAULT 1.0000 COMMENT '显式声明默认1',
+  expire_time            DATETIME     NULL COMMENT '过期时间',
+  create_time            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  deleted_time           DATETIME     NULL COMMENT '删除时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_ai_patient_memory_revision (memory_id, version),
+  KEY idx_ai_patient_memory_active (patient_id, status, expire_time, update_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='受治理的AI患者偏好记忆及版本';
 
 CREATE TABLE IF NOT EXISTS ai_knowledge_documents (
   id              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   document_id     VARCHAR(64)  NOT NULL COMMENT '文档业务ID',
+  version         INT          NOT NULL DEFAULT 1 COMMENT '文档修订版本',
   knowledge_base  VARCHAR(32)  NOT NULL COMMENT '知识库类型',
   original_name   VARCHAR(255) NOT NULL COMMENT '原始文件名',
   storage_path    VARCHAR(500) NOT NULL COMMENT '本地存储路径',
   content_type    VARCHAR(100) NOT NULL COMMENT 'MIME类型',
   file_size       BIGINT       NOT NULL COMMENT '文件大小',
   file_sha256     VARCHAR(64)  NOT NULL COMMENT '文件摘要',
-  status          VARCHAR(32)  NOT NULL COMMENT 'PROCESSING/READY/FAILED/DELETING/DELETE_FAILED/DELETED',
+  status          VARCHAR(32)  NOT NULL COMMENT 'processing/active/superseded/inactive/deleting/deleted/failed',
+  effective_from  DATETIME     DEFAULT NULL COMMENT '开始参与在线检索的时间',
+  expires_at      DATETIME     DEFAULT NULL COMMENT '停止参与在线检索的时间',
   chunk_count     INT          NOT NULL DEFAULT 0 COMMENT '分块数量',
+  qdrant_sync_status VARCHAR(24) NOT NULL DEFAULT 'synced' COMMENT 'synced/reconcile_required',
+  operation_id    VARCHAR(64)  DEFAULT NULL COMMENT '补偿和重试操作ID',
   error_message   VARCHAR(1000) DEFAULT NULL COMMENT '错误信息',
   uploaded_by     BIGINT       NOT NULL COMMENT '上传人用户ID',
   created_at      DATETIME     NOT NULL COMMENT '创建时间',
@@ -352,8 +392,10 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_documents (
   completed_at    DATETIME     DEFAULT NULL COMMENT '完成时间',
   deleted_at      DATETIME     DEFAULT NULL COMMENT '删除时间',
   PRIMARY KEY (id),
-  UNIQUE KEY uk_ai_knowledge_document_id (document_id),
+  UNIQUE KEY uk_ai_knowledge_document_revision (document_id, version),
   KEY idx_ai_knowledge_base_status (knowledge_base, status),
+  KEY idx_ai_knowledge_effective (knowledge_base, status, effective_from, expires_at),
   KEY idx_ai_knowledge_sha256 (knowledge_base, file_sha256),
-  KEY idx_ai_knowledge_uploaded_by (uploaded_by)
+  KEY idx_ai_knowledge_uploaded_by (uploaded_by),
+  KEY idx_ai_knowledge_operation (operation_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库文档元数据';

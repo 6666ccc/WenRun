@@ -23,6 +23,8 @@ def format_clinic_clock(now: datetime) -> str:
 class HospitalToolContext:
     delegated_token: str
     request_id: str | None = None
+    user_id: int | None = None
+    patient_id: int | None = None
     now: datetime = field(default_factory=clinic_now)
     #: 幂等键的前缀来源。与 checkpointer 的 thread_id 相同。
     conversation_id: str | None = None

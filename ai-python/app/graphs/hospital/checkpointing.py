@@ -1,7 +1,8 @@
 """Redis checkpointer 生命周期和带记忆图的进程内注册表。"""
 
+from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 from loguru import logger
 
@@ -60,7 +61,7 @@ async def memory_lifespan() -> AsyncIterator[Any | None]:
             AsyncShallowRedisSaver.from_conn_string(settings.redis_url, ttl=ttl)
         )
         await saver.asetup()
-    except Exception:
+    except Exception:  # noqa: BLE001 - Redis/saver errors share no stable base
         logger.exception("checkpointer_setup_failed falling_back_to_stateless_graph")
         await stack.aclose()
         yield None

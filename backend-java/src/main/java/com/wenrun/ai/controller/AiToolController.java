@@ -3,6 +3,8 @@ package com.wenrun.ai.controller;
 import com.wenrun.ai.security.DelegatedToolContext;
 import com.wenrun.ai.security.DelegatedToolPrincipal;
 import com.wenrun.ai.vo.AiRegistrationCreateRequest;
+import com.wenrun.ai.vo.AiMemoryWriteRequest;
+import com.wenrun.ai.service.AiPatientMemoryService;
 import com.wenrun.common.Result;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.constant.AccountType;
@@ -10,6 +12,9 @@ import com.wenrun.common.constant.BizStatus;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.dto.RegistrationCreateDTO;
 import com.wenrun.entity.Dept;
+import com.wenrun.entity.AiPatientMemory;
+import com.wenrun.entity.ChatMessage;
+import com.wenrun.repository.ChatMessageRepository;
 import com.wenrun.entity.Staff;
 import com.wenrun.service.DeptService;
 import com.wenrun.service.RegistrationService;
@@ -22,6 +27,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -47,6 +53,8 @@ public class AiToolController {
     private final ScheduleService scheduleService;
     private final StaffService staffService;
     private final RegistrationService registrationService;
+    private final AiPatientMemoryService memoryService;
+    private final ChatMessageRepository chatMessageRepository;
 
     @GetMapping("/departments")
     public Result<List<Dept>> listDepartments(@RequestParam(required = false) Integer status) {
@@ -122,6 +130,40 @@ public class AiToolController {
         return Result.success();
     }
 
+    @GetMapping("/memories")
+    public Result<List<AiPatientMemory>> listMyMemories() {
+        requireScope("memories:read");
+        return Result.success(memoryService.listActive(requireMemoryPatientId(false), 20));
+    }
+
+    /** Python 只能在 LangGraph interrupt 已获患者确认后调用此接口。 */
+    @PostMapping("/memories")
+    public Result<AiPatientMemory> createMyMemory(@Valid @RequestBody AiMemoryWriteRequest body) {
+        Long patientId = requireMemoryPatientId(true);
+        DelegatedToolPrincipal principal = DelegatedToolContext.getRequired();
+        // Provenance is resolved from the delegated user scope. Never trust a
+        // model-supplied database message id, even if one is present in JSON.
+        body.setSourceMessageId(null);
+        if (body.getSourceConversationId() != null) {
+            List<ChatMessage> recent = chatMessageRepository.selectRecentByConversationIdAndUserId(
+                    body.getSourceConversationId(), principal.userId(), 10);
+            for (int index = recent.size() - 1; index >= 0; index--) {
+                ChatMessage message = recent.get(index);
+                if ("user".equals(message.getRole())) {
+                    body.setSourceMessageId(message.getId());
+                    break;
+                }
+            }
+        }
+        return Result.success(memoryService.createConfirmed(patientId, body));
+    }
+
+    @DeleteMapping("/memories/{memoryId}")
+    public Result<Void> deleteMyMemory(@PathVariable String memoryId) {
+        memoryService.delete(requireMemoryPatientId(true), memoryId);
+        return Result.success();
+    }
+
     private void requireScope(String scope) {
         if (!DelegatedToolContext.getRequired().hasScope(scope)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "AI 委托令牌没有所需权限");
@@ -150,6 +192,21 @@ public class AiToolController {
         }
         if (!AccountType.PATIENT.equals(principal.accountType())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "只有患者本人可以通过助手办理挂号");
+        }
+        if (principal.patientId() == null) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "当前账号还没有绑定患者档案");
+        }
+        return principal.patientId();
+    }
+
+    private Long requireMemoryPatientId(boolean write) {
+        DelegatedToolPrincipal principal = DelegatedToolContext.getRequired();
+        String scope = write ? "memories:write" : "memories:read";
+        if (!principal.hasScope(scope)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "AI 委托令牌没有所需权限");
+        }
+        if (write && !AccountType.PATIENT.equals(principal.accountType())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有患者本人可以管理长期记忆");
         }
         if (principal.patientId() == null) {
             throw new BusinessException(ResultCode.FORBIDDEN, "当前账号还没有绑定患者档案");

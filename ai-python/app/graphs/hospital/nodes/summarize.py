@@ -1,24 +1,36 @@
-"""历史摘要节点：在最终回复后压缩旧消息并裁剪 checkpoint。"""
+"""历史摘要节点：用受校验结构压缩旧消息并裁剪 checkpoint。"""
 
-from app.graphs.hospital.memory import needs_summary, split_for_summary
-from app.graphs.hospital.state import State
-from app.models.chat import model
+import re
+
 from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from loguru import logger
+from pydantic import ValidationError
+
+from app.graphs.hospital.context_builder import bounded_system_message, coerce_summary
+from app.graphs.hospital.memory import needs_summary, split_for_summary
+from app.graphs.hospital.state import ConversationSummary, State
+from app.models.chat import model
+from app.observability.context_metrics import record_summary
 
 SUMMARY_SYSTEM_PROMPT = """你是温润诊所患者端对话的历史压缩器，不对患者说话。
-把历史对话压缩成一段中文摘要，供后续轮次当作背景使用。
-保留患者自述的症状、持续时间、用药、过敏史，并标明是患者自述；保留关心的科室、医生、日期、时间段、业务事实、未完成事项和偏好。
-只压缩已有内容，不补充医学知识，不新增诊断、药名或剂量。不输出 Markdown，控制在 300 字内，直接输出摘要正文。"""
+只压缩已有内容，不补充医学知识，不新增诊断、药名或剂量。
+患者描述的症状、用药、过敏等只能进入 patient_self_reports，不能当作已验证事实。
+医院工具明确返回的业务结果才可进入 verified_business_facts。
+新内容推翻旧内容时，把旧项移入 superseded_items，不得同时当作当前事实。
+只输出 JSON，不要 Markdown。字段必须完整：patient_self_reports、preferences、verified_business_facts、pending_tasks、superseded_items、version。"""
 
 
-def _build_prompt(existing_summary: str | None, transcript: str) -> list:
+def _build_prompt(existing_summary: object, transcript: str) -> list:
     sections = []
-    if isinstance(existing_summary, str) and existing_summary.strip():
-        sections.append(f"【已有摘要】\n{existing_summary.strip()}")
+    existing = coerce_summary(existing_summary)
+    if existing is not None:
+        sections.append(f"【已有结构化摘要】\n{existing.model_dump_json()}")
     sections.append(f"【需要并入摘要的历史对话】\n{transcript}")
-    return [SystemMessage(content=SUMMARY_SYSTEM_PROMPT), HumanMessage(content="\n\n".join(sections))]
+    return [
+        bounded_system_message(SUMMARY_SYSTEM_PROMPT),
+        HumanMessage(content="\n\n".join(sections)),
+    ]
 
 
 def _transcript(messages: list) -> str:
@@ -31,6 +43,54 @@ def _transcript(messages: list) -> str:
     return "\n".join(lines)
 
 
+def _item_key(value: str) -> str:
+    return re.split(r"[:：=]", value, maxsplit=1)[0].strip().lower()
+
+
+def _merge_items(old: list[str], new: list[str], superseded: list[str]) -> list[str]:
+    result = list(old)
+    positions = {_item_key(item): index for index, item in enumerate(result)}
+    for item in new:
+        key = _item_key(item)
+        index = positions.get(key)
+        if index is None:
+            positions[key] = len(result)
+            result.append(item)
+        elif result[index] != item:
+            superseded.append(result[index])
+            result[index] = item
+    return result[-20:]
+
+
+def merge_summary(existing_value: object, incoming: ConversationSummary) -> ConversationSummary:
+    existing = coerce_summary(existing_value) or ConversationSummary()
+    superseded = list(dict.fromkeys([*existing.superseded_items, *incoming.superseded_items]))
+    return ConversationSummary(
+        patient_self_reports=_merge_items(
+            existing.patient_self_reports, incoming.patient_self_reports, superseded
+        ),
+        preferences=_merge_items(existing.preferences, incoming.preferences, superseded),
+        verified_business_facts=_merge_items(
+            existing.verified_business_facts, incoming.verified_business_facts, superseded
+        ),
+        pending_tasks=_merge_items(existing.pending_tasks, incoming.pending_tasks, superseded),
+        superseded_items=list(dict.fromkeys(superseded))[-30:],
+        version=max(existing.version, incoming.version) + 1,
+    )
+
+
+def _parse_summary(content: object) -> ConversationSummary | None:
+    if not isinstance(content, str) or not content.strip():
+        return None
+    text = content.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+    try:
+        return ConversationSummary.model_validate_json(text)
+    except ValidationError:
+        return None
+
+
 def summarize_node(state: State) -> dict:
     if not needs_summary(state):
         return {}
@@ -40,19 +100,23 @@ def summarize_node(state: State) -> dict:
         return {}
     try:
         response = model.invoke(_build_prompt(state.get("summary"), transcript))
-    except Exception:
+    except Exception:  # noqa: BLE001 - model/provider errors must not break chat
         logger.exception("conversation_summary_failed conversation_id={}", state.get("conversation_id"))
         return {}
-    content = getattr(response, "content", "")
-    summary = content.strip() if isinstance(content, str) else ""
-    if not summary:
+    incoming = _parse_summary(getattr(response, "content", ""))
+    if incoming is None:
+        logger.warning(
+            "conversation_summary_invalid conversation_id={}", state.get("conversation_id")
+        )
         return {}
+    summary = merge_summary(state.get("summary"), incoming)
     logger.info(
         "conversation_summarized conversation_id={} dropped={} tokens_before={} tokens_after={}",
         state.get("conversation_id"), len(dropped), count_tokens_approximately(dropped + kept),
-        count_tokens_approximately([SystemMessage(content=summary), *kept]),
+        count_tokens_approximately([SystemMessage(content=summary.model_dump_json()), *kept]),
     )
+    record_summary(summary.version)
     return {
-        "summary": summary,
+        "summary": summary.model_dump(),
         "messages": [RemoveMessage(id=message.id) for message in dropped if getattr(message, "id", None)],
     }

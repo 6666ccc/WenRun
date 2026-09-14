@@ -6,6 +6,7 @@ from app.graphs.hospital.tools.knowledge_base import (
     retrieve_hospital_documents,
     search_hospital_knowledge,
 )
+from app.graphs.hospital.tools.memory import forget_preference, remember_preference
 from app.graphs.hospital.tools.registration_write import (
     cancel_registration,
     create_registration,
@@ -19,10 +20,12 @@ __all__ = [
     "HospitalToolContext",
     "cancel_registration",
     "create_registration",
+    "forget_preference",
     "list_departments",
     "list_doctors",
     "list_my_registrations",
     "list_schedules",
+    "remember_preference",
     "retrieve_hospital_documents",
     "search_hospital_knowledge",
     "web_search",
