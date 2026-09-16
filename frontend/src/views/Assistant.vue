@@ -6,6 +6,7 @@ import DOMPurify from 'dompurify'
 import { useAuth } from '../stores'
 import { useAssistant } from '../composables/useAssistant'
 import { filterSessionsByTitle } from '../features/assistant/session'
+import { renderAssistantMarkdown, stripInternalIds } from '../features/assistant/markdown'
 import AssistantShell from '../components/AssistantShell.vue'
 import UiIcon from '../components/UiIcon.vue'
 import CitationList from '../components/CitationList.vue'
@@ -52,7 +53,7 @@ function send(text = input.value) {
 
 async function copyMessage(message) {
   try {
-    await navigator.clipboard.writeText(message.content || '')
+    await navigator.clipboard.writeText(stripInternalIds(message.content || ''))
     copiedId.value = message.id
     clearTimeout(copiedTimer)
     copiedTimer = setTimeout(() => { copiedId.value = '' }, 1600)
@@ -61,7 +62,10 @@ async function copyMessage(message) {
   }
 }
 
-const renderMarkdown = (value) => DOMPurify.sanitize(marked.parse(value || ''))
+const renderMarkdown = (value) => renderAssistantMarkdown(value, {
+  parse: (text) => marked.parse(text || ''),
+  sanitize: (html) => DOMPurify.sanitize(html, { ADD_ATTR: ['class'] }),
+})
 
 const CONFIRM_FIELD_LABELS = {
   deptName: '科室',
@@ -540,6 +544,84 @@ onBeforeUnmount(() => {
 .chat-message__assistant-content :deep(ul),
 .chat-message__assistant-content :deep(ol) { padding-left: 22px; }
 
+.chat-message__assistant-content :deep(.chat-day) {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 18px 0 8px;
+  color: var(--color-brand-800);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: .02em;
+}
+
+.chat-message__assistant-content :deep(.chat-day:first-child) {
+  margin-top: 12px;
+}
+
+.chat-message__assistant-content :deep(.chat-day__note) {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-mint-100);
+  color: var(--color-brand-700);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.chat-message__assistant-content :deep(.chat-slots) {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.chat-message__assistant-content :deep(.chat-slot) {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.chat-message__assistant-content :deep(.chat-slot:not(:has(.chat-slot__period))) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.chat-message__assistant-content :deep(.chat-slot__period) {
+  display: grid;
+  place-items: center;
+  background: var(--color-mint-050);
+  color: var(--color-brand-800);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .06em;
+}
+
+.chat-message__assistant-content :deep(.chat-slot__body) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 11px 14px;
+}
+
+.chat-message__assistant-content :deep(.chat-slot__body strong) {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.chat-message__assistant-content :deep(.chat-slot__meta) {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .chat-message__copy {
   display: inline-flex;
   align-items: center;
@@ -931,6 +1013,18 @@ onBeforeUnmount(() => {
   .chat-empty h1 { font-size: 26px; }
   .chat-message__user-content { max-width: 86%; }
   .chat-message__copy { opacity: 1; }
+  .chat-message__assistant-content :deep(.chat-slot) {
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+  .chat-message__assistant-content :deep(.chat-slot__body) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 12px;
+  }
+  .chat-message__assistant-content :deep(.chat-slot__meta) {
+    white-space: normal;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

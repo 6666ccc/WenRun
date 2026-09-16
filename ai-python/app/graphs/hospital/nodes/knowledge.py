@@ -129,11 +129,8 @@ def knowledge_node(state: State) -> dict:
     try:
         documents = get_hospital_retriever().invoke(query)
     except Exception:  # noqa: BLE001 - vector clients expose heterogeneous errors
-        logger.exception("RAG retrieval failed")
-        return {
-            "knowledge_reply": "院内知识库暂时不可用，请稍后再试或咨询医院工作人员。",
-            "rag_sources": [],
-        }
+        logger.exception("RAG retrieval failed; falling back to web search")
+        documents = []
 
     documents, rejected = prepare_rag_documents(documents)
     record_retrieval(
@@ -146,10 +143,20 @@ def knowledge_node(state: State) -> dict:
 
     # 步骤七：未命中足够相关的院内资料时，交给原有联网 Agent 兜底。
     if not documents:
-        return {
-            "knowledge_reply": _web_fallback_reply(state),
-            "rag_sources": [],
-        }
+        try:
+            return {
+                "knowledge_reply": _web_fallback_reply(state),
+                "rag_sources": [],
+            }
+        except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
+            logger.exception("Web fallback failed after RAG miss")
+            return {
+                "knowledge_reply": (
+                    "院内知识库暂时不可用，联网检索也未能完成。"
+                    "请稍后再试，或咨询医院工作人员。"
+                ),
+                "rag_sources": [],
+            }
 
     # 步骤八：命中后将资料作为不可信数据区，让模型只能依据院内资料回答。
     # 此分支直接调用不带工具的基础 model，不能调用带 web_search 的 agent，

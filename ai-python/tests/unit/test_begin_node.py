@@ -41,6 +41,11 @@ def test_begin_prompt_routes_registration_actions_to_tools():
     assert "办理请求" in begin.BEGIN_SYSTEM_PROMPT
 
 
+def test_begin_prompt_routes_current_time_to_chat():
+    assert "“几点了” → chat" in begin.BEGIN_SYSTEM_PROMPT
+    assert "“你是谁” → chat" in begin.BEGIN_SYSTEM_PROMPT
+
+
 def test_begin_node_uses_model_json_without_tool_strategy(monkeypatch):
     _force_llm(monkeypatch)
     stub_model = StubModel(
@@ -72,6 +77,40 @@ def test_begin_node_asks_model_to_repair_invalid_json_once(monkeypatch):
     assert len(stub_model.calls) == 2
     assert isinstance(stub_model.calls[1][0], SystemMessage)
     assert "上一次无效输出如下" in stub_model.calls[1][0].content
+
+
+def test_begin_node_uses_local_hint_when_llm_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        begin,
+        "_route_locally",
+        lambda text: LocalRouteResult(
+            accepted=False,
+            selected_agents=["knowledge"],
+            escalation_reason="low_confidence",
+            scores={"knowledge": 0.51, "chat": 0.30, "tools": 0.44},
+        ),
+    )
+    stub_model = StubModel([RuntimeError("quota exhausted"), RuntimeError("quota exhausted")])
+    monkeypatch.setattr(begin, "model", stub_model)
+
+    result = begin.begin_node({"messages": [HumanMessage(content="联网搜索一下感冒的症状")]})
+
+    assert result["selected_agents"] == ["knowledge"]
+    assert result["router_fallback"] is False
+    assert result["router_response"] is None
+    assert result["intent_route"]["fallback_reason"] == "llm_unavailable_use_local"
+
+
+def test_begin_node_routes_identity_without_llm(monkeypatch):
+    stub_model = StubModel([])
+    monkeypatch.setattr(begin, "model", stub_model)
+
+    result = begin.begin_node({"messages": [HumanMessage(content="你是谁？")]})
+
+    assert result["selected_agents"] == ["chat"]
+    assert result["router_fallback"] is False
+    assert result["intent_route"]["matched_rules"] == ["exact_identity"]
+    assert len(stub_model.calls) == 0
 
 
 def test_begin_node_falls_back_to_chat_after_invalid_repair(monkeypatch):
@@ -147,6 +186,20 @@ def test_begin_node_does_not_force_tools_for_department_floor_question(monkeypat
 
     assert result["selected_agents"] == ["chat"]
     assert result["intent_route"]["matched_rules"] == ["hospital_static_information"]
+    assert len(stub_model.calls) == 0
+
+
+def test_begin_node_routes_current_time_question_without_llm_fallback(monkeypatch):
+    stub_model = StubModel([])
+    monkeypatch.setattr(begin, "model", stub_model)
+
+    result = begin.begin_node({"messages": [HumanMessage(content="几点了")]})
+
+    assert result["selected_agents"] == ["chat"]
+    assert result["router_fallback"] is False
+    assert result["router_response"] is None
+    assert result["intent_route"]["stage"] == "rules"
+    assert result["intent_route"]["matched_rules"] == ["exact_clock_question"]
     assert len(stub_model.calls) == 0
 
 

@@ -41,7 +41,35 @@ _URGENT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 _EXACT_CHAT = re.compile(
     r"^(?:你?好|您好|嗨|哈[喽啰]|早上好|下午好|晚上好|谢谢(?:你|您)?(?:了|啊)?|"
-    r"多谢|再见|拜拜|晚安)[!！。,.，~～ ]*$"
+    r"多谢|再见|拜拜|晚安)[!！。,.?？，~～ ]*$"
+)
+_IDENTITY_MENTION = re.compile(
+    r"你是谁|你叫什么(?:名字)?|你能做什么|你会干什么|能干什么|介绍一下(?:你|您)自己"
+)
+_EXACT_IDENTITY = re.compile(
+    r"^(?:请问|请告诉我)?"
+    r"(?:"
+    r"你是谁|"
+    r"你叫什么(?:名字)?|"
+    r"你能做什么|"
+    r"你会干什么|"
+    r"介绍一下(?:你|您)自己|"
+    r"你是什么(?:助手|模型)?"
+    r")"
+    r"(?:啊|呀|呢|嘛)?"
+    r"[!！。,.?？~～ ]*$"
+)
+_EXACT_CLOCK_QUESTION = re.compile(
+    r"^(?:你?好[,， ]*)?(?:请问|请告诉我|麻烦问下|麻烦问一下)?"
+    r"(?:现在|当前|目前)?"
+    r"(?:是)?"
+    r"(?:"
+    r"几点(?:钟)?了?|"
+    r"今天(?:是)?(?:几号|星期几|周几|礼拜几)|"
+    r"星期几了?"
+    r")"
+    r"(?:啊|呀|呢|嘛)?"
+    r"[!！。,.?？~～ ]*$"
 )
 _HOSPITAL_STATIC = re.compile(
     r"(?:医院|诊所|门诊|前台|[\u4e00-\u9fff]{1,6}科(?:室)?).{0,8}"
@@ -70,7 +98,9 @@ _EXPLICIT_MEDICAL = re.compile(
     r"(?:吃|服|用).{0,5}(?:什么药|药量|剂量)|药.{0,5}(?:副作用|禁忌|能不能吃)|"
     r"(?:症状|病情|发烧|咳嗽|头痛|腹痛|肚子痛|胸痛|恶心|呕吐|腹泻).{0,10}"
     r"(?:怎么办|怎么处理|是否严重|要不要就医|需要就医|吃什么药)|"
-    r"(?:什么病|什么症状|如何护理|怎么护理|注意事项)"
+    r"(?:什么病|什么症状|如何护理|怎么护理|注意事项)|"
+    r"(?:有哪些|有什么|是什么|哪些).{0,6}症状|"
+    r"的症状"
 )
 _MEDICAL_CONTEXT = re.compile(
     r"感冒|发烧|咳嗽|头痛|腹痛|肚子痛|胃痛|胃疼|胸痛|恶心|呕吐|腹泻|"
@@ -123,11 +153,20 @@ def match_rules(text: str) -> RuleMatch | None:
     if "tools" in selected and _MEDICAL_CONTEXT.search(normalized):
         select("knowledge", "medical_context_with_business")
 
+    if selected and _IDENTITY_MENTION.search(normalized):
+        select("chat", "identity_with_other_intents")
+
     if selected:
         return RuleMatch(selected, matched_rules, safety_flags)
 
     if _EXACT_CHAT.fullmatch(normalized):
         return RuleMatch(["chat"], ["exact_social"], safety_flags)
+
+    if _EXACT_IDENTITY.fullmatch(normalized):
+        return RuleMatch(["chat"], ["exact_identity"], safety_flags)
+
+    if _EXACT_CLOCK_QUESTION.fullmatch(normalized):
+        return RuleMatch(["chat"], ["exact_clock_question"], safety_flags)
 
     if _HOSPITAL_STATIC.search(normalized):
         return RuleMatch(["chat"], ["hospital_static_information"], safety_flags)

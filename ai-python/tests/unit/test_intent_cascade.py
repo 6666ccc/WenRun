@@ -15,6 +15,62 @@ def test_rules_route_exact_social_without_model():
     assert result.matched_rules == ["exact_social"]
 
 
+def test_rules_route_identity_question_as_chat():
+    result = match_rules("你是谁？")
+
+    assert result is not None
+    assert result.selected_agents == ["chat"]
+    assert result.matched_rules == ["exact_identity"]
+
+
+def test_rules_route_common_identity_variants_as_chat():
+    for text in ("你是谁", "你叫什么名字", "你能做什么", "介绍一下你自己"):
+        result = match_rules(text)
+        assert result is not None, text
+        assert result.selected_agents == ["chat"], text
+        assert result.matched_rules == ["exact_identity"], text
+
+
+def test_rules_route_symptom_list_question_as_knowledge():
+    result = match_rules("感冒有哪些症状？")
+
+    assert result is not None
+    assert result.selected_agents == ["knowledge"]
+    assert result.matched_rules == ["explicit_medical_question"]
+
+
+def test_rules_keep_web_search_request_on_medical_path():
+    result = match_rules("联网搜索一下感冒的症状")
+
+    assert result is not None
+    assert result.selected_agents == ["knowledge"]
+    assert "explicit_medical_question" in result.matched_rules
+
+
+def test_rules_route_current_clock_question_as_chat():
+    result = match_rules("几点了")
+
+    assert result is not None
+    assert result.selected_agents == ["chat"]
+    assert result.matched_rules == ["exact_clock_question"]
+
+
+def test_rules_route_colloquial_clock_and_date_questions_as_chat():
+    for text in ("现在几点", "现在几点了啊", "请问现在几点了", "今天几号", "今天星期几"):
+        result = match_rules(text)
+        assert result is not None, text
+        assert result.selected_agents == ["chat"], text
+        assert result.matched_rules == ["exact_clock_question"], text
+
+
+def test_rules_do_not_treat_appointment_or_hours_as_clock_question():
+    assert match_rules("几点有号") is None
+    assert match_rules("几点能挂号") is None
+    hours = match_rules("诊所几点开门")
+    assert hours is not None
+    assert hours.matched_rules == ["hospital_static_information"]
+
+
 def test_rules_do_not_treat_generic_location_question_as_hospital_static():
     assert match_rules("心脏在人体的哪里") is None
 
@@ -28,6 +84,17 @@ def test_rules_recognize_colloquial_registration_without_the_word_hao():
 
     assert result is not None
     assert result.selected_agents == ["tools"]
+
+
+def test_rules_keep_identity_when_mixed_with_medical_and_business():
+    result = match_rules(
+        "你是谁？能干什么？联网告诉我感冒会的症状。此外帮我看明天有哪些号源？"
+        "如果有骨科号源那就挂下午的骨科如果没有那就挂儿科"
+    )
+
+    assert result is not None
+    assert set(result.selected_agents) == {"chat", "knowledge", "tools"}
+    assert "identity_with_other_intents" in result.matched_rules
 
 
 def test_rules_combine_medical_and_business_intents():
@@ -108,6 +175,7 @@ def test_cascade_escalates_ambiguous_prediction(monkeypatch):
     assert result.accepted is False
     assert result.stage == "llm_required"
     assert result.escalation_reason == "ambiguous_top_intents"
+    assert result.selected_agents == ["knowledge"]
 
 
 def test_detect_safety_flags_does_not_match_plain_chest_discomfort_as_acute():

@@ -130,6 +130,7 @@ def test_tool_prompt_guides_registration_instead_of_flatly_refusing():
     # 新行为：先查清号源与本人预约，再引导到挂号页面完成最后一步。
     assert "不直接提交挂号" in prompt
     assert "挂号页面" in prompt
+    assert "面向患者时不要写出排班id" in prompt
 
 
 def test_tool_node_returns_unavailable_when_delegated_token_missing():
@@ -173,6 +174,7 @@ def test_write_prompt_documents_every_write_tool_and_forbids_faking_success():
     # 排班 id 必须从 list_schedules 的「排班id=」抄过来，不能猜成 1。
     assert "排班id=" in prompt
     assert "不能猜" in prompt
+    assert "面向患者时不要写出排班id" in prompt
 
 
 def test_tool_node_uses_read_only_agent_when_writes_are_disabled(monkeypatch):

@@ -80,6 +80,7 @@ def route_locally(text: str) -> LocalRouteResult:
 
     return LocalRouteResult(
         accepted=False,
+        selected_agents=list(prediction.selected_agents),
         stage="llm_required",
         scores=prediction.scores,
         safety_flags=safety_flags,

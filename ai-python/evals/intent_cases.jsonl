@@ -1,9 +1,15 @@
 {"text":"嗨，早上好","labels":["chat"],"safety_flags":[]}
+{"text":"你是谁","labels":["chat"],"safety_flags":[]}
+{"text":"几点了","labels":["chat"],"safety_flags":[]}
+{"text":"现在几点了啊","labels":["chat"],"safety_flags":[]}
+{"text":"今天几号","labels":["chat"],"safety_flags":[]}
 {"text":"多谢啦，下次见","labels":["chat"],"safety_flags":[]}
 {"text":"最近工作压力很大，想找人聊聊","labels":["chat"],"safety_flags":[]}
 {"text":"你们医院晚上几点关门","labels":["chat"],"safety_flags":[]}
 {"text":"请问门诊楼从哪里进去","labels":["chat"],"safety_flags":[]}
 {"text":"儿童突然发热应该怎么处理","labels":["knowledge"],"safety_flags":[]}
+{"text":"感冒有哪些症状","labels":["knowledge"],"safety_flags":[]}
+{"text":"联网搜索一下感冒的症状","labels":["knowledge"],"safety_flags":[]}
 {"text":"胃疼两天了需要去医院吗","labels":["knowledge"],"safety_flags":[]}
 {"text":"吃药以后恶心是副作用吗","labels":["knowledge"],"safety_flags":[]}
 {"text":"做腹部检查前需要空腹吗","labels":["knowledge"],"safety_flags":[]}
@@ -17,6 +23,9 @@
 {"text":"咳嗽好几天了，顺便查查明天下午有没有号","labels":["knowledge","tools"],"safety_flags":[]}
 {"text":"这种药饭后吃吗，再帮我找一下王医生","labels":["knowledge","tools"],"safety_flags":[]}
 {"text":"孩子一直呕吐，我还想预约今天的儿科","labels":["knowledge","tools"],"safety_flags":[]}
+{"text":"帮我挂明天下午和今天上午的号源","labels":["tools"],"safety_flags":[]}
+{"text":"如果有骨科号源那就挂下午的骨科如果没有那就挂儿科","labels":["tools"],"safety_flags":[]}
+{"text":"你是谁？能干什么？联网告诉我感冒会的症状。此外帮我看明天有哪些号源？如果有骨科号源那就挂下午的骨科如果没有那就挂儿科","labels":["chat","knowledge","tools"],"safety_flags":[]}
 {"text":"胸痛而且呼吸困难","labels":["knowledge"],"safety_flags":["breathing_difficulty"]}
 {"text":"突然剧烈胸痛并且浑身大汗","labels":["knowledge"],"safety_flags":["acute_chest_pain"]}
 {"text":"伤口一直血流不止","labels":["knowledge"],"safety_flags":["severe_bleeding"]}

@@ -50,6 +50,31 @@ def test_knowledge_node_self_harm_reply_says_not_to_be_alone():
     assert "120 或 110" in result["knowledge_reply"]
 
 
+def test_knowledge_node_falls_back_to_web_when_rag_is_unavailable(monkeypatch):
+    class FakeAgent:
+        def invoke(self, payload):
+            return {"messages": [AIMessage(content="公开资料：感冒常见流涕和咳嗽。")]}
+
+    monkeypatch.setattr(
+        knowledge_mod,
+        "get_hospital_retriever",
+        lambda: (_ for _ in ()).throw(RuntimeError("qdrant down")),
+    )
+    monkeypatch.setattr(knowledge_mod, "agent", FakeAgent())
+
+    result = knowledge_node(
+        {
+            "selected_agents": ["knowledge"],
+            "messages": [HumanMessage(content="感冒有哪些症状？")],
+        }
+    )
+
+    assert result == {
+        "knowledge_reply": "公开资料：感冒常见流涕和咳嗽。",
+        "rag_sources": [],
+    }
+
+
 def test_knowledge_node_lets_agent_receive_raw_history(monkeypatch):
     captured: dict = {}
     history = [

@@ -25,6 +25,8 @@ BEGIN_SYSTEM_PROMPT = """你是温润诊所患者端的意图路由器，不是�
   也包括患者明确要求“记住/忘掉”沟通偏好、挂号偏好或无障碍需求。
 - chat：独立的寒暄、闲聊、感谢、情绪倾诉，或不要求专业知识的简短日常对话。
   也包括：本院楼层、营业时间、就诊须知等非医疗院务（礼貌引导到院咨询，不要编造）。
+  也包括：问现在几点、今天几号、星期几——这是当前时间，不是本院营业时间，不要标域外。
+  也包括：自我介绍（你是谁、你能做什么）。
   不包括：附着在办事、提问前的“你好”“请问”——这些不要单独加 chat。
 
 多选规则：
@@ -37,10 +39,16 @@ BEGIN_SYSTEM_PROMPT = """你是温润诊所患者端的意图路由器，不是�
 - 如果用户明确要求处理编程、金融、法律、购物、旅游、通用知识等与医院服务和
   健康陪伴无关的任务，selected_agents 输出空数组，out_of_scope 输出 true。
 - 模糊但仍可能和医院或健康有关时不能标记域外，按最接近的标签选择或交由澄清。
+- 患者说“联网搜索/搜一下”只是检索方式，仍按问题本身分类：医疗知识走 knowledge。
 
 示例：
 - “你好” → chat
+- “你是谁” → chat
+- “几点了” → chat
+- “今天星期几” → chat
 - “感冒吃什么药” → knowledge
+- “感冒有哪些症状” → knowledge
+- “联网搜索一下感冒的症状” → knowledge
 - “你们医院有哪些科室” → tools
 - “现在能看哪些科” → tools
 - “帮我挂号” → tools
@@ -193,15 +201,21 @@ def begin_node(state: State) -> dict:
                 logger.warning("Intent classifier returned invalid JSON after one repair attempt")
 
         if decision is None:
-            # 不确定时不再假装成普通闲聊；chat_node 会给出确定性的澄清文案。
-            selected_agents = ["chat"]
-            router_fallback = True
-            router_response = (
-                "抱歉，我暂时没能准确判断您的需求。您可以明确说“咨询症状或用药”、"
-                "“查询科室或号源”，或者“办理挂号或退号”。"
-            )
-            route_metadata["stage"] = "fallback"
-            route_metadata["fallback_reason"] = "llm_unavailable_or_invalid"
+            # LLM 不可用时，优先采用轻量模型已给出的标签，避免把能分类的请求
+            # 误说成“没能判断需求”。完全没有本地线索时再给确定性澄清。
+            if local.selected_agents:
+                selected_agents = list(local.selected_agents)
+                route_metadata["stage"] = "lightweight_degraded"
+                route_metadata["fallback_reason"] = "llm_unavailable_use_local"
+            else:
+                selected_agents = ["chat"]
+                router_fallback = True
+                router_response = (
+                    "抱歉，我暂时没能准确判断您的需求。您可以明确说“咨询症状或用药”、"
+                    "“查询科室或号源”，或者“办理挂号或退号”。"
+                )
+                route_metadata["stage"] = "fallback"
+                route_metadata["fallback_reason"] = "llm_unavailable_or_invalid"
         elif decision.out_of_scope:
             selected_agents = ["chat"]
             out_of_scope = True

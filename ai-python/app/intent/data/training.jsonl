@@ -1,4 +1,5 @@
 {"text":"感冒一般有哪些症状","labels":["knowledge"]}
+{"text":"联网搜索一下感冒的症状","labels":["knowledge"]}
 {"text":"咳嗽一直不好怎么办","labels":["knowledge"]}
 {"text":"发烧到三十八度需要就医吗","labels":["knowledge"]}
 {"text":"头痛恶心可能是什么原因","labels":["knowledge"]}
@@ -17,7 +18,12 @@
 {"text":"今天心情很差想聊聊天","labels":["chat"]}
 {"text":"最近压力特别大","labels":["chat"]}
 {"text":"你叫什么名字","labels":["chat"]}
+{"text":"你是谁","labels":["chat"]}
 {"text":"今天天气真不错","labels":["chat"]}
+{"text":"几点了","labels":["chat"]}
+{"text":"现在几点了","labels":["chat"]}
+{"text":"今天星期几","labels":["chat"]}
+{"text":"今天几号","labels":["chat"]}
 {"text":"儿科在几楼","labels":["chat"]}
 {"text":"医院几点开门","labels":["chat"]}
 {"text":"到你们诊所怎么走","labels":["chat"]}

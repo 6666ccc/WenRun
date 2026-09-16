@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from langgraph.runtime import Runtime
+from loguru import logger
 
 from app.graphs.hospital.context_builder import bounded_system_message, build_context
 from app.graphs.hospital.state import State
@@ -20,7 +21,7 @@ CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短�
 - 情绪倾诉、陪伴（不评判、不说教）
 - 与就诊无关的日常话题，可礼貌接住，并轻轻引回「需要看病或挂号可以继续说」
 - 本院楼层、营业时间、就诊须知等非医疗院务：礼貌说明请到前台或电话确认，不编造
-- 问今天几号、星期几：直接根据系统给出的当前时间回答
+- 问现在几点、今天几号、星期几：直接根据系统给出的当前时间回答
 
 你不要做：
 - 不解释症状、用药、是否需要就医、某科看什么病
@@ -39,8 +40,14 @@ CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短�
 - 「谢谢你啊，顺便问问儿科在几楼」→ 致谢后说明楼层请到前台或电话确认，不编造具体楼层。
 - 「诊所几点开门」→ 说明营业时间请到前台或电话确认。
 - 「今天星期几」→ 按系统当前时间直接回答。
+- 「几点了」→ 按系统当前时间直接回答。
 - 「感冒吃什么药」→ 不要在本节点回答；若仍被问到，只说医疗问题会由知识助手处理。
 """
+
+CHAT_MODEL_FALLBACK = (
+    "我是温润诊所的健康助手，可以协助咨询症状或用药、查询本院科室和号源，"
+    "以及办理挂号或退号。直接说您的问题即可。"
+)
 
 
 def build_chat_system_prompt(now: datetime) -> str:
@@ -63,14 +70,18 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
     # messages stream forward each model chunk immediately to the SSE route.
     chunks: list[str] = []
     now = runtime.context.now if runtime is not None else clinic_now()
-    for chunk in model.stream([
-        bounded_system_message(build_chat_system_prompt(now)),
-        *build_context(state, purpose="chat"),
-    ]):
-        content = getattr(chunk, "content", "")
-        if not isinstance(content, str) or not content:
-            continue
-        chunks.append(content)
-    return {"chat_reply": "".join(chunks)}
+    try:
+        for chunk in model.stream([
+            bounded_system_message(build_chat_system_prompt(now)),
+            *build_context(state, purpose="chat"),
+        ]):
+            content = getattr(chunk, "content", "")
+            if not isinstance(content, str) or not content:
+                continue
+            chunks.append(content)
+    except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
+        logger.exception("Chat model failed; using deterministic intro")
+        return {"chat_reply": CHAT_MODEL_FALLBACK}
+    return {"chat_reply": "".join(chunks) or CHAT_MODEL_FALLBACK}
 
 

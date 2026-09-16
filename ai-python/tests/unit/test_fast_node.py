@@ -172,6 +172,7 @@ def test_fast_system_prompt_includes_beijing_clock():
 
 def test_fast_prompt_answers_weekday_from_clock():
     assert "星期几" in fast_mod.FAST_SYSTEM_PROMPT
+    assert "几点了" in fast_mod.FAST_SYSTEM_PROMPT
 
 
 def test_fast_node_uses_request_clock(monkeypatch):
