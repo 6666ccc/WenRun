@@ -136,7 +136,44 @@ def _active_memories(state: State) -> list[dict]:
     return [item for _, item in ranked[:5]]
 
 
-def build_context(state: State, *, purpose: ContextPurpose) -> list[BaseMessage]:
+def task_focus_messages(
+    task_goal: str | None,
+    upstream_results: dict[str, str] | None,
+) -> list[BaseMessage]:
+    """Turn-scoped planner output, delivered as data rather than policy.
+
+    The goal is derived by an LLM from patient text and upstream results are other
+    agents' replies, so both stay in the untrusted allocation like RAG and memories.
+    """
+
+    messages: list[BaseMessage] = []
+    results = {
+        str(agent): text.strip()
+        for agent, text in (upstream_results or {}).items()
+        if isinstance(text, str) and text.strip()
+    }
+    if results:
+        messages.append(bounded_external_context("upstream_result", {
+            "source": "internal_agents",
+            "trust": "reference_data",
+            "note": "上游助手本轮已给出的结论；只用于承接任务，不要向患者复述。",
+            "results": results,
+        }))
+    if isinstance(task_goal, str) and task_goal.strip():
+        messages.append(bounded_external_context("current_subtask", {
+            "goal": task_goal.strip(),
+            "note": "患者这句话里有多件事，本助手只需完成上面这一件；其余部分由其他助手处理。",
+        }))
+    return messages
+
+
+def build_context(
+    state: State,
+    *,
+    purpose: ContextPurpose,
+    task_goal: str | None = None,
+    upstream_results: dict[str, str] | None = None,
+) -> list[BaseMessage]:
     """Return context data only; callers keep policy prompts in a separate SystemMessage."""
 
     settings = get_settings()
@@ -162,6 +199,11 @@ def build_context(state: State, *, purpose: ContextPurpose) -> list[BaseMessage]
     )
     if total > context_budget:
         result = _bounded_tail(result, context_budget)
+        total = count_tokens_approximately(result)
+    # Subtask focus follows the latest turn so it is never trimmed away with old history.
+    focus = task_focus_messages(task_goal, upstream_results)
+    if focus:
+        result = [*result, *focus]
         total = count_tokens_approximately(result)
     logger.info(
         "context_built purpose={} total_tokens={} data_tokens={} recent_tokens={} memories={}",

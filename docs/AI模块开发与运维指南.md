@@ -18,7 +18,7 @@ Java /api/ai/chat/stream
 FastAPI /v1/chat/stream
   ├─ LangGraph 意图路由、知识检索和回复汇总
   ├─ Redis checkpoint/会话锁，checkpoint miss 时从 MySQL 恢复有限历史
-  ├─ MySQL 文档生命周期元数据 + Qdrant 可重建向量索引
+  ├─ MySQL 文档生命周期元数据 + Chroma 可重建向量索引
   └─ Tavily（院内知识未命中时的可选网页检索）
 ```
 
@@ -28,7 +28,7 @@ FastAPI /v1/chat/stream
 | --- | --- |
 | `ai-python/app/api/routes/chat.py` | Python 内部聊天 SSE 与知识库上传接口 |
 | `ai-python/app/graphs/hospital/` | LangGraph 状态、节点、提示词与联网工具 |
-| `ai-python/app/rag/` | Qdrant 连接、Embedding 与文档入库 |
+| `ai-python/app/rag/` | Chroma 本地索引、Embedding 与文档入库 |
 | `backend-java/.../ai/` | Java 鉴权后的 AI 网关、SSE 转发、会话幂等控制 |
 | `frontend/src/api/modules/ai.js` | 浏览器端 SSE 读取、事件解析和删除会话调用 |
 | `frontend/src/composables/useAssistant.js` | 跨页面保活的前端对话运行状态 |
@@ -69,9 +69,9 @@ INTENT_ACCEPTANCE_THRESHOLD=0.60
 INTENT_AMBIGUITY_MARGIN=0.12
 INTENT_OOD_SIMILARITY_THRESHOLD=0.08
 
-# Qdrant；Compose 没有创建 Qdrant，需要单独启动或使用已有实例
-QDRANT_URL=http://host.docker.internal:6333
-QDRANT_HOSPITAL_COLLECTION=wenrun_hospital_custom
+# Chroma：进程内持久化目录，空则默认 ai-python/data/chroma
+CHROMA_PERSIST_DIR=
+CHROMA_HOSPITAL_COLLECTION=wenrun_hospital_custom
 
 # checkpoint、上下文预算与知识文档元数据
 AI_REDIS_URL=redis://redis:6379/0
@@ -94,10 +94,9 @@ TAVILY_API_KEY=
 
 注意事项：
 
-- 本地直接运行 Python 时，`QDRANT_URL` 通常应改为 `http://localhost:6333`；Docker 容器访问宿主机才使用 `host.docker.internal`。
-- 入库和检索必须使用同一个 `EMBEDDING_MODEL`。更换模型或向量维度时，应新建 collection 并重新导入资料，不能复用旧 collection。
-- `QDRANT_TIMEOUT` 目前仅存在于示例配置；代码中的连接超时固定为 10 秒。
-- 当前 Qdrant 客户端未传入 API Key，生产环境应通过私有网络、反向代理或后续代码改造保护 Qdrant。
+- 本地直接运行 Python 时，默认把索引写到 `ai-python/data/chroma`；Docker 应设置 `CHROMA_PERSIST_DIR=/app/data/chroma` 并挂载数据卷。
+- 入库和检索必须使用同一个 `EMBEDDING_MODEL`。更换模型或向量维度时，应清空 Chroma 目录并重新导入资料，不能复用旧索引。
+- Chroma 运行在 Python 进程内，不再需要独立向量库容器或 API Key。
 - `JAVA_TOOL_BASE_URL` 只能指向 Java 的内网地址。Python 不直接查询或修改 HIS 业务表；业务 Tool 必须经过 Java。唯一的直连例外是 `ai_knowledge_documents` 文档生命周期登记表，生产账号应只授予该表所需权限。
 - `.env` 含密钥，已被 Git 忽略，不得提交。
 
@@ -112,7 +111,7 @@ Copy-Item ai-python/.env.example ai-python/.env
 docker compose up --build
 ```
 
-分别启动时，先启动 Qdrant、MySQL 和 Python，再启动 Java 与前端：
+分别启动时，先启动 MySQL 和 Python，再启动 Java 与前端：
 
 ```powershell
 cd ai-python
@@ -212,8 +211,8 @@ START → begin_node ─┬→ knowledge_node ─┐
 1. `begin_node` 先用高精度规则处理明确请求，再用字符 TF-IDF + One-vs-Rest Logistic Regression 做 CPU 轻量多标签分类。只有低置信度、Top-1/Top-2 歧义或域外样本才升级到 LLM。
 2. LLM 将最新请求识别为 `knowledge`、`chat`、`tools` 的一个或多个标签，也可以显式返回 `out_of_scope`。输出经 Pydantic 校验；结构异常时修复一次，仍失败则输出确定性澄清，不再让闲聊模型猜测。
 3. 路由把阶段、分数、命中规则、升级原因、安全信号和模型版本写入 `State.intent_route` 与日志。`GET /v1/metrics/intent-routing` 可在携带内部 API Key 时查看当前进程计数。
-4. 急症正则是独立安全维度，会强制保留 `knowledge`；`knowledge_node` 对命中的安全信号直接给出确定性急救提示，不依赖 Qdrant、网页或另一轮模型。
-5. `knowledge_node` 在普通 `knowledge` 请求中优先检索院内 Qdrant。命中时只允许依据院内片段回答；未命中时调用带 Tavily 工具的联网 Agent。
+4. 急症正则是独立安全维度，会强制保留 `knowledge`；`knowledge_node` 对命中的安全信号直接给出确定性急救提示，不依赖 Chroma、网页或另一轮模型。
+5. `knowledge_node` 在普通 `knowledge` 请求中优先检索院内 Chroma。命中时只允许依据院内片段回答；未命中时调用带 Tavily 工具的联网 Agent。
 6. `chat_node` 处理问候、感谢和非医疗闲聊；`tool_node` 处理本院实时业务和受控写工具。
 7. `final_node` 收集回复。只有一个回复时原样输出；多个回复才调用模型合并，失败时确定性拼接。
 8. `fastMode=true` 时整张图被替换为 `START → fast_node → summarize_node → END`。它不运行级联路由，没有院内 RAG，也查不了号源排班。
@@ -241,7 +240,7 @@ START → begin_node ─┬→ knowledge_node ─┐
 1. PDF 按页提取文本；扫描版 PDF 没有 OCR，提取不到文本会失败。
 2. DOCX 只读取普通段落，不读取表格、图片或嵌入对象。
 3. TXT/Markdown 优先按 UTF-8（含 BOM）解码，失败后使用 GB18030。
-4. 文本按 800 字符切分、120 字符重叠，使用 Embedding 写入 Qdrant。
+4. 文本按 800 字符切分、120 字符重叠，使用 Embedding 写入 Chroma。
 5. 检索返回相似度达到 `0.8` 的最多 5 个片段；命中资料会作为 `citation` 发给前端。
 
 通过受保护的内部地址上传示例：
@@ -260,9 +259,9 @@ Invoke-RestMethod `
 ### 5.2 生命周期管理
 
 - 同一 `documentId` + checksum 默认幂等；`forceRebuild` 或 `/documents/{id}/rebuild` 创建下一版本。新版本完整写入后，旧 active 版本才变为 `superseded`。
-- `GET /v1/chat/documents/{id}` 查看版本；`POST .../{id}/deactivate` 停用；`DELETE .../{id}` 删除全部向量点。MySQL 配置后是元数据权威源，Qdrant 是可重建索引；发布、停用和删除失败会执行补偿或标记 `reconcile_required`。
-- 每个 chunk 带版本、有效期、更新时间和稳定 chunk ID。检索在 Qdrant 侧过滤 `active` 与有效期，并在送入模型前再次 fail-closed 检查、限长、清理控制字符和拒绝疑似提示注入片段。
-- 引用包含 document ID、version、page、chunk ID 和 updated time。原始上传文件当前不做对象存储归档；需要灾备时必须另行保存源文件，才能从 MySQL 元数据重建 Qdrant。
+- `GET /v1/chat/documents/{id}` 查看版本；`POST .../{id}/deactivate` 停用；`DELETE .../{id}` 删除全部向量点。MySQL 配置后是元数据权威源，Chroma 是可重建索引；发布、停用和删除失败会执行补偿或标记 `reconcile_required`。
+- 每个 chunk 带版本、有效期、更新时间和稳定 chunk ID。检索在 Chroma 侧过滤 `active` 与有效期，并在送入模型前再次 fail-closed 检查、限长、清理控制字符和拒绝疑似提示注入片段。
+- 引用包含 document ID、version、page、chunk ID 和 updated time。原始上传文件当前不做对象存储归档；需要灾备时必须另行保存源文件，才能从 MySQL 元数据重建 Chroma。
 
 ## 6. 数据安全与可观测性
 
@@ -298,10 +297,10 @@ npm run build
 | --- | --- |
 | Java 返回“无法连接 AI 流式服务” | Python 是否存活、`AI_SERVICE_BASE_URL` 是否可达、Docker 网络/端口是否正确 |
 | Python 返回 401 | 根目录 `AI_SERVICE_API_KEY` 与 `AI_INTERNAL_API_KEY` 是否完全一致，Java 是否发送 `X-Api-Key` |
-| 资料上传/检索失败 | `QDRANT_URL`、Qdrant 服务状态、Embedding 三项配置、collection 与模型维度是否匹配 |
-| 总是走网页或提示知识库不可用 | Qdrant 是否有资料、相似度阈值 `0.8` 是否过高、Tavily 密钥和外网是否可用 |
+| 资料上传/检索失败 | `CHROMA_PERSIST_DIR` 是否可写、Embedding 三项配置、collection 与模型维度是否匹配 |
+| 总是走网页或提示知识库不可用 | Chroma 是否有资料、相似度阈值 `0.8` 是否过高、Tavily 密钥和外网是否可用 |
 | 流式答案重复或不完整 | 前端是否为同一轮复用 `clientRequestId`、检查 `done.reply`、用 `X-Request-Id` 对照 Java/Python 日志 |
 | 正常模式“挂号/查排班”没有实际结果 | 检查委托 JWT scope、患者绑定、Java 内部 Tool API 与 Redis checkpoint；写操作必须先收到 `confirm` 再携带同一 `interruptId` 调 `/resume` |
 | 快速模式答不出号源排班或本院楼层/须知 | 这是设计行为，不是故障。快速模式只有闲聊、联网和记忆，请关闭快速模式重问 |
 
-相关实现可从 [`ai-python/README.md`](../ai-python/README.md)、[`aiController.java`](../backend-java/src/main/java/com/wenrun/ai/controller/aiController.java) 和 [`assistant-stream-recovery-highlight.md`](assistant-stream-recovery-highlight.md) 继续阅读。
+相关实现可从 [`ai-python/README.md`](../ai-python/README.md) 和 [`aiController.java`](../backend-java/src/main/java/com/wenrun/ai/controller/aiController.java) 继续阅读。

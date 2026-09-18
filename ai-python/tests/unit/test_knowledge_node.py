@@ -58,7 +58,7 @@ def test_knowledge_node_falls_back_to_web_when_rag_is_unavailable(monkeypatch):
     monkeypatch.setattr(
         knowledge_mod,
         "get_hospital_retriever",
-        lambda: (_ for _ in ()).throw(RuntimeError("qdrant down")),
+        lambda: (_ for _ in ()).throw(RuntimeError("chroma down")),
     )
     monkeypatch.setattr(knowledge_mod, "agent", FakeAgent())
 

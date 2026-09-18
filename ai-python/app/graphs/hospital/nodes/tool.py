@@ -7,6 +7,7 @@ from langgraph.runtime import Runtime
 from loguru import logger
 
 from app.graphs.hospital.context_builder import bounded_system_text, build_context
+from app.graphs.hospital.nodes.plan import depends_on, task_goal
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tools import (
     HospitalToolContext,
@@ -54,6 +55,8 @@ TOOL_SYSTEM_PROMPT = """你是温润诊所的患者端业务助手。用简短�
 - 余号为 0 时如实说明已约满，不要暗示还能加号
 
 多意图时：患者一句话里若同时有业务查询和医疗提问/寒暄，你只回答业务查询部分，其余留给其他助手。
+上游结果：若上下文里的 upstream_result 已给出建议科室，直接按该科室查号源，不要再追问患者看哪科；
+科室名要用工具返回的本院叫法核对，对不上时如实说明并列出相近科室。
 """
 
 WRITE_TOOL_SYSTEM_PROMPT = """你是温润诊所的患者端业务助手。用简短、尊重、有温度的中文直接回复患者。
@@ -97,6 +100,8 @@ WRITE_TOOL_SYSTEM_PROMPT = """你是温润诊所的患者端业务助手。用�
 - 余号为 0 时如实说明已约满，不要暗示还能加号
 
 多意图时：患者一句话里若同时有业务查询和医疗提问/寒暄，你只回答业务查询部分，其余留给其他助手。
+上游结果：若上下文里的 upstream_result 已给出建议科室，直接按该科室查号源，不要再追问患者看哪科；
+科室名要用工具返回的本院叫法核对，对不上时如实说明并列出相近科室。
 """
 
 
@@ -169,9 +174,22 @@ def tool_node(state: State, runtime: Runtime[HospitalToolContext]) -> dict:
         return {"tools_reply": "业务查询服务暂不可用，请稍后重试。"}
 
     ##任务三：运行时上下文只在本次请求内有效，直接透传给嵌套 Agent
+    # 多意图回合里只处理规划器分配的子目标；依赖知识助手时把它的结论一并带上，
+    # 这样“该看哪科就挂哪科”能直接查号源，而不用再问患者一次科室。
+    upstream: dict[str, str] = {}
+    knowledge_reply = state.get("knowledge_reply")
+    if depends_on(state, "tools", "knowledge") and isinstance(knowledge_reply, str):
+        upstream["knowledge"] = knowledge_reply
     selected = writable_agent if getattr(context, "writes_enabled", False) else agent
     result = selected.invoke(
-        {"messages": build_context(state, purpose="tools")},
+        {
+            "messages": build_context(
+                state,
+                purpose="tools",
+                task_goal=task_goal(state, "tools"),
+                upstream_results=upstream or None,
+            )
+        },
         context=context,
     )
     messages = result.get("messages") or []

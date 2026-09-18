@@ -275,4 +275,52 @@ class RegistrationServiceImplTest {
         assertEquals("挂号单状态已变化，请刷新后重试", error.getMessage());
         verify(scheduleMapper, never()).incrementRemaining(anyLong());
     }
+
+    @Test
+    void rescheduleMovesSeatWithinOneRegistration() {
+        Registration reg = new Registration();
+        reg.setId(55L);
+        reg.setPatientId(1L);
+        reg.setScheduleId(9L);
+        reg.setStatus(BizStatus.REG_REGISTERED);
+        Schedule current = bookableSchedule();
+        Schedule target = bookableSchedule();
+        target.setId(12L);
+        target.setStaffId(18L);
+        target.setRemainingCount(3);
+        when(registrationMapper.selectByIdForUpdate(55L)).thenReturn(reg);
+        when(scheduleMapper.selectByIdForUpdate(9L)).thenReturn(current);
+        when(scheduleMapper.selectByIdForUpdate(12L)).thenReturn(target);
+        when(scheduleMapper.decrementRemaining(12L)).thenReturn(1);
+        when(registrationMapper.updateScheduleIfCurrent(
+                55L, 9L, BizStatus.REG_REGISTERED, 12L,
+                target.getDeptId(), target.getStaffId(), target.getRegisterFee())).thenReturn(1);
+
+        service.reschedule(55L, 12L);
+
+        verify(scheduleMapper).decrementRemaining(12L);
+        verify(scheduleMapper).incrementRemaining(9L);
+    }
+
+    @Test
+    void rescheduleRejectsFullTargetWithoutReleasingCurrentSeat() {
+        Registration reg = new Registration();
+        reg.setId(55L);
+        reg.setPatientId(1L);
+        reg.setScheduleId(9L);
+        reg.setStatus(BizStatus.REG_REGISTERED);
+        Schedule current = bookableSchedule();
+        Schedule target = bookableSchedule();
+        target.setId(12L);
+        target.setRemainingCount(0);
+        when(registrationMapper.selectByIdForUpdate(55L)).thenReturn(reg);
+        when(scheduleMapper.selectByIdForUpdate(9L)).thenReturn(current);
+        when(scheduleMapper.selectByIdForUpdate(12L)).thenReturn(target);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.reschedule(55L, 12L));
+
+        assertEquals("目标号源已满", error.getMessage());
+        verify(scheduleMapper, never()).decrementRemaining(anyLong());
+        verify(scheduleMapper, never()).incrementRemaining(anyLong());
+    }
 }

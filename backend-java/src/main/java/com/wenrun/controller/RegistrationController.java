@@ -3,6 +3,7 @@ package com.wenrun.controller;
 import com.wenrun.common.Result;
 import com.wenrun.common.constant.BizStatus;
 import com.wenrun.dto.RegistrationCreateDTO;
+import com.wenrun.dto.RegistrationRescheduleDTO;
 import com.wenrun.service.RegistrationService;
 import com.wenrun.service.support.CurrentStaffSupport;
 import com.wenrun.vo.RegistrationVO;
@@ -47,6 +48,14 @@ public class RegistrationController {
     @PostMapping
     public Result<Long> register(@Valid @RequestBody RegistrationCreateDTO dto) {
         return Result.success(registrationService.register(dto));
+    }
+
+    /** PUT /api/registrations/{id}/schedule — 将有效挂号改到另一个号源 */
+    @PutMapping("/{id}/schedule")
+    public Result<Void> reschedule(@PathVariable Long id,
+                                   @Valid @RequestBody RegistrationRescheduleDTO dto) {
+        registrationService.reschedule(id, dto.getScheduleId());
+        return Result.success();
     }
 
     /** POST /api/registrations/{id}/cancel — 退号 */

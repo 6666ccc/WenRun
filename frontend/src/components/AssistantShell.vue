@@ -171,7 +171,7 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
           </button>
           <button class="assistant-shell__brand" type="button" @click="goHome">
             <span class="assistant-shell__logo" aria-hidden="true"><UiIcon name="logo" :size="18" /></span>
-            <span class="assistant-shell__brand-text">温润诊所</span>
+            <span class="assistant-shell__brand-text">温润医院</span>
           </button>
         </div>
         <div class="assistant-shell__sidebar-body">

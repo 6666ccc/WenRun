@@ -4,6 +4,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -12,6 +14,7 @@ import java.util.UUID;
 
 /** 为每个 HTTP 请求创建或透传 requestId，并回写到响应头。 */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class RequestTraceFilter extends OncePerRequestFilter {
 
     @Override

@@ -2,266 +2,223 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../stores'
-import { listCharges, listRegistrations, listSchedules } from '../api'
-import { listVisits } from '../api/modules/consultation'
+import { listRegistrations, listSchedules } from '../api'
 import { formatDate, formatTime, formatTimePeriod, formatVisitSchedule } from '../utils'
 import { isBookableSchedule, todayISO } from '../utils/scheduleDate'
 import AppShell from '../components/AppShell.vue'
 import UiIcon from '../components/UiIcon.vue'
-import UiState from '../components/UiState.vue'
 
 const router = useRouter()
 const { user } = useAuth()
-const data = ref({ registrations: [], pendingCharges: [], schedules: [], visits: [] })
-const sectionErrors = ref({ registrations: false, charges: false, schedules: false, visits: false })
+const visualPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has('preview')
+const data = ref({ registrations: [], schedules: [] })
+const sectionErrors = ref({ registrations: false, schedules: false })
 const loading = ref(true)
-const error = ref('')
+
 const name = computed(() => user.value?.realName || user.value?.username || '患者')
 const nextRegistration = computed(() => data.value.registrations.find((item) => item.status === 1))
-const nextStepUnavailable = computed(() => sectionErrors.value.registrations || sectionErrors.value.charges)
-const pendingTotal = computed(() => data.value.pendingCharges.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0))
-const services = [
-  { icon: 'calendar', label: '预约挂号', description: '按科室与时段选择号源', to: '/registration' },
-  { icon: 'ai', label: '健康助手', description: '查询健康信息与就医事项', to: '/assistant' },
-  { icon: 'wallet', label: '门诊缴费', description: '查看账单与缴费状态', to: '/payment' },
-  { icon: 'hospital', label: '科室医生', description: '浏览科室和医生团队', to: '/department' },
-  { icon: 'record', label: '我的挂号', description: '查看预约与就诊信息', to: '/user' },
-  { icon: 'user', label: '个人中心', description: '维护档案和挂号记录', to: '/user' },
+const availableSchedules = computed(() => data.value.schedules.slice(0, 3))
+const appointmentSummary = computed(() => nextRegistration.value
+  ? `${formatVisitSchedule(nextRegistration.value.workDate, nextRegistration.value.timePeriod)} · ${nextRegistration.value.deptName} · ${nextRegistration.value.staffName}`
+  : (sectionErrors.value.registrations ? '就诊信息暂时无法获取' : '暂无待就诊预约'))
+
+const agentActions = [
+  { icon: 'calendar', label: '帮我挂号', prompt: '我想预约挂号，请帮我看看近期可用号源。' },
+  { icon: 'record', label: '查预约', prompt: '帮我查看最近的预约和就诊安排。' },
+  { icon: 'hospital', label: '找科室', prompt: '我不确定该挂什么科，请根据症状帮我判断。' },
 ]
 
+const previewData = {
+  registrations: [{ id: 1, status: 1, deptName: '心内科', staffName: '张医生', workDate: '2026-09-18', timePeriod: '上午' }],
+  schedules: [
+    { id: 1, deptName: '心内科', staffName: '张医生', timePeriod: '上午', remainingCount: 8, registerFee: 30 },
+    { id: 2, deptName: '呼吸内科', staffName: '李医生', timePeriod: '下午', remainingCount: 5, registerFee: 25 },
+    { id: 3, deptName: '消化内科', staffName: '王医生', timePeriod: '上午', remainingCount: 12, registerFee: 25 },
+  ],
+}
+
+function openAssistant(text = '') {
+  const prompt = text.trim()
+  router.push({ path: '/assistant', query: { ...(prompt ? { prompt } : {}), ...(visualPreview ? { preview: '1' } : {}) } })
+}
+
 onMounted(async () => {
+  if (visualPreview) {
+    data.value = previewData
+    loading.value = false
+    return
+  }
   if (!user.value?.userId) return void (loading.value = false)
   const results = await Promise.allSettled([
     listRegistrations({ userId: user.value.userId }),
-    listCharges({ patientId: user.value.patientId }),
     listSchedules({ workDate: todayISO() }),
-    listVisits({ patientId: user.value.patientId }),
   ])
   const value = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
   sectionErrors.value = {
     registrations: results[0].status === 'rejected',
-    charges: results[1].status === 'rejected',
-    schedules: results[2].status === 'rejected',
-    visits: results[3].status === 'rejected',
+    schedules: results[1].status === 'rejected',
   }
   data.value = {
     registrations: value(results[0]),
-    pendingCharges: value(results[1]).filter((charge) => charge.payStatus === 0),
-    schedules: value(results[2]).filter((item) => Number(item.remainingCount) > 0 && isBookableSchedule(item.workDate, item.timePeriod)),
-    visits: value(results[3]),
+    schedules: value(results[1]).filter((item) => Number(item.remainingCount) > 0 && isBookableSchedule(item.workDate, item.timePeriod)),
   }
-  if (results.every((result) => result.status === 'rejected')) error.value = '首页数据加载失败，请稍后重试'
   loading.value = false
 })
 </script>
 
 <template>
-  <AppShell>
-    <div class="home-intro home-reveal home-reveal--intro">
-      <div>
-        <p class="eyebrow">{{ formatDate(new Date()) }}</p>
-        <h1>{{ formatTime() }}，{{ name }}</h1>
-      </div>
-    </div>
-
-    <UiState :loading="loading" :error="error">
-      <section class="next-step home-reveal home-reveal--next" aria-labelledby="next-step-title">
-        <div class="next-step__label"><span class="status-dot" /><strong>下一步</strong></div>
-        <div v-if="nextStepUnavailable" class="next-step__content">
-          <div><h2 id="next-step-title">行程信息暂时无法获取</h2><p>您仍可进入挂号或缴费服务继续办理</p></div>
-          <button class="btn btn--outline" type="button" @click="router.push('/registration')">前往挂号服务</button>
-        </div>
-        <div v-else-if="nextRegistration || data.pendingCharges.length" class="next-step__content">
-          <div v-if="nextRegistration">
-            <h2 id="next-step-title">{{ nextRegistration.deptName }} · {{ nextRegistration.staffName }}</h2>
-            <p>{{ formatVisitSchedule(nextRegistration.workDate, nextRegistration.timePeriod) }}</p>
-          </div>
-          <div v-else>
-            <h2 id="next-step-title">还有 {{ data.pendingCharges.length }} 笔费用待处理</h2>
-            <p>合计 ¥{{ pendingTotal.toFixed(2) }}</p>
-          </div>
-          <button class="btn btn--primary" type="button" @click="router.push(nextRegistration ? `/registration/${nextRegistration.id}` : '/payment')">{{ nextRegistration ? '查看挂号详情' : '查看并支付' }}</button>
-        </div>
-        <div v-else class="next-step__content">
-          <div><h2 id="next-step-title">还没有预约</h2><p>选择科室和时段</p></div>
-          <button class="btn btn--primary" type="button" @click="router.push('/registration')">开始挂号</button>
-        </div>
-        <p v-if="nextRegistration && data.pendingCharges.length" class="next-step__secondary">另有 {{ data.pendingCharges.length }} 笔待缴费用，共 ¥{{ pendingTotal.toFixed(2) }} · <button type="button" @click="router.push('/payment')">去处理</button></p>
-      </section>
-
-      <section class="home-section home-reveal home-reveal--services" aria-labelledby="services-title">
-        <div class="section-heading"><div><h2 id="services-title">常用服务</h2></div></div>
-        <div class="service-grid stagger">
-          <article v-for="service in services" :key="service.label" class="service-item">
-            <span class="service-item__icon"><UiIcon :name="service.icon" :size="21" /></span>
-            <div class="service-item__body"><RouterLink :to="service.to"><strong>{{ service.label }}</strong></RouterLink><p>{{ service.description }}</p></div>
-            <span class="service-item__arrow"><UiIcon name="arrowRight" :size="18" /></span>
-          </article>
-        </div>
-      </section>
-
-      <div class="home-columns home-reveal home-reveal--panels">
-        <section class="home-section home-panel" aria-labelledby="recent-title">
-          <div class="section-heading"><div><h2 id="recent-title">近期记录</h2></div><RouterLink to="/user">查看全部</RouterLink></div>
-          <p v-if="sectionErrors.registrations" class="section-error">近期记录暂时无法获取</p>
-          <div v-else-if="data.registrations.length" class="record-list">
-            <RouterLink v-for="item in data.registrations.slice(0, 3)" :key="item.id" :to="`/registration/${item.id}`" class="record-row">
-              <span class="record-row__date">{{ item.workDate?.slice(5) || '—' }}</span><span><strong>{{ item.deptName }} · {{ item.staffName }}</strong><small>{{ formatVisitSchedule(item.workDate, item.timePeriod) }}</small></span><span class="record-row__status">{{ item.status === 1 ? '待就诊' : item.status === 2 ? '已就诊' : '已取消' }}</span>
+  <AppShell :padded="false">
+    <div class="agent-home" :aria-busy="loading">
+      <header class="agent-home__header">
+        <div class="agent-home__header-inner">
+          <div class="agent-home__brand-row">
+            <RouterLink class="agent-brand" to="/home" aria-label="温润医院首页">
+              <span class="agent-brand__mark"><UiIcon name="logo" :size="22" /></span>
+              <span><strong>温润医院</strong><small>WENRUN CARE</small></span>
             </RouterLink>
+            <span class="agent-home__emergency"><UiIcon name="alert" :size="15" />急症请拨打 120</span>
           </div>
-          <p v-else class="empty-copy">暂无记录</p>
-        </section>
-        <section class="home-section home-panel" aria-labelledby="schedule-title">
-          <div class="section-heading"><div><h2 id="schedule-title">今日可预约</h2></div><RouterLink to="/department">查看科室</RouterLink></div>
-          <p v-if="sectionErrors.schedules" class="section-error">今日号源暂时无法获取</p>
-          <div v-else-if="data.schedules.length" class="schedule-list">
-            <div v-for="schedule in data.schedules.slice(0, 4)" :key="schedule.id" class="schedule-row"><span><strong>{{ schedule.deptName }}</strong><small>{{ schedule.staffName }} · {{ formatTimePeriod(schedule.timePeriod) }}</small></span><span><b>余号 {{ schedule.remainingCount }}</b><small>¥{{ schedule.registerFee }}</small></span></div>
+
+          <div class="agent-home__welcome">
+            <p>{{ formatDate(new Date()) }} · {{ formatTime() }}</p>
+            <h1>{{ name }}，今天想先了解什么？</h1>
           </div>
-          <p v-else class="empty-copy">暂无号源</p>
-        </section>
-      </div>
-    </UiState>
+
+          <button
+            class="visit-strip"
+            type="button"
+            :aria-label="nextRegistration ? `查看下次就诊：${appointmentSummary}` : '开始预约挂号'"
+            @click="router.push(nextRegistration ? `/registration/${nextRegistration.id}` : '/registration')"
+          >
+            <span class="visit-strip__icon"><UiIcon name="calendar" :size="20" /></span>
+            <span class="visit-strip__body">
+              <small>{{ nextRegistration ? '下次就诊' : '就诊安排' }}</small>
+              <strong>{{ appointmentSummary }}</strong>
+            </span>
+            <span class="visit-strip__action">{{ nextRegistration ? '查看' : '去挂号' }}<UiIcon name="arrowRight" :size="16" /></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="agent-home__main">
+        <aside class="agent-home__rail" aria-label="常用健康服务">
+          <section class="agent-panel agent-panel--actions" aria-labelledby="action-title">
+            <div class="agent-panel__heading">
+              <div><span>让助手来办</span><h2 id="action-title">常用任务</h2></div>
+              <RouterLink to="/assistant">开始新对话<UiIcon name="arrowRight" :size="16" /></RouterLink>
+            </div>
+            <div class="agent-action-grid">
+              <button v-for="action in agentActions" :key="action.label" type="button" @click="openAssistant(action.prompt)">
+                <span><UiIcon :name="action.icon" :size="21" /></span>
+                <strong>{{ action.label }}</strong>
+                <UiIcon name="arrowRight" :size="15" />
+              </button>
+            </div>
+          </section>
+
+          <section class="agent-panel agent-panel--schedules" aria-labelledby="schedule-title">
+            <div class="agent-panel__heading">
+              <div><span>实时信息</span><h2 id="schedule-title">今日可预约</h2></div>
+              <RouterLink to="/registration">全部号源<UiIcon name="arrowRight" :size="16" /></RouterLink>
+            </div>
+            <p v-if="sectionErrors.schedules" class="agent-panel__state">号源暂时无法获取，可让助手稍后再查。</p>
+            <div v-else-if="availableSchedules.length" class="schedule-stack">
+              <button v-for="schedule in availableSchedules" :key="schedule.id" type="button" @click="openAssistant(`帮我看看${schedule.deptName}${schedule.staffName}的可预约时间。`)">
+                <span class="schedule-stack__icon"><UiIcon name="hospital" :size="18" /></span>
+                <span><strong>{{ schedule.deptName }} · {{ schedule.staffName }}</strong><small>{{ formatTimePeriod(schedule.timePeriod) }} · 挂号费 ¥{{ schedule.registerFee }}</small></span>
+                <b>余 {{ schedule.remainingCount }}</b>
+              </button>
+            </div>
+            <p v-else class="agent-panel__state">今日暂无可预约号源，可让助手查询后续排班。</p>
+          </section>
+        </aside>
+      </main>
+    </div>
   </AppShell>
 </template>
 
 <style scoped>
-.home-intro { margin-bottom: 30px; }
-.home-intro h1 { margin: 7px 0 0; font-size: clamp(34px, 3.4vw, 46px); line-height: 1.18; letter-spacing: -.045em; }
-.eyebrow { margin: 0; color: var(--color-brand-700); font-family: var(--font-utility); font-size: 13px; font-weight: 750; letter-spacing: .09em; }
-
-.next-step {
-  min-height: 108px;
-  display: grid;
-  grid-template-columns: 164px minmax(0, 1fr);
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 15px;
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
+.agent-home {
+  --home-ink: #17343b;
+  --home-muted: #60777d;
+  --home-teal: #0f8f82;
+  --home-deep: #075b55;
+  --home-aqua: #dff5f2;
+  min-height: 100vh;
+  background: #edf6f7;
+  color: var(--home-ink);
 }
-.next-step__label {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 26px 22px;
-  background: var(--color-brand-900);
-  color: #fff;
-}
-.next-step__label strong { color: #fff; font-size: 16px; }
-.status-dot {
-  width: 10px;
-  height: 10px;
-  flex: 0 0 10px;
-  border-radius: 50%;
-  background: #9de2d6;
-  box-shadow: 0 0 0 5px rgba(157,226,214,.14);
-  animation: home-status-pulse 2.8s var(--ease-standard) infinite;
-}
-.next-step__content { display: flex; align-items: center; justify-content: space-between; gap: 28px; min-width: 0; padding: 25px 28px; }
-.next-step h2 { margin: 0 0 6px; font-size: 22px; line-height: 1.3; }
-.next-step p { margin: 0; color: var(--color-text-secondary); font-size: 14px; }
-.next-step__secondary { grid-column: 2; margin: 0; padding: 0 28px 19px; color: var(--color-text-secondary); font-size: 14px; }
-.next-step__secondary button { min-height: 34px; padding: 0 3px; border: 0; background: none; color: var(--color-brand-700); cursor: pointer; font: inherit; font-weight: 750; }
-
-.home-section { margin-top: 30px; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 17px; }
-.section-heading h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
-.section-heading a { min-height: 40px; display: inline-flex; align-items: center; color: var(--color-brand-700); font-size: 14px; font-weight: 750; }
-
-.service-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.service-item {
-  position: relative;
-  min-height: 116px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px;
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  transition: border-color 180ms var(--ease-standard), box-shadow 180ms var(--ease-standard), transform 180ms var(--ease-standard);
-}
-.service-item:hover, .service-item:has(a:focus-visible) { border-color: var(--color-brand-600); box-shadow: 0 12px 28px rgba(7,63,59,.09); transform: translateY(-2px); }
-.service-item:has(a:focus-visible) { outline: 3px solid var(--color-focus); outline-offset: 3px; }
-.service-item__icon {
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 48px;
-  border: 1px solid #cbe7e2;
-  border-radius: 13px;
-  background: var(--color-mint-100);
-  color: var(--color-brand-700);
-  transition: transform 180ms var(--ease-standard), background-color 180ms var(--ease-standard);
-}
-.service-item:hover .service-item__icon, .service-item:has(a:focus-visible) .service-item__icon { background: #d9efeb; transform: scale(1.04); }
-.service-item__body { min-width: 0; }
-.service-item__body a { color: var(--color-text); text-decoration: none; }
-.service-item__body a::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
-.service-item__body a:focus-visible { outline: 0; box-shadow: none; }
-.service-item strong { display: block; font-size: 16px; }
-.service-item p { margin: 5px 0 0; color: var(--color-text-secondary); font-size: 14px; line-height: 1.5; }
-.service-item__arrow { display: grid; place-items: center; margin-left: auto; color: var(--color-brand-700); transition: transform 180ms var(--ease-standard); }
-.service-item:hover .service-item__arrow, .service-item:has(a:focus-visible) .service-item__arrow { transform: translateX(4px); }
-
-.home-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 30px; }
-.home-columns .home-section { margin-top: 0; }
-.home-panel { min-width: 0; padding: 24px 24px 10px; border: 1px solid var(--color-border); border-radius: 15px; background: var(--color-surface); box-shadow: var(--shadow-xs); }
-.record-list, .schedule-list { border-top: 1px solid var(--color-border); }
-.record-row, .schedule-row { min-height: 72px; display: flex; align-items: center; gap: 14px; margin: 0 -8px; padding: 12px 8px; border-bottom: 1px solid var(--color-border); border-radius: 8px; color: inherit; text-decoration: none; transition: background-color 180ms var(--ease-standard), padding-left 180ms var(--ease-standard); }
-.record-row:hover, .record-row:focus-visible { padding-left: 12px; background: var(--color-mint-050); }
-.record-row__date { color: var(--color-text-secondary); font-family: var(--font-utility); font-size: 18px; font-weight: 750; }
-.record-row > span:nth-child(2), .schedule-row > span:first-child { min-width: 0; flex: 1; }
-.record-row strong, .record-row small, .schedule-row strong, .schedule-row small { display: block; }
-.record-row strong, .schedule-row strong { font-size: 15px; }
-.record-row small, .schedule-row small { margin-top: 3px; color: var(--color-text-secondary); font-size: 13px; }
-.record-row__status, .schedule-row b { color: var(--color-brand-700); font-size: 13px; white-space: nowrap; }
-.schedule-row > span:last-child { text-align: right; }
-.empty-copy, .section-error { min-height: 70px; display: flex; align-items: center; margin: 0; padding: 14px 0; color: var(--color-text-secondary); font-size: 14px; }
-.section-error { color: var(--color-danger); }
-
-.home-reveal { animation: home-reveal 360ms var(--ease-enter) both; }
-.home-reveal--intro { animation-delay: 20ms; }
-.home-reveal--next { animation-delay: 75ms; }
-.home-reveal--services { animation-delay: 130ms; }
-.home-reveal--panels { animation-delay: 185ms; }
-
-@keyframes home-reveal {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes home-status-pulse {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(157,226,214,.1); }
-  50% { box-shadow: 0 0 0 8px rgba(157,226,214,.2); }
-}
-
-@media (max-width: 1040px) {
-  .service-grid { grid-template-columns: repeat(2, 1fr); }
-  .home-columns { grid-template-columns: 1fr; }
-}
+.agent-home__header { min-height: 258px; background: #dff3f4; }
+.agent-home__header-inner { width: min(1120px, calc(100% - 64px)); margin: 0 auto; padding: 28px 0 54px; }
+.agent-home__brand-row { display: none; align-items: center; justify-content: space-between; gap: 20px; }
+.agent-brand { display: inline-flex; align-items: center; gap: 11px; color: var(--home-deep); text-decoration: none; }
+.agent-brand__mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: var(--home-deep); color: #fff; box-shadow: 0 8px 22px rgba(7, 91, 85, .18); }
+.agent-brand strong, .agent-brand small { display: block; }
+.agent-brand strong { font-size: 19px; letter-spacing: .02em; }
+.agent-brand small { margin-top: 2px; color: #4e7777; font-family: var(--font-utility); font-size: 9px; font-weight: 750; letter-spacing: .16em; }
+.agent-home__emergency { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid #e7caa7; border-radius: 999px; background: #fff8ef; color: #7b4d20; font-size: 12px; font-weight: 650; }
+.agent-home__welcome { margin-top: 0; }
+.agent-home__welcome p { margin: 0 0 5px; color: #5c7a7b; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
+.agent-home__welcome h1 { margin: 0; color: #153b3c; font-size: clamp(28px, 3.4vw, 43px); font-weight: 750; line-height: 1.18; letter-spacing: -.04em; }
+.visit-strip { width: min(680px, 100%); min-height: 72px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 13px; margin-top: 25px; padding: 11px 13px; border: 1px solid rgba(15, 143, 130, .2); border-radius: 18px; background: rgba(255,255,255,.82); color: inherit; cursor: pointer; text-align: left; box-shadow: 0 10px 28px rgba(27, 78, 81, .07); transition: border-color 160ms ease, box-shadow 160ms ease; }
+.visit-strip:hover, .visit-strip:focus-visible { border-color: var(--home-teal); box-shadow: 0 13px 30px rgba(27, 78, 81, .12); }
+.visit-strip__icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 13px; background: var(--home-aqua); color: var(--home-teal); }
+.visit-strip__body { min-width: 0; }
+.visit-strip__body small, .visit-strip__body strong { display: block; }
+.visit-strip__body small { margin-bottom: 4px; color: var(--home-muted); font-size: 11px; }
+.visit-strip__body strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.visit-strip__action { display: inline-flex; align-items: center; gap: 2px; color: var(--home-teal); font-size: 12px; font-weight: 750; }
+.agent-home__main { width: min(1120px, calc(100% - 64px)); margin: -28px auto 0; padding-bottom: 52px; }
+.agent-home__rail { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.agent-panel { padding: 21px; border: 1px solid #d5e6e6; border-radius: 22px; background: rgba(255,255,255,.92); box-shadow: 0 10px 30px rgba(25, 74, 77, .07); }
+.agent-panel__heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.agent-panel__heading span { display: block; margin-bottom: 3px; color: var(--home-teal); font-size: 10px; font-weight: 800; letter-spacing: .11em; }
+.agent-panel__heading h2 { margin: 0; color: var(--home-ink); font-size: 20px; }
+.agent-panel__heading a { min-height: 36px; display: inline-flex; align-items: center; gap: 2px; color: var(--home-muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.agent-action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.agent-action-grid button { min-width: 0; min-height: 100px; display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 5px; border: 1px solid #d9e9e8; border-radius: 16px; background: #f7fbfb; color: var(--home-ink); cursor: pointer; transition: border-color 160ms ease, background-color 160ms ease; }
+.agent-action-grid button:hover, .agent-action-grid button:focus-visible { border-color: #73bdb5; background: #eef8f7; }
+.agent-action-grid button > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 13px; background: var(--home-aqua); color: var(--home-teal); }
+.agent-action-grid button strong { overflow: hidden; max-width: 100%; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-action-grid button > svg { display: none; }
+.schedule-stack { display: grid; }
+.schedule-stack button { min-width: 0; min-height: 68px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 0; border: 0; border-bottom: 1px solid #e1ebeb; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.schedule-stack button:first-child { border-top: 1px solid #e1ebeb; }
+.schedule-stack button:hover span:nth-child(2) strong, .schedule-stack button:focus-visible span:nth-child(2) strong { color: var(--home-teal); }
+.schedule-stack__icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: #e9f6f4; color: var(--home-teal); }
+.schedule-stack strong, .schedule-stack small { display: block; }
+.schedule-stack strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-stack small { margin-top: 4px; color: var(--home-muted); font-size: 10px; }
+.schedule-stack b { color: var(--home-teal); font-size: 11px; white-space: nowrap; }
+.agent-panel__state { min-height: 74px; display: flex; align-items: center; margin: 0; color: var(--home-muted); font-size: 12px; line-height: 1.6; }
 @media (max-width: 767px) {
-  .home-intro { margin-bottom: 24px; }
-  .home-intro h1 { font-size: 30px; }
-  .next-step { grid-template-columns: 1fr; }
-  .next-step__label { min-height: 58px; padding: 14px 18px; }
-  .next-step__content { display: block; padding: 20px 18px; }
-  .next-step__content .btn { width: 100%; margin-top: 17px; }
-  .next-step__secondary { grid-column: 1; padding: 0 18px 17px; }
-  .home-section, .home-columns { margin-top: 26px; }
-  .service-grid { gap: 10px; }
-  .service-item { min-height: 112px; padding: 16px; }
-  .service-item p { font-size: 13px; }
-  .service-item__arrow { display: none; }
-  .home-panel { padding: 20px 17px 8px; }
+  .agent-home { min-height: 100dvh; }
+  .agent-home__header { min-height: 224px; }
+  .agent-home__header-inner { width: 100%; padding: 18px 17px 46px; }
+  .agent-home__brand-row { display: flex; }
+  .agent-brand__mark { width: 39px; height: 39px; border-radius: 12px; }
+  .agent-brand strong { font-size: 17px; }
+  .agent-home__emergency { min-height: 32px; padding-inline: 9px; font-size: 10px; }
+  .agent-home__welcome { margin-top: 27px; }
+  .agent-home__welcome p { font-size: 11px; }
+  .agent-home__welcome h1 { font-size: 27px; line-height: 1.22; }
+  .visit-strip { min-height: 66px; margin-top: 20px; padding: 9px 10px; border-radius: 16px; }
+  .visit-strip__icon { width: 40px; height: 40px; border-radius: 12px; }
+  .visit-strip__body strong { font-size: 12px; }
+  .visit-strip__action { font-size: 11px; }
+  .agent-home__main { width: 100%; margin-top: -24px; padding: 0 12px 28px; }
+  .agent-home__rail { grid-template-columns: 1fr; gap: 14px; }
+  .agent-panel { padding: 19px 17px; border-radius: 21px; }
+  .agent-panel__heading h2 { font-size: 19px; }
+  .agent-action-grid button { min-height: 92px; }
 }
-@media (max-width: 479px) {
-  .service-grid { grid-template-columns: 1fr; }
-  .service-item { min-height: 96px; }
+@media (max-width: 380px) {
+  .agent-home__header-inner { padding-inline: 14px; }
+  .agent-home__welcome h1 { font-size: 25px; }
+  .visit-strip__action { width: 18px; overflow: hidden; color: var(--home-teal); }
+  .agent-home__main { padding-inline: 9px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home-reveal, .status-dot { animation: none; }
-  .service-item, .service-item__icon, .service-item__arrow, .record-row, .schedule-row { transition: none; }
+  .visit-strip, .agent-action-grid button { transition: none; }
 }
 </style>

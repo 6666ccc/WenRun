@@ -40,7 +40,7 @@ import java.util.List;
 
 /**
  * 只供 Python AI 编排服务调用的只读业务能力。
- * 查询形态对齐 {@code /api/depts}、{@code /api/schedules}、{@code /api/staff}、{@code /api/registrations}，
+ * 对 Agent 提供科室、专家、号源与本人挂号的兼容查询模型；这些内部接口不等同于患者端功能入口。
  * 写操作只开放挂号与退号两项，且仅限患者账号本人；不提供通用 SQL。
  * 患者维度的数据只按委托令牌里的 patientId 过滤，Python 不能自选患者。
  */

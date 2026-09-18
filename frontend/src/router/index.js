@@ -12,15 +12,13 @@ const routes = [
   { path: '/assistant', component: () => import('../views/Assistant.vue'), meta: { patient: true, shell: 'assistant' } },
   { path: '/registration', component: () => import('../views/Registration.vue'), meta: { patient: true } },
   { path: '/registration/:id', component: () => import('../views/RegistrationDetail.vue'), meta: { patient: true } },
-  { path: '/department', component: () => import('../views/Department.vue'), meta: { patient: true } },
-  { path: '/payment', component: () => import('../views/Payment.vue'), meta: { patient: true } },
-  { path: '/payment/:id', component: () => import('../views/PaymentDetail.vue'), meta: { patient: true } },
   { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
 
 router.beforeEach((to) => {
+  if (import.meta.env.DEV && ['/home', '/assistant'].includes(to.path) && to.query.preview === '1') return true
   const { user, isAuthenticated } = useAuth()
   if (to.meta.guest && isAuthenticated.value) return homePath()
   if (!to.meta.guest && !isAuthenticated.value) return '/login'

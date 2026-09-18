@@ -146,6 +146,62 @@ public class RegistrationServiceImpl implements RegistrationService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    /**
+     * 改约只更换号源，不新建第二张挂号单。先锁挂号单，再按 ID 顺序锁两个号源，
+     * 既保证号源回补/占用在同一事务内完成，也避免并发换号时交叉等待。
+     */
+    @Override
+    @Transactional
+    public void reschedule(Long id, Long targetScheduleId) {
+        if (targetScheduleId == null) {
+            throw new BusinessException("目标号源不能为空");
+        }
+        Registration reg = registrationMapper.selectByIdForUpdate(id);
+        if (reg == null) {
+            throw new BusinessException("挂号单不存在");
+        }
+        if (AccountType.PATIENT.equals(UserContext.getAccountType())
+                && !reg.getPatientId().equals(currentPatientId())) {
+            throw new BusinessException("无权操作该挂号单");
+        }
+        if (reg.getStatus() != BizStatus.REG_REGISTERED) {
+            throw new BusinessException("只有待就诊挂号可以改约");
+        }
+        if (Objects.equals(reg.getScheduleId(), targetScheduleId)) {
+            return;
+        }
+
+        long firstId = Math.min(reg.getScheduleId(), targetScheduleId);
+        long secondId = Math.max(reg.getScheduleId(), targetScheduleId);
+        Schedule first = scheduleMapper.selectByIdForUpdate(firstId);
+        Schedule second = scheduleMapper.selectByIdForUpdate(secondId);
+        if (first == null || second == null) {
+            throw new BusinessException("号源不存在");
+        }
+        Schedule current = Objects.equals(first.getId(), reg.getScheduleId()) ? first : second;
+        Schedule target = Objects.equals(first.getId(), targetScheduleId) ? first : second;
+        if (clinicProperties.isExpired(target.getWorkDate(), target.getTimePeriod())) {
+            throw new BusinessException("目标号源已过期，无法改约");
+        }
+        if (target.getRemainingCount() == null || target.getRemainingCount() <= 0) {
+            throw new BusinessException("目标号源已满");
+        }
+        if (registrationMapper.countOtherActiveByPatientAndSlot(
+                reg.getPatientId(), target.getStaffId(), target.getWorkDate(),
+                target.getTimePeriod(), reg.getId()) > 0) {
+            throw new BusinessException("您已预约该专家此时段，不能重复改约");
+        }
+        if (scheduleMapper.decrementRemaining(target.getId()) != 1) {
+            throw new BusinessException("目标号源状态已变化，请刷新后重试");
+        }
+        if (registrationMapper.updateScheduleIfCurrent(
+                reg.getId(), current.getId(), BizStatus.REG_REGISTERED,
+                target.getId(), target.getDeptId(), target.getStaffId(), target.getRegisterFee()) != 1) {
+            throw new BusinessException("挂号单状态已变化，请刷新后重试");
+        }
+        scheduleMapper.incrementRemaining(current.getId());
+    }
+
     // 取消挂号
     @Override
     @Transactional

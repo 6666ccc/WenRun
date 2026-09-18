@@ -9,6 +9,7 @@ from app.graphs.hospital.state import State
 
 RECENT_MESSAGE_WINDOW = 6
 TURN_SCOPED_REPLY_FIELDS = (
+    "task_plan",
     "knowledge_reply",
     "rag_sources",
     "chat_reply",

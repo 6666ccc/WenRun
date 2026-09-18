@@ -26,6 +26,9 @@ class State(MessagesState):
     patient_id: int | None  # 患者id
     selected_agents: list[AgentName]  # begin 节点从 IntentDecision 写入，可多选
     intent_route: dict | None  # 级联层、分数、规则、升级原因与版本，供日志/评测追踪
+    # 多意图时由 plan_node 写入：{"tasks":[{"agent","goal","depends_on":[...]}]}
+    # 单意图或规划失败时为 None，各节点退化为“整句原话 + 并行”的旧行为。
+    task_plan: dict | None
     router_fallback: bool  # 所有分类层均失败时，chat_node 输出确定性澄清
     router_response: str | None  # 拒识或分类失败时的确定性患者提示
     knowledge_reply: str | None  # 知识节点写入

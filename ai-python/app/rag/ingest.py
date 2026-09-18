@@ -1,4 +1,4 @@
-"""资料载入：PDF、Word、TXT、Markdown → Document → 文本片段 → Qdrant。"""
+"""资料载入：PDF、Word、TXT、Markdown → Document → 文本片段 → Chroma。"""
 
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -13,17 +13,18 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
 from pypdf import PdfReader
 
-from app.rag.qdrant import (
+from app.rag.chroma import (
     delete_document_points,
     ensure_collection,
+    get_chroma_client,
     get_embeddings,
-    get_qdrant_client,
     get_store,
     hospital_collection,
+    sanitize_chroma_metadata,
     set_document_status,
 )
-from app.rag.qdrant import (
-    list_document_records as list_qdrant_document_records,
+from app.rag.chroma import (
+    list_document_records as list_chroma_document_records,
 )
 from app.rag.registry import (
     begin_publish,
@@ -47,7 +48,7 @@ SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
 def _document_records(document_id: str) -> list[dict]:
     if registry_enabled():
         return list_registry_document_records(document_id)
-    return list_qdrant_document_records(document_id)
+    return list_chroma_document_records(document_id)
 
 
 def _normalize_timestamp(value: str | None, *, field: str) -> str | None:
@@ -146,19 +147,21 @@ def add_hospital_documents(
     if not documents:
         raise ValueError("没有可写入的文档片段")
 
-    client = get_qdrant_client()
+    client = get_chroma_client()
     embeddings = get_embeddings()
-
-    # 写入前确保 collection 存在，并且向量维度与 embedding 模型一致。
-    if not client.collection_exists(hospital_collection):
-        vector_size = len(embeddings.embed_query("dimension probe"))
-        ensure_collection(client, hospital_collection, vector_size)
-
+    ensure_collection(client, hospital_collection)
     store = get_store(client, hospital_collection, embeddings)
-    return store.add_documents(documents=documents, ids=ids)
+    prepared = [
+        Document(
+            page_content=document.page_content,
+            metadata=sanitize_chroma_metadata(document.metadata),
+        )
+        for document in documents
+    ]
+    return store.add_documents(documents=prepared, ids=ids)
 
 
-# 完整执行一次文件载入：读取、解析、切块、embedding 并写入 Qdrant。
+# 完整执行一次文件载入：读取、解析、切块、embedding 并写入 Chroma。
 def ingest_file(
     file: bytes | bytearray | BinaryIO,
     filename: str,
@@ -247,7 +250,7 @@ def publish_document(
     if not chunks:
         raise ValueError("文件切分后没有可写入的文本片段")
 
-    # Qdrant 的点 ID 只能使用无符号整数或合法 UUID，不能直接使用 "uuid:序号"。
+    # 使用稳定 UUID 作为 chunk ID，便于按文档版本覆盖与删除。
     chunk_ids = [
         str(uuid5(NAMESPACE_URL, f"{logical_id}:{version}:{index}"))
         for index in range(len(chunks))
@@ -318,7 +321,7 @@ def deactivate_document(document_id: str) -> int:
         if active:
             mark_document_status(document_id, "inactive")
     except Exception:
-        # Keep the vector index usable when either a partial Qdrant update or
+        # Keep the vector index usable when either a partial Chroma update or
         # the authoritative registry update fails.
         for version in changed:
             set_document_status(document_id, "active", version=version)
@@ -327,7 +330,7 @@ def deactivate_document(document_id: str) -> int:
 
 
 def delete_document(document_id: str) -> int:
-    """Delete all vector points, restoring statuses if Qdrant deletion fails."""
+    """Delete all vector points, restoring statuses if Chroma deletion fails."""
 
     records = _document_records(document_id)
     if not records:

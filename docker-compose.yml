@@ -75,7 +75,11 @@ services:
       RAG_METADATA_MYSQL_DATABASE: ${RAG_METADATA_MYSQL_DATABASE:-wenrun}
       RAG_METADATA_MYSQL_USER: ${RAG_METADATA_MYSQL_USER:-root}
       RAG_METADATA_MYSQL_PASSWORD: ${RAG_METADATA_MYSQL_PASSWORD:?请在 .env 中设置 RAG_METADATA_MYSQL_PASSWORD}
+      CHROMA_PERSIST_DIR: /app/data/chroma
+      CHROMA_HOSPITAL_COLLECTION: ${CHROMA_HOSPITAL_COLLECTION:-wenrun_hospital_custom}
       TZ: Asia/Shanghai
+    volumes:
+      - chroma-data:/app/data/chroma
     depends_on:
       redis:
         condition: service_healthy
@@ -100,3 +104,4 @@ services:
 
 volumes:
   mysql-data:
+  chroma-data:

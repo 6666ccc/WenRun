@@ -1,7 +1,11 @@
 package com.wenrun.service.impl;
 
 import com.wenrun.common.exception.BusinessException;
+import com.wenrun.common.constant.AccountType;
+import com.wenrun.common.context.UserContext;
 import com.wenrun.config.ClinicProperties;
+import com.wenrun.entity.Schedule;
+import org.junit.jupiter.api.AfterEach;
 import com.wenrun.repository.ScheduleRepository;
 import com.wenrun.vo.ScheduleVO;
 import org.junit.jupiter.api.Test;
@@ -24,6 +28,11 @@ class ScheduleServiceImplTest {
     private final ScheduleRepository scheduleMapper = mock(ScheduleRepository.class);
     private final ClinicProperties clinic = new ClinicProperties();
     private final ScheduleServiceImpl service = new ScheduleServiceImpl(scheduleMapper, clinic);
+
+    @AfterEach
+    void clearContext() {
+        UserContext.clear();
+    }
 
     @Test
     void listWithoutWorkDateQueriesFromTodayOnward() {
@@ -86,6 +95,35 @@ class ScheduleServiceImplTest {
         BusinessException error = assertThrows(BusinessException.class, () -> service.getDetail(2L));
 
         assertEquals("排班不存在", error.getMessage());
+    }
+
+    @Test
+    void updateCapacityPreservesAlreadyBookedCount() {
+        Schedule current = new Schedule();
+        current.setId(2L);
+        current.setTotalCount(20);
+        current.setRemainingCount(14);
+        when(scheduleMapper.selectById(2L)).thenReturn(current);
+        Schedule update = new Schedule();
+        update.setId(2L);
+        update.setTotalCount(18);
+
+        service.update(update);
+
+        assertEquals(12, update.getRemainingCount());
+        verify(scheduleMapper).updateById(update);
+    }
+
+    @Test
+    void patientCannotMaintainSlots() {
+        UserContext.setAccountType(AccountType.PATIENT);
+        Schedule update = new Schedule();
+        update.setId(2L);
+        update.setTotalCount(18);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.update(update));
+
+        assertEquals("患者账号无权维护号源", error.getMessage());
     }
 
     private static ClinicProperties clinicAt(LocalDateTime beijingTime) {

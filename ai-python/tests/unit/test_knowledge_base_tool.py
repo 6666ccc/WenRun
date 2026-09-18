@@ -30,7 +30,7 @@ def test_retrieve_returns_empty_for_blank_query(monkeypatch):
 
 def test_retrieve_swallows_backend_failure(monkeypatch):
     def boom():
-        raise RuntimeError("qdrant down")
+        raise RuntimeError("chroma down")
 
     monkeypatch.setattr(kb, "get_hospital_retriever", boom)
 

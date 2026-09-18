@@ -1,5 +1,6 @@
 package com.wenrun.ai.security;
 
+import com.wenrun.ai.logging.AiToolCallLog;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
@@ -28,6 +29,7 @@ public class DelegatedToolAuthInterceptor implements HandlerInterceptor {
         }
         DelegatedToolPrincipal principal = delegationTokenService.verifyForToolApi(token);
         DelegatedToolContext.set(principal);
+        request.setAttribute(AiToolCallLog.PRINCIPAL_ATTR, principal);
         // 业务 Service 的「患者本人」校验读的是 UserContext，而这条路径不走 AuthInterceptor。
         // 不补这两行，退号的归属校验会整段失效，操作人字段也会写成 null。
         UserContext.setUserId(principal.userId());

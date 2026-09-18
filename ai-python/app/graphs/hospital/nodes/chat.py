@@ -5,6 +5,7 @@ from langgraph.runtime import Runtime
 from loguru import logger
 
 from app.graphs.hospital.context_builder import bounded_system_message, build_context
+from app.graphs.hospital.nodes.plan import task_goal
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tools.context import (
     HospitalToolContext,
@@ -73,7 +74,7 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
     try:
         for chunk in model.stream([
             bounded_system_message(build_chat_system_prompt(now)),
-            *build_context(state, purpose="chat"),
+            *build_context(state, purpose="chat", task_goal=task_goal(state, "chat")),
         ]):
             content = getattr(chunk, "content", "")
             if not isinstance(content, str) or not content:

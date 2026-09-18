@@ -1,5 +1,5 @@
-const TASK_TYPES = new Set(['registration', 'payment', 'records'])
-const TASK_FIELDS = ['title', 'scheduleId', 'chargeId', 'recordId']
+const TASK_TYPES = new Set(['registration', 'records'])
+const TASK_FIELDS = ['title', 'scheduleId', 'recordId']
 
 export function toTask(task) {
   if (!task || !TASK_TYPES.has(task.type)) return null

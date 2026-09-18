@@ -4,7 +4,7 @@ from hashlib import sha256
 from langchain_core.documents import Document
 
 from app.rag import ingest
-from app.rag.qdrant import active_document_filter
+from app.rag.chroma import active_document_filter
 from app.rag.safety import prepare_rag_documents, sanitize_rag_text
 
 
@@ -90,15 +90,14 @@ def test_prepare_rag_documents_drops_expired_and_prompt_injection_chunks():
 
 
 def test_retriever_filter_requires_active_and_effective_lifecycle_fields():
-    payload = active_document_filter(
-        datetime(2026, 9, 13, tzinfo=UTC)
-    ).model_dump(mode="json")
+    payload = active_document_filter(datetime(2026, 9, 13, tzinfo=UTC))
     serialized = str(payload)
 
-    assert "metadata.status" in serialized
-    assert "metadata.effective_from" in serialized
-    assert "metadata.expires_at" in serialized
+    assert "status" in serialized
+    assert "effective_from_ts" in serialized
+    assert "expires_at_ts" in serialized
     assert "active" in serialized
+    assert "metadata.status" not in serialized
 
 
 def test_deactivate_and_delete_use_document_scoped_operations(monkeypatch):
@@ -134,16 +133,16 @@ def test_registry_is_authoritative_when_configured(monkeypatch):
     )
     monkeypatch.setattr(
         ingest,
-        "list_qdrant_document_records",
+        "list_chroma_document_records",
         lambda document_id: (_ for _ in ()).throw(
-            AssertionError("Qdrant metadata must not override MySQL")
+            AssertionError("Chroma metadata must not override MySQL")
         ),
     )
 
     assert ingest.get_document_versions("doc-1") == expected
 
 
-def test_deactivate_restores_qdrant_status_when_registry_update_fails(monkeypatch):
+def test_deactivate_restores_chroma_status_when_registry_update_fails(monkeypatch):
     changes = []
     monkeypatch.setattr(
         ingest, "_document_records", lambda document_id: [{"version": 2, "status": "active"}]
@@ -198,7 +197,7 @@ def test_publish_version_conflict_does_not_mark_other_publisher_failed(monkeypat
     assert marked == []
 
 
-def test_delete_restores_authoritative_statuses_when_qdrant_delete_fails(monkeypatch):
+def test_delete_restores_authoritative_statuses_when_chroma_delete_fails(monkeypatch):
     records = [
         {"version": 1, "status": "superseded", "qdrant_sync_status": "synced"},
         {"version": 2, "status": "active", "qdrant_sync_status": "synced"},
@@ -211,7 +210,7 @@ def test_delete_restores_authoritative_statuses_when_qdrant_delete_fails(monkeyp
     monkeypatch.setattr(
         ingest,
         "delete_document_points",
-        lambda document_id: (_ for _ in ()).throw(RuntimeError("qdrant unavailable")),
+        lambda document_id: (_ for _ in ()).throw(RuntimeError("chroma unavailable")),
     )
     monkeypatch.setattr(
         ingest,
@@ -222,7 +221,7 @@ def test_delete_restores_authoritative_statuses_when_qdrant_delete_fails(monkeyp
     try:
         ingest.delete_document("doc-1")
     except RuntimeError as exc:
-        assert str(exc) == "qdrant unavailable"
+        assert str(exc) == "chroma unavailable"
     else:
         raise AssertionError("delete failure must be visible to the caller")
 

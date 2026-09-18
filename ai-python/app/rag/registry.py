@@ -1,6 +1,6 @@
 """Optional MySQL authority for RAG lifecycle metadata.
 
-Qdrant remains a rebuildable index. Production should configure this registry with
+Chroma remains a rebuildable index. Production should configure this registry with
 a database user restricted to ``ai_knowledge_documents``.
 """
 
@@ -74,7 +74,7 @@ def begin_publish(metadata: dict, *, file_size: int) -> bool:
                 (
                     metadata["document_id"], metadata["version"],
                     metadata["source_name"],
-                    f"qdrant://hospital/{metadata['document_id']}/{metadata['version']}",
+                    f"chroma://hospital/{metadata['document_id']}/{metadata['version']}",
                     f"application/{Path(metadata['source_name']).suffix.lstrip('.') or 'octet-stream'}",
                     file_size, metadata["checksum"],
                     _mysql_datetime(metadata["effective_from"]),
@@ -189,5 +189,5 @@ def registry_status() -> dict:
     return {
         "enabled": enabled(),
         "checkedAt": datetime.now(UTC).isoformat(),
-        "authority": "mysql" if enabled() else "qdrant_only_development",
+        "authority": "mysql" if enabled() else "chroma_only_development",
     }

@@ -5,8 +5,8 @@ from app.graphs.hospital import memory
 
 def test_reset_turn_fields_clears_every_node_output():
     assert memory.reset_turn_fields() == {
-        "knowledge_reply": None, "rag_sources": None, "chat_reply": None,
-        "tools_reply": None, "final_reply": None,
+        "task_plan": None, "knowledge_reply": None, "rag_sources": None,
+        "chat_reply": None, "tools_reply": None, "final_reply": None,
     }
 
 

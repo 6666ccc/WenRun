@@ -40,6 +40,8 @@ BEGIN_SYSTEM_PROMPT = """你是温润诊所患者端的意图路由器，不是�
   健康陪伴无关的任务，selected_agents 输出空数组，out_of_scope 输出 true。
 - 模糊但仍可能和医院或健康有关时不能标记域外，按最接近的标签选择或交由澄清。
 - 患者说“联网搜索/搜一下”只是检索方式，仍按问题本身分类：医疗知识走 knowledge。
+- 追问接续：如果上一条助手消息在追问日期、时段、科室、医生、退哪一张号等参数，而患者本条只是在补充回答
+  （如“明天下午”“内科”“李雷医生”“第一个”），沿用上一轮正在办理的标签（通常是 tools），不要当成寒暄归到 chat。
 
 示例：
 - “你好” → chat
@@ -59,6 +61,7 @@ BEGIN_SYSTEM_PROMPT = """你是温润诊所患者端的意图路由器，不是�
 - “帮我挂明天内科，另外感冒要不要来医院？” → knowledge, tools
 - “谢谢你啊，顺便问问儿科在几楼。” → chat
 - “你好，帮我挂内科” → tools
+- 上一条助手：“请问您想约哪一天？” 患者：“明天下午” → tools
 - “帮我写一个排序算法” → out_of_scope=true, selected_agents=[]
 
 输出要求：
@@ -174,6 +177,27 @@ def _route_locally(text: str) -> LocalRouteResult:
     return route_locally(text)
 
 
+_FOLLOWUP_AGENTS: frozenset[str] = frozenset({"tools", "knowledge"})
+_FOLLOWUP_REPLY_FIELDS: tuple[str, ...] = ("tools_reply", "knowledge_reply")
+
+
+def pending_followup(state: State) -> bool:
+    """上一轮业务/知识助手是否在追问参数（本节点尚未重置上一轮字段，可直接读）。
+
+    本地规则与轻量分类器只看最新一句，“明天下午”“内科”这类补充回答会被误判成闲聊；
+    此时必须交给能看到历史的 LLM 路由。
+    """
+
+    previous_agents = state.get("selected_agents") or []
+    if not any(agent in _FOLLOWUP_AGENTS for agent in previous_agents):
+        return False
+    for field in _FOLLOWUP_REPLY_FIELDS:
+        reply = state.get(field)
+        if isinstance(reply, str) and reply.rstrip().endswith(("？", "?")):
+            return True
+    return False
+
+
 def begin_node(state: State) -> dict:
     """执行规则→轻量模型→LLM 的级联分类，并写入图 State。"""
 
@@ -185,7 +209,13 @@ def begin_node(state: State) -> dict:
     router_response: str | None = None
     out_of_scope = False
 
-    if local.accepted:
+    # 规则命中足够可靠可以直接用；轻量模型没有上下文，追问接续时改走带历史的 LLM。
+    local_accepted = local.accepted
+    if local_accepted and local.stage != "rules" and pending_followup(state):
+        local_accepted = False
+        route_metadata["escalation_reason"] = "pending_followup"
+
+    if local_accepted:
         selected_agents = list(local.selected_agents)
     else:
         raw_decision = _classify(messages)

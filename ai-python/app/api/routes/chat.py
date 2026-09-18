@@ -22,6 +22,7 @@ from app.graphs.hospital.checkpointing import (
     get_fast_memory_graph,
     get_memory_graph,
 )
+from app.graphs.hospital.confirmation import decision_from_text
 from app.graphs.hospital.confirmation import resume_command as _resume_command
 from app.graphs.hospital.graphs import fast_graph, graph
 from app.graphs.hospital.identity import thread_id_for
@@ -430,8 +431,13 @@ async def _chat_events(
     thread_id: str,
     checkpoint_hit: bool,
     rehydrated: bool,
+    resume_pending: list[dict[str, Any]] | None = None,
 ) -> AsyncIterator[str]:
-    """/stream 与 /resume 共用的 SSE 事件流。"""
+    """/stream 与 /resume 共用的 SSE 事件流。
+
+    resume_pending 非空表示这是确认卡片挂起期间的旁路回答：正文流完后不发 done，
+    而是重新发出 confirm，让卡片继续留在患者面前。
+    """
 
     started_at = perf_counter()
     trace = begin_context_trace(
@@ -448,6 +454,7 @@ async def _chat_events(
     selected_agents: list[str] = []
     retrieval_status_sent = False
     final_status_sent = False
+    plan_status_sent = False
     try:
         async for part in _stream_graph(graph_instance, graph_input, context, config):
             _merge_stream_state(graph_state, part)
@@ -455,6 +462,11 @@ async def _chat_events(
             selected_agents = [
                 agent for agent in incoming_agents if isinstance(agent, str)
             ]
+
+            if not fast_mode and len(selected_agents) >= 2 and not plan_status_sent:
+                # 多意图回合会先经过 plan_node 拆子目标，给患者一个明确的等待提示。
+                plan_status_sent = True
+                yield _sse({"type": "status", "content": "正在拆解您的请求…"})
 
             if not fast_mode and "knowledge" in selected_agents and not retrieval_status_sent:
                 retrieval_status_sent = True
@@ -542,6 +554,17 @@ async def _chat_events(
         # 如果服务提供方不提供令牌片段，则发送一个完整令牌以保持协议一致，
         # 避免返回空答案。
         yield _sse({"type": "token", "content": response.reply})
+    if resume_pending:
+        # 旁路回答结束后把原来的确认卡片重新交还给患者；done 会让前端结束本轮，不能发。
+        logger.info(
+            "chat_stream_side_reply_reissued_confirmation conversation_id={} interrupt_id={}",
+            conversation_id,
+            resume_pending[0].get("id"),
+        )
+        async for event in _confirmation_stream(conversation_id, resume_pending):
+            yield event
+        trace.finish()
+        return
     yield _sse({
         "type": "done",
         **response.model_dump(by_alias=True),
@@ -566,6 +589,106 @@ def _event_stream(events: AsyncIterator[str]) -> StreamingResponse:
     )
 
 
+_SIDE_REPLY_STATE_FIELDS = ("summary", "patient_id")
+
+
+def _side_reply_state(
+    request: ChatRequest, delegation: DelegationContext, snapshot: Any | None
+) -> dict[str, Any]:
+    """卡片挂起期间的旁路回答输入：沿用 checkpoint 里的历史与摘要，但不写回 thread。
+
+    被 interrupt 的 superstep 还没提交，这时 update_state 不安全；旁路回答只跑无
+    checkpointer 的图，消息以 Java 侧持久化的会话记录为准。
+    """
+
+    values = getattr(snapshot, "values", None)
+    values = values if isinstance(values, dict) else {}
+    history = [
+        message for message in (values.get("messages") or [])
+        if isinstance(message, (HumanMessage, AIMessage))
+    ]
+    state = _initial_state(request, delegation)
+    state["messages"] = [*history, *state["messages"]]
+    for field in _SIDE_REPLY_STATE_FIELDS:
+        if values.get(field) is not None:
+            state.setdefault(field, values[field])
+    return state
+
+
+def _pending_turn_response(
+    request: ChatRequest,
+    delegation: DelegationContext,
+    graph_instance: Any,
+    config: dict[str, Any],
+    snapshot: Any | None,
+    pending: list[dict[str, Any]],
+) -> StreamingResponse:
+    """确认卡片挂起时收到新消息：短句确认/否决直接续跑，其余先旁路回答再交还卡片。"""
+
+    thread_id = config["configurable"]["thread_id"]
+    decision = decision_from_text(request.message)
+    if decision is not None:
+        command, error_code, error_message = _resume_command(decision, None, pending)
+        if command is None:
+            logger.info(
+                "chat_stream_text_decision_unresolved conversation_id={} pending_count={} code={}",
+                request.conversation_id,
+                len(pending),
+                error_code,
+            )
+            trace = begin_context_trace(
+                request_id=current_request_id(),
+                thread_id=thread_id,
+                mode="normal",
+                checkpoint_hit=True,
+                rehydrated=False,
+            )
+            trace.node_names.add("resume_validation")
+            trace.finish(error_code=error_code or "AI_RESUME_CONFLICT")
+            return _event_stream(
+                _sse_error(error_code or "AI_RESUME_CONFLICT", error_message or "请重新发起挂号")
+            )
+        logger.info(
+            "chat_stream_text_decision conversation_id={} decision={} interrupt_id={}",
+            request.conversation_id,
+            decision,
+            pending[0].get("id"),
+        )
+        return _event_stream(_chat_events(
+            graph_instance=graph_instance,
+            graph_input=command,
+            context=_runtime_context(request.conversation_id, delegation, writes_enabled=True),
+            config=config,
+            conversation_id=request.conversation_id,
+            fast_mode=False,
+            request_id=current_request_id(),
+            thread_id=thread_id,
+            checkpoint_hit=True,
+            rehydrated=False,
+        ))
+
+    logger.info(
+        "chat_stream_side_reply_while_pending conversation_id={} pending_count={} ids={}",
+        request.conversation_id,
+        len(pending),
+        [item.get("id") for item in pending],
+    )
+    # 只读上下文、禁用写工具：旁路回答不能再触发第二张卡片，也不能碰挂起的 thread。
+    return _event_stream(_chat_events(
+        graph_instance=graph,
+        graph_input=_side_reply_state(request, delegation, snapshot),
+        context=_runtime_context(request.conversation_id, delegation, writes_enabled=False),
+        config=config,
+        conversation_id=request.conversation_id,
+        fast_mode=False,
+        request_id=current_request_id(),
+        thread_id=thread_id,
+        checkpoint_hit=True,
+        rehydrated=False,
+        resume_pending=pending,
+    ))
+
+
 @router.post("/stream")
 async def chat_stream(
     request: ChatRequest,
@@ -583,22 +706,9 @@ async def chat_stream(
     if has_checkpointer:
         pending = _confirmations_from_snapshot(snapshot)
         if pending:
-            logger.info(
-                "chat_stream_preserved_pending_confirmation conversation_id={} pending_count={} ids={}",
-                request.conversation_id,
-                len(pending),
-                [item.get("id") for item in pending],
+            return _pending_turn_response(
+                request, delegation, graph_instance, config, snapshot, pending
             )
-            trace = begin_context_trace(
-                request_id=current_request_id(),
-                thread_id=config["configurable"]["thread_id"],
-                mode="normal",
-                checkpoint_hit=True,
-                rehydrated=False,
-            )
-            trace.node_names.add("pending_confirmation")
-            trace.finish()
-            return _event_stream(_confirmation_stream(request.conversation_id, pending))
 
     graph_input = _initial_state(request, delegation)
     rehydrated = False

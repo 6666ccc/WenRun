@@ -9,6 +9,9 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 
+# Embedded Chroma index
+ai-python/data/
+
 # Build
 dist/
 build/
@@ -51,6 +54,9 @@ application-local.yml
 *.njsproj
 *.sln
 *.sw?
+
+# Editor extension installers
+*.vsix
 *.iws
 *.iml
 *.ipr

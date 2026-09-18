@@ -15,10 +15,8 @@ const { user, logout } = useAuth()
 
 const nav = [
   { to: '/home', icon: 'home', label: '首页' },
-  { to: '/assistant', icon: 'ai', label: '健康助手' },
+  { to: '/assistant', icon: 'ai', label: 'AI 健康助手' },
   { to: '/registration', icon: 'calendar', label: '预约挂号' },
-  { to: '/payment', icon: 'wallet', label: '门诊缴费' },
-  { to: '/department', icon: 'hospital', label: '科室医生' },
   { to: '/user', icon: 'user', label: '个人中心' },
 ]
 const pageLabel = computed(() => nav.find((item) => route.path === item.to || route.path.startsWith(`${item.to}/`))?.label || '患者服务')
@@ -34,9 +32,9 @@ async function signOut() {
   <div v-if="isPc" class="app-shell">
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <aside class="app-shell__sidebar" aria-label="患者服务导航">
-      <RouterLink class="app-shell__brand" to="/home" aria-label="温润诊所患者服务首页">
+      <RouterLink class="app-shell__brand" to="/home" aria-label="温润医院患者服务首页">
         <span class="app-shell__logo" aria-hidden="true"><UiIcon name="logo" :size="22" /></span>
-        <div class="app-shell__brand-text"><small>WENRUN CARE</small><strong>温润诊所</strong><span>患者服务</span></div>
+        <div class="app-shell__brand-text"><small>WENRUN CARE</small><strong>温润医院</strong><span>患者服务</span></div>
       </RouterLink>
 
       <nav class="app-shell__nav" aria-label="患者端主导航">
@@ -73,13 +71,13 @@ async function signOut() {
           <div :key="route.fullPath" class="app-shell__page"><slot /></div>
         </Transition>
       </main>
-      <footer class="app-shell__footer"><div class="app-shell__footer-inner"><span>温润诊所 · 患者端服务</span><span>本系统仅供演示 · 紧急情况请及时就医</span></div></footer>
+      <footer class="app-shell__footer"><div class="app-shell__footer-inner"><span>温润医院 · 患者端服务</span><span>本系统仅供演示 · 紧急情况请及时就医</span></div></footer>
     </div>
   </div>
 
   <div v-else class="mobile-shell">
     <a class="skip-link" href="#main-content">跳到主要内容</a>
-    <main id="main-content" class="mobile-shell__content" tabindex="-1">
+    <main id="main-content" class="mobile-shell__content" :class="{ 'mobile-shell__content--flush': !padded }" tabindex="-1">
       <Transition name="clinic-page" mode="out-in">
         <div :key="route.fullPath" class="mobile-shell__page"><slot /></div>
       </Transition>
@@ -92,7 +90,22 @@ async function signOut() {
 .skip-link { position: fixed; top: 10px; left: 12px; z-index: 10000; padding: 10px 14px; border-radius: 8px; background: #fff; color: var(--color-brand-900); font-weight: 700; box-shadow: var(--shadow-lg); transform: translateY(-160%); transition: transform var(--motion-fast) var(--ease-enter); }
 .skip-link:focus { transform: translateY(0); }
 .app-shell { min-height: 100vh; display: flex; background: var(--color-bg); }
-.app-shell__sidebar { position: relative; width: 232px; flex: 0 0 232px; min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: var(--color-sidebar); color: var(--color-sidebar-text); }
+.app-shell__sidebar {
+  position: sticky;
+  top: 0;
+  width: 232px;
+  height: 100vh;
+  min-height: 100vh;
+  max-height: 100vh;
+  flex: 0 0 232px;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--color-sidebar);
+  color: var(--color-sidebar-text);
+}
 .app-shell__sidebar::after { content: ''; position: absolute; top: 104px; bottom: 126px; left: 29px; width: 1px; background: linear-gradient(transparent, rgba(157,226,214,.36) 12%, rgba(157,226,214,.36) 88%, transparent); pointer-events: none; }
 .app-shell__brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; min-height: 84px; padding: 17px 18px; border-bottom: 1px solid rgba(255,255,255,.13); color: #fff; text-decoration: none; }
 .app-shell__logo { width: 42px; height: 42px; display: grid; place-items: center; flex: 0 0 42px; border: 1px solid rgba(255,255,255,.22); border-radius: 12px; background: rgba(255,255,255,.11); color: #fff; }
@@ -129,6 +142,7 @@ async function signOut() {
 .app-shell__footer-inner { width: min(1360px, 100%); min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 0 auto; padding: 10px 40px; }
 .mobile-shell { min-height: 100%; background: var(--color-bg); }
 .mobile-shell__content { min-height: 100vh; padding: 20px 16px calc(84px + env(safe-area-inset-bottom)); }
+.mobile-shell__content--flush { padding: 0 0 calc(84px + env(safe-area-inset-bottom)); }
 @media (min-width: 768px) and (max-width: 1199px) {
   .app-shell__sidebar { width: 80px; flex-basis: 80px; }
   .app-shell__brand { justify-content: center; padding: 18px 12px; }
@@ -141,5 +155,8 @@ async function signOut() {
   .app-shell__content { padding: 30px 28px 38px; }
 }
 @media (max-width: 767px) { .app-shell__footer { display: none; } }
-@media (max-width: 520px) { .mobile-shell__content { padding-inline: 14px; } }
+@media (max-width: 520px) {
+  .mobile-shell__content { padding-inline: 14px; }
+  .mobile-shell__content--flush { padding-inline: 0; }
+}
 </style>

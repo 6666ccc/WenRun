@@ -19,6 +19,8 @@ public interface RegistrationRepository {
 
     Registration selectById(@Param("id") Long id);
 
+    Registration selectByIdForUpdate(@Param("id") Long id);
+
     int insert(Registration registration);
 
     int updateStatus(@Param("id") Long id, @Param("status") Integer status);
@@ -38,6 +40,20 @@ public interface RegistrationRepository {
                                     @Param("staffId") Long staffId,
                                     @Param("workDate") LocalDate workDate,
                                     @Param("timePeriod") String timePeriod);
+
+    int countOtherActiveByPatientAndSlot(@Param("patientId") Long patientId,
+                                         @Param("staffId") Long staffId,
+                                         @Param("workDate") LocalDate workDate,
+                                         @Param("timePeriod") String timePeriod,
+                                         @Param("excludeRegistrationId") Long excludeRegistrationId);
+
+    int updateScheduleIfCurrent(@Param("id") Long id,
+                                @Param("expectedScheduleId") Long expectedScheduleId,
+                                @Param("expectedStatus") Integer expectedStatus,
+                                @Param("scheduleId") Long scheduleId,
+                                @Param("deptId") Long deptId,
+                                @Param("staffId") Long staffId,
+                                @Param("regFee") java.math.BigDecimal regFee);
 
     Registration selectByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
 }

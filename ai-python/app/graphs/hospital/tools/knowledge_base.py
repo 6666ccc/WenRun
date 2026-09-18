@@ -4,8 +4,8 @@ from langchain.tools import tool
 from langchain_core.documents import Document
 from loguru import logger
 
+from app.rag.chroma import get_hospital_retriever
 from app.rag.documents import format_rag_context
-from app.rag.qdrant import get_hospital_retriever
 from app.rag.safety import prepare_rag_documents
 
 

@@ -29,7 +29,7 @@ python scripts/evaluate_intent_router.py
 - `GET /v1/chat/documents/{document_id}`：查看该文档的所有版本元数据；配置 MySQL registry 时以 MySQL 为准。
 - `POST /v1/chat/documents/{document_id}/deactivate`：停止所有 active 版本参与检索。
 - `POST /v1/chat/documents/{document_id}/rebuild`：携带新文件重建为下一版本。
-- `DELETE /v1/chat/documents/{document_id}`：删除该文档的 Qdrant points，并同步 MySQL 生命周期状态。
+- `DELETE /v1/chat/documents/{document_id}`：删除该文档的 Chroma points，并同步 MySQL 生命周期状态。
 - `DELETE /v1/chat/memory/{conversation_id}`：清除单个会话的 Redis checkpoint；需要 `X-Api-Key`，不需要委托令牌。会话归属由 Java 在调用前校验。
 - `GET /v1/metrics/intent-routing`：返回当前 Python 进程的规则/轻量模型/LLM/失败分层计数，不包含患者原文；需要 `X-Api-Key`。
 - `GET /v1/metrics/context`：返回脱敏的上下文 token、P95 延迟、错误和模式计数。
@@ -38,7 +38,7 @@ python scripts/evaluate_intent_router.py
 
 ## 本地运行
 
-复制 `.env.example` 为 `.env`，填写模型、Embedding、Qdrant 和服务间密钥后运行：
+复制 `.env.example` 为 `.env`，填写模型、Embedding、Chroma 和服务间密钥后运行：
 
 ```bash
 pip install -e ".[test]"
@@ -48,7 +48,7 @@ python scripts/evaluate_intent_router.py
 python scripts/evaluate_context.py
 ```
 
-RAG chunk 必须带 `checksum/version/status/effective_from/expires_at/uploaded_by/updated_at`。生产应配置 `RAG_METADATA_MYSQL_*` 并使用只允许维护 `ai_knowledge_documents` 的数据库账号；MySQL 是生命周期权威源，Qdrant 是可重建索引。检索同时执行 Qdrant 生命周期过滤和 Python 侧 fail-closed 复核；控制字符会被清理，疑似提示注入的 chunk 不进入模型。每轮 context trace 只记录哈希 thread、分区 token 数、记忆/RAG 数量、工具名、延迟与版本，不记录患者原文、密钥或工具结果。
+RAG chunk 必须带 `checksum/version/status/effective_from/expires_at/uploaded_by/updated_at`。生产应配置 `RAG_METADATA_MYSQL_*` 并使用只允许维护 `ai_knowledge_documents` 的数据库账号；MySQL 是生命周期权威源，Chroma 是可重建索引。检索同时执行 Chroma 生命周期过滤和 Python 侧 fail-closed 复核；控制字符会被清理，疑似提示注入的 chunk 不进入模型。每轮 context trace 只记录哈希 thread、分区 token 数、记忆/RAG 数量、工具名、延迟与版本，不记录患者原文、密钥或工具结果。
 
 `evaluate_context.py` 的 60 条确定性用例会实际执行 Context Builder、用户作用域 thread、checkpoint 重建、确认映射、RAG 安全过滤和引用格式化，不调用模型。工具选择率是离线代理指标；真实回答质量、首 token 与模型总延迟仍应从线上 context trace 统计。
 

@@ -115,6 +115,76 @@ def test_tool_node_invokes_agent_with_request_scoped_context(monkeypatch):
     assert captured["context"].now.tzinfo == CLINIC_TZ
 
 
+def test_tool_node_injects_subtask_and_upstream_knowledge_when_dependent(monkeypatch):
+    captured: dict = {}
+
+    class FakeAgent:
+        def invoke(self, payload, *, context):
+            captured["messages"] = payload["messages"]
+            return {"messages": [HumanMessage(content="呼吸内科明天下午还有 3 个号。")]}
+
+    monkeypatch.setattr(tool_node_module, "agent", FakeAgent())
+    history = [HumanMessage(content="感冒了该看哪科，帮我挂明天那个科的号")]
+    tool_node_module.tool_node(
+        {
+            "selected_agents": ["knowledge", "tools"],
+            "conversation_id": "conversation-1",
+            "messages": history,
+            "knowledge_reply": "普通感冒建议看呼吸内科。",
+            "task_plan": {"tasks": [
+                {"agent": "knowledge", "goal": "感冒该看哪科", "depends_on": []},
+                {"agent": "tools", "goal": "挂明天对应科室的号", "depends_on": ["knowledge"]},
+            ]},
+        },
+        _graph_runtime(CONTEXT),
+    )
+
+    messages = captured["messages"]
+    # 原始对话在前，子任务与上游结论作为不可信数据追加在最后，不会被历史截断吃掉。
+    assert messages[0] == history[0]
+    labels = [
+        message.additional_kwargs.get("context_source")
+        for message in messages[1:]
+    ]
+    assert labels == ["upstream_result", "current_subtask"]
+    assert "呼吸内科" in messages[1].content
+    assert "挂明天对应科室的号" in messages[2].content
+    assert all(message.additional_kwargs.get("trust") == "untrusted_data" for message in messages[1:])
+
+
+def test_tool_node_omits_upstream_knowledge_without_dependency(monkeypatch):
+    captured: dict = {}
+
+    class FakeAgent:
+        def invoke(self, payload, *, context):
+            captured["messages"] = payload["messages"]
+            return {"messages": [HumanMessage(content="好的。")]}
+
+    monkeypatch.setattr(tool_node_module, "agent", FakeAgent())
+    tool_node_module.tool_node(
+        {
+            "selected_agents": ["knowledge", "tools"],
+            "messages": [HumanMessage(content="感冒吃什么药，顺便查下明天内科的号")],
+            "knowledge_reply": "多喝水。",
+            "task_plan": {"tasks": [
+                {"agent": "knowledge", "goal": "感冒吃什么药", "depends_on": []},
+                {"agent": "tools", "goal": "查明天内科的号", "depends_on": []},
+            ]},
+        },
+        _graph_runtime(CONTEXT),
+    )
+
+    labels = [m.additional_kwargs.get("context_source") for m in captured["messages"]]
+    assert "upstream_result" not in labels
+    assert labels[-1] == "current_subtask"
+
+
+def test_tool_prompts_instruct_to_use_upstream_department():
+    for prompt in (tool_node_module.TOOL_SYSTEM_PROMPT, tool_node_module.WRITE_TOOL_SYSTEM_PROMPT):
+        assert "upstream_result" in prompt
+        assert "不要再追问患者看哪科" in prompt
+
+
 def test_tool_system_prompt_includes_beijing_clock():
     prompt = tool_node_module.build_tool_system_prompt(FROZEN_NOW)
 

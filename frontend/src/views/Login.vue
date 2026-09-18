@@ -55,9 +55,9 @@ function switchMode(next) {
 <template>
   <div class="login-scene">
     <header class="login-topbar">
-      <div class="login-brand" aria-label="温润诊所患者服务">
+      <div class="login-brand" aria-label="温润医院患者服务">
         <span class="login-brand__mark" aria-hidden="true"><UiIcon name="logo" :size="22" /></span>
-        <span><strong>温润诊所</strong><small>患者服务</small></span>
+        <span><strong>温润医院</strong><small>患者服务</small></span>
       </div>
       <p class="login-emergency"><UiIcon name="alert" :size="15" />急症请拨打 120</p>
     </header>

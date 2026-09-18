@@ -15,3 +15,7 @@ export function createRegistration(data) {
 export function cancelRegistration(id) {
   return request.post(`/api/registrations/${id}/cancel`)
 }
+
+export function rescheduleRegistration(id, scheduleId) {
+  return request.put(`/api/registrations/${id}/schedule`, { scheduleId })
+}

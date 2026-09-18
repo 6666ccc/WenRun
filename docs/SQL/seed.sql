@@ -12,9 +12,7 @@ INSERT INTO sys_role (role_code, role_name, default_portal)
 VALUES
   ('admin', CONVERT(UNHEX('E7AEA1E79086E59198') USING utf8mb4), 'admin'),
   ('doctor', CONVERT(UNHEX('E58CBBE7949F') USING utf8mb4), 'doctor'),
-  ('patient', CONVERT(UNHEX('E682A3E88085') USING utf8mb4), 'patient'),
-  ('cashier', CONVERT(UNHEX('E694B6E8B4B9E59198') USING utf8mb4), 'admin'),
-  ('pharmacist', CONVERT(UNHEX('E88DAFE5B888') USING utf8mb4), 'admin')
+  ('patient', CONVERT(UNHEX('E682A3E88085') USING utf8mb4), 'patient')
 ON DUPLICATE KEY UPDATE
   role_name = VALUES(role_name),
   default_portal = VALUES(default_portal);

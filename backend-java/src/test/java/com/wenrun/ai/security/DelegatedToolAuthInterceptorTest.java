@@ -40,6 +40,9 @@ class DelegatedToolAuthInterceptorTest {
         assertEquals(7L, DelegatedToolContext.getRequired().userId());
         assertEquals(11L, DelegatedToolContext.getRequired().patientId());
         assertEquals(true, DelegatedToolContext.getRequired().hasScope("departments:read"));
+        DelegatedToolPrincipal stored = (DelegatedToolPrincipal) request.getAttribute(
+                com.wenrun.ai.logging.AiToolCallLog.PRINCIPAL_ATTR);
+        assertEquals(7L, stored.userId());
     }
 
     @Test

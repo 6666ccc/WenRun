@@ -63,7 +63,7 @@ const fields = [
 
 <template>
   <AppShell>
-    <PageHeader title="个人中心" subtitle="管理您的档案、预约与挂号记录" />
+    <PageHeader title="个人中心" subtitle="管理您的个人档案与挂号记录" />
     <div v-if="message" class="card mb-md vue-message" :class="{success:message.includes('成功') || message.includes('已取消')}" :role="message.includes('成功') || message.includes('已取消') ? 'status' : 'alert'">{{ message }}</div>
     <UiState :loading="loading" :error="error" :empty="!patient" empty-text="暂无患者档案">
       <div class="vue-profile stagger">

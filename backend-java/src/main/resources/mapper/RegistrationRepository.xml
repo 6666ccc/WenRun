@@ -30,6 +30,9 @@
     <select id="selectById" resultType="com.wenrun.entity.Registration">
         SELECT * FROM registration WHERE id = #{id}
     </select>
+    <select id="selectByIdForUpdate" resultType="com.wenrun.entity.Registration">
+        SELECT * FROM registration WHERE id = #{id} FOR UPDATE
+    </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO registration (reg_no, patient_id, schedule_id, dept_id, staff_id, reg_time, reg_fee, status,
         cashier_id, registrant_user_id, idempotency_key)
@@ -62,5 +65,26 @@
           AND sc.time_period = #{timePeriod}
           AND r.status IN (1, 2)
     </select>
+    <select id="countOtherActiveByPatientAndSlot" resultType="int">
+        SELECT COUNT(*)
+        FROM registration r
+        INNER JOIN schedule sc ON sc.id = r.schedule_id
+        WHERE r.patient_id = #{patientId}
+          AND r.staff_id = #{staffId}
+          AND sc.work_date = #{workDate}
+          AND sc.time_period = #{timePeriod}
+          AND r.status IN (1, 2)
+          AND r.id &lt;&gt; #{excludeRegistrationId}
+    </select>
+    <update id="updateScheduleIfCurrent">
+        UPDATE registration
+        SET schedule_id = #{scheduleId},
+            dept_id = #{deptId},
+            staff_id = #{staffId},
+            reg_fee = #{regFee}
+        WHERE id = #{id}
+          AND schedule_id = #{expectedScheduleId}
+          AND status = #{expectedStatus}
+    </update>
 
 </mapper>

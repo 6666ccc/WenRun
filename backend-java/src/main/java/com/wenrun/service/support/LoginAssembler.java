@@ -18,17 +18,13 @@ public final class LoginAssembler {
     private static final Map<String, Integer> ROLE_PRIORITY = Map.of(
             "patient", 0,
             "doctor", 1,
-            "admin", 2,
-            "cashier", 3,
-            "pharmacist", 4
+            "admin", 2
     );
 
     private static final Map<String, String> ROLE_PORTAL_FALLBACK = Map.of(
             "doctor", PortalType.DOCTOR,
             "patient", PortalType.PATIENT,
-            "admin", PortalType.ADMIN,
-            "cashier", PortalType.ADMIN,
-            "pharmacist", PortalType.ADMIN
+            "admin", PortalType.ADMIN
     );
 
     private LoginAssembler() {

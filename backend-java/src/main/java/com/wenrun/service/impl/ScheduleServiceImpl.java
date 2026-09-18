@@ -1,6 +1,8 @@
 package com.wenrun.service.impl;
 
 import com.wenrun.config.ClinicProperties;
+import com.wenrun.common.constant.AccountType;
+import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.entity.Schedule;
 import com.wenrun.repository.ScheduleRepository;
@@ -58,6 +60,10 @@ public class ScheduleServiceImpl implements ScheduleService {
     /** 新建排班，剩余号源默认等于总号源 */
     @Override
     public Long create(Schedule schedule) {
+        requireSlotManager();
+        if (schedule.getTotalCount() == null || schedule.getTotalCount() <= 0) {
+            throw new BusinessException("总号源必须大于 0");
+        }
         if (schedule.getRemainingCount() == null) {
             schedule.setRemainingCount(schedule.getTotalCount());
         }
@@ -68,7 +74,24 @@ public class ScheduleServiceImpl implements ScheduleService {
     /** 更新排班信息 */
     @Override
     public void update(Schedule schedule) {
-        getById(schedule.getId());
+        requireSlotManager();
+        Schedule current = getById(schedule.getId());
+        if (schedule.getTotalCount() != null) {
+            int bookedCount = current.getTotalCount() - current.getRemainingCount();
+            if (schedule.getTotalCount() < bookedCount) {
+                throw new BusinessException("总号源不能小于已预约数量");
+            }
+            schedule.setRemainingCount(schedule.getTotalCount() - bookedCount);
+        } else {
+            // 剩余号源只能由挂号、改约、取消事务维护，管理接口不能直接覆盖。
+            schedule.setRemainingCount(null);
+        }
         scheduleMapper.updateById(schedule);
+    }
+
+    private static void requireSlotManager() {
+        if (AccountType.PATIENT.equals(UserContext.getAccountType())) {
+            throw new BusinessException("患者账号无权维护号源");
+        }
     }
 }

@@ -5,7 +5,7 @@
 ## Docker Compose 启动
 
 1. 将根目录 `.env.example` 复制为 `.env`。
-2. 将 `ai-python/.env.example` 复制为 `ai-python/.env`，填写模型与 Qdrant 配置。
+2. 将 `ai-python/.env.example` 复制为 `ai-python/.env`，填写模型与 Chroma 配置。
 3. 保证根目录 `AI_SERVICE_API_KEY` 与 AI 目录 `AI_INTERNAL_API_KEY` 完全一致。
 4. 运行 `docker compose up --build`，然后访问 `http://localhost:5173`。
 
@@ -53,7 +53,7 @@ python scripts/evaluate_context.py
 - MySQL：会话归属、聊天消息、确认卡片元数据、患者长期偏好与知识文档审计记录的权威存储。
 - Redis db0：带 TTL 的 LangGraph checkpoint 与按用户/会话的执行锁；可丢失，不是历史事实源。
 - Redis db1：Java 登录 Session；生产配置使用 AOF，不能与 checkpoint 混用数据库编号。
-- Qdrant：院内资料的可重建向量索引；检索只接受 `active` 且在有效期内的版本。
+- Chroma：院内资料的可重建向量索引（进程内目录，类似 SQLite）；检索只接受 `active` 且在有效期内的版本。
 - Context Builder：按 token 预算选择结构化摘要、近期消息、最多 5 条长期偏好及外部资料；患者文本、记忆和检索片段均按不可信数据处理。
 
 生产 Redis 使用 `appendonly yes` + `appendfsync everysec`，同时保留周期 RDB，数据目录固定为 `/data/wenrun-redis`。这只解决进程/容器重启恢复，不等同于备份：运维应定期执行 `BGSAVE` 后把该目录快照复制到异机或对象存储，并做恢复演练。checkpoint 本身仍允许丢失；MySQL 才是消息、长期偏好和文档元数据的灾备核心。

@@ -1,6 +1,6 @@
 # 低资源生产编排（约 1.8GB 内存服务器）
-# 容器内存上限合计约 1.34GB（含 Redis 192m），给系统和 SSH 留出余量
-# 对外仅 80（前端）；MySQL / Qdrant / Redis 不映射宿主机端口，仅容器内网访问
+# 容器内存上限合计约 1.38GB（含 Redis 192m），给系统和 SSH 留出余量
+# 对外仅 80（前端）；MySQL / Redis / Chroma 数据目录不映射宿主机端口，仅容器内网访问
 #
 # 本文件不会加载 tar。服务器上请按顺序：
 #   1. docker load -i wenrun-ai-python.tar
@@ -11,9 +11,9 @@
 #      wenrun/backend-java:latest
 #      wenrun/frontend:latest
 #   4. 官方镜像也要在本机有（load 或 pull）：
-#      mysql:8.4.11、qdrant/qdrant:v1.19.1、redis:8.8.2-alpine
+#      mysql:8.4.11、redis:8.8.2-alpine
 #      Redis 是这次新增的，旧 tar 包里通常没有，需单独准备
-#   5. mkdir -p /data/wenrun-mysql /data/wenrun-qdrant /data/wenrun-redis
+#   5. mkdir -p /data/wenrun-mysql /data/wenrun-chroma /data/wenrun-redis
 #   6. 同目录放 .env（含 MYSQL_ROOT_PASSWORD、RAG_METADATA_MYSQL_PASSWORD、AI_SERVICE_API_KEY、
 #      AI_DELEGATION_SIGNING_SECRET、DASHSCOPE_* 等，不要写进本文件）
 #   7. docker compose -f docker-compose.prod.yml --env-file .env up -d
@@ -81,37 +81,16 @@ services:
     networks:
       - wenrun-net
 
-  qdrant:
-    image: qdrant/qdrant:v1.19.1
-    container_name: wenrun-qdrant
-    restart: unless-stopped
-    mem_limit: 160m
-    memswap_limit: 160m
-    cpus: 0.30
-    logging: *default-logging
-    volumes:
-      - /data/wenrun-qdrant:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - wenrun-net
-
   ai-python:
     image: wenrun/ai-python:latest
     container_name: wenrun-ai-python
     restart: unless-stopped
-    mem_limit: 280m
-    memswap_limit: 280m
+    mem_limit: 360m
+    memswap_limit: 360m
     cpus: 0.50
     logging: *default-logging
     depends_on:
       mysql:
-        condition: service_healthy
-      qdrant:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -120,11 +99,8 @@ services:
       DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:?请在 .env 中设置 DASHSCOPE_CHAT_MODEL}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:?请在 .env 中设置 DASHSCOPE_BASE_URL}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:?请在 .env 中设置 EMBEDDING_MODEL}
-      QDRANT_URL: http://qdrant:6333
-      QDRANT_TIMEOUT: "10"
-      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-wenrun}
-      QDRANT_HOSPITAL_COLLECTION: ${QDRANT_HOSPITAL_COLLECTION:-wenrun_hospital_custom}
-      QDRANT_MEDICAL_COLLECTION: ${QDRANT_MEDICAL_COLLECTION:-wenrun_medical_general}
+      CHROMA_PERSIST_DIR: /app/data/chroma
+      CHROMA_HOSPITAL_COLLECTION: ${CHROMA_HOSPITAL_COLLECTION:-wenrun_hospital_custom}
       AI_REDIS_URL: ${AI_REDIS_URL:-redis://redis:6379/0}
       RAG_METADATA_MYSQL_HOST: ${RAG_METADATA_MYSQL_HOST:-mysql}
       RAG_METADATA_MYSQL_PORT: ${RAG_METADATA_MYSQL_PORT:-3306}
@@ -138,6 +114,8 @@ services:
       JAVA_TOOL_TIMEOUT_SECONDS: ${JAVA_TOOL_TIMEOUT_SECONDS:-5}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       TZ: Asia/Shanghai
+    volumes:
+      - /data/wenrun-chroma:/app/data/chroma
     networks:
       - wenrun-net
 

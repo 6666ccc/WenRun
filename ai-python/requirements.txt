@@ -1,4 +1,4 @@
-"qdrant-client",
-"langchain-qdrant",
+"chromadb",
+"langchain-chroma",
 "langchain-openai",
 "langchain-core",

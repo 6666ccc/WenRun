@@ -5,10 +5,8 @@ import {
   deleteConversation,
   listAiConversationMessages,
   listAiConversations,
-  listCharges,
   listRegistrations,
 } from '../api'
-import { listVisits } from '../api/modules/consultation'
 import {
   createMessageId,
   createRequestId,
@@ -51,7 +49,7 @@ function createRuntime(key) {
   const sessions = ref(readSessions(key))
   const savedActiveId = localStorage.getItem(scopedActiveIdKey(key))
   const activeId = ref(savedActiveId || sessions.value[0]?.id || createSessionId())
-  const context = ref({ appointments: [], charges: [], visits: [], loading: true, errors: {} })
+  const context = ref({ appointments: [], loading: true, errors: {} })
   const replying = ref(false)
   const streaming = ref(false)
   const streamStatus = ref(null)
@@ -102,21 +100,17 @@ function createRuntime(key) {
     async refreshContext(user) {
       if (contextPromise) return contextPromise
       if (!user?.value?.userId && !user?.value?.patientId) {
-        context.value = { appointments: [], charges: [], visits: [], loading: false, errors: {} }
+        context.value = { appointments: [], loading: false, errors: {} }
         return context.value
       }
       context.value.loading = true
       contextPromise = Promise.allSettled([
         listRegistrations({ userId: user.value?.userId }),
-        listCharges({ patientId: user.value?.patientId }),
-        listVisits({ patientId: user.value?.patientId }),
-      ]).then(([appointments, charges, visits]) => {
+      ]).then(([appointments]) => {
         context.value = {
           appointments: fulfilled(appointments),
-          charges: fulfilled(charges).filter((item) => item.payStatus === 0),
-          visits: fulfilled(visits),
           loading: false,
-          errors: { appointments: appointments.status === 'rejected', charges: charges.status === 'rejected', visits: visits.status === 'rejected' },
+          errors: { appointments: appointments.status === 'rejected' },
         }
         return context.value
       }).finally(() => {

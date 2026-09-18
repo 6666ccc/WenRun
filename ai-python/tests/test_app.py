@@ -11,6 +11,7 @@ from langchain_core.messages import (
     HumanMessage,
     ToolMessage,
 )
+from langgraph.types import Command
 
 from app.api.routes import chat as chat_route
 from app.core.config import get_settings
@@ -404,8 +405,16 @@ def test_chat_stream_hides_knowledge_internals_when_final_node_summarizes(monkey
         "status",
         "status",
         "status",
+        "status",
         "token",
         "done",
+    ]
+    # 多意图回合先经过 plan_node，患者应看到拆解提示。
+    assert [event["content"] for event in events if event["type"] == "status"] == [
+        "正在分析您的问题…",
+        "正在拆解您的请求…",
+        "正在检索相关资料…",
+        "正在整理答案…",
     ]
     assert [event["content"] for event in events if event["type"] == "token"] == [
         "最终面向患者的答案"
@@ -762,13 +771,18 @@ def test_chat_stream_emits_confirm_event_when_graph_pauses_for_approval(monkeypa
     class PausedGraph:
         # 有 checkpointer 才会开启写能力，也才能读到挂起的确认请求。
         checkpointer = object()
+        paused = False
 
         async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
             assert context.writes_enabled is True
             assert context.conversation_id == "conversation-1"
             yield {"type": "values", "data": {"selected_agents": ["tools"]}}
+            # 本轮跑到写工具时才挂起；开跑前的快照没有待确认项。
+            self.paused = True
 
         async def aget_state(self, config):
+            if not self.paused:
+                return SimpleNamespace(interrupts=(), values={})
             return SimpleNamespace(interrupts=(
                 SimpleNamespace(
                     id="int-1",
@@ -959,26 +973,50 @@ def test_chat_resume_errors_without_running_graph_when_multiple_interrupts_lack_
     assert captured["deleted"] == []
 
 
-def test_chat_stream_preserves_pending_interrupt_instead_of_running(monkeypatch):
-    headers = _chat_auth_headers(monkeypatch)
-    captured: dict = {"deleted": [], "astream": 0}
+_PENDING_CONFIRM = {
+    "type": "confirm",
+    "conversationId": "conversation-1",
+    "kind": "registration_create",
+    "prompt": "请确认原挂号操作",
+    "detail": {"scheduleId": 9},
+    "interruptId": "int-old",
+}
 
-    class FakeSaver:
-        async def adelete_thread(self, conversation_id):
-            captured["deleted"].append(conversation_id)
 
-    class StaleGraph:
-        checkpointer = object()
+class _PendingGraph:
+    """卡片挂起中的 thread：收到 Command 才算恢复，其余调用都是旁路回答。"""
 
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
-            captured["astream"] += 1
+    checkpointer = object()
+
+    def __init__(self, captured: dict):
+        self.captured = captured
+        self.resumed = False
+
+    async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        self.captured["inputs"].append(state)
+        self.captured["contexts"].append(context)
+        if isinstance(state, Command):
+            self.resumed = True
             yield {
                 "type": "values",
-                "data": {"final_reply": "不应执行", "selected_agents": ["chat"]},
+                "data": {"final_reply": "挂号已办好", "selected_agents": ["tools"]},
             }
+            return
+        yield {"type": "values", "data": {"selected_agents": ["chat"]}}
+        yield {
+            "type": "messages",
+            "data": (AIMessageChunk(content="张伟医生是主任医师。"), {"langgraph_node": "chat_node"}),
+        }
+        yield {
+            "type": "values",
+            "data": {"final_reply": "张伟医生是主任医师。", "selected_agents": ["chat"]},
+        }
 
-        async def aget_state(self, config):
-            return SimpleNamespace(interrupts=(
+    async def aget_state(self, config):
+        if self.resumed:
+            return SimpleNamespace(interrupts=(), values={})
+        return SimpleNamespace(
+            interrupts=(
                 SimpleNamespace(
                     id="int-old",
                     value={
@@ -987,29 +1025,80 @@ def test_chat_stream_preserves_pending_interrupt_instead_of_running(monkeypatch)
                         "detail": {"scheduleId": 9},
                     },
                 ),
-            ))
+            ),
+            values={
+                "messages": [
+                    HumanMessage(content="帮我挂明天张伟的号"),
+                    AIMessage(content="好的，请确认。"),
+                ],
+                "summary": {"patient_self_reports": ["咳嗽三天"], "version": 1},
+            },
+        )
 
-    monkeypatch.setattr(chat_route, "graph", StaleGraph())
-    monkeypatch.setattr(chat_route, "get_checkpointer", lambda: FakeSaver())
+
+def test_chat_stream_answers_side_question_and_reissues_pending_confirmation(monkeypatch):
+    """卡片挂起期间患者仍可提问：先答，再把原卡片交还，且不能动挂起的 thread。"""
+
+    headers = _chat_auth_headers(monkeypatch)
+    captured: dict = {"inputs": [], "contexts": []}
+    monkeypatch.setattr(chat_route, "graph", _PendingGraph(captured))
     client = TestClient(create_app())
     response = client.post(
         "/v1/chat/stream",
         headers=headers,
-        json={"message": "改挂明天的号", "conversationId": "conversation-1"},
+        json={"message": "张伟医生是什么职称？", "conversationId": "conversation-1"},
     )
 
     assert response.status_code == 200
     events = _sse_events(response)
-    assert events == [{
-        "type": "confirm",
-        "conversationId": "conversation-1",
-        "kind": "registration_create",
-        "prompt": "请确认原挂号操作",
-        "detail": {"scheduleId": 9},
-        "interruptId": "int-old",
-    }]
-    assert captured["deleted"] == []
-    assert captured["astream"] == 0
+    assert [event["type"] for event in events] == ["status", "token", "confirm"]
+    assert events[1]["content"] == "张伟医生是主任医师。"
+    assert events[-1] == _PENDING_CONFIRM
+    # 旁路回答带上 checkpoint 里的历史与摘要，但禁用写工具，避免出现第二张卡片。
+    side_state = captured["inputs"][0]
+    assert [message.content for message in side_state["messages"]] == [
+        "帮我挂明天张伟的号", "好的，请确认。", "张伟医生是什么职称？",
+    ]
+    assert side_state["summary"] == {"patient_self_reports": ["咳嗽三天"], "version": 1}
+    assert captured["contexts"][0].writes_enabled is False
+
+
+def test_chat_stream_treats_short_affirmation_as_approval_while_pending(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    captured: dict = {"inputs": [], "contexts": []}
+    monkeypatch.setattr(chat_route, "graph", _PendingGraph(captured))
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={"message": "好的，确认", "conversationId": "conversation-1"},
+    )
+
+    assert response.status_code == 200
+    events = _sse_events(response)
+    assert [event["type"] for event in events] == ["status", "token", "done"]
+    assert events[-1]["reply"] == "挂号已办好"
+    command = captured["inputs"][0]
+    assert isinstance(command, Command)
+    assert command.resume == {"int-old": "approve"}
+    assert captured["contexts"][0].writes_enabled is True
+
+
+def test_chat_stream_treats_short_refusal_as_rejection_while_pending(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    captured: dict = {"inputs": [], "contexts": []}
+    monkeypatch.setattr(chat_route, "graph", _PendingGraph(captured))
+    client = TestClient(create_app())
+    response = client.post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={"message": "算了，不用了", "conversationId": "conversation-1"},
+    )
+
+    assert response.status_code == 200
+    command = captured["inputs"][0]
+    assert isinstance(command, Command)
+    assert command.resume == {"int-old": "reject"}
 
 
 def test_chat_stream_rehydrates_empty_checkpoint_from_authoritative_history(monkeypatch):

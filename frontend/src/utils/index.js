@@ -59,46 +59,11 @@ export const REG_STATUS_MAP = {
   3: { label: '已退号', cls: 'shared-status--cancelled' },
 }
 
-/** 就诊状态 */
-export const VISIT_STATUS_MAP = {
-  1: { label: '接诊中', cls: 'shared-status--active' },
-  2: { label: '已完成', cls: 'shared-status--done' },
-}
-
-/** 支付状态 */
-export const PAY_STATUS_MAP = {
-  0: { label: '待支付', cls: 'shared-status--pending' },
-  1: { label: '已支付', cls: 'shared-status--paid' },
-  2: { label: '已退款', cls: 'shared-status--refund' },
-}
-
-/** 处方状态 */
-export const RX_STATUS_MAP = {
-  1: { label: '待缴费', cls: 'shared-status--pending' },
-  2: { label: '已缴费', cls: 'shared-status--paid' },
-  3: { label: '已发药', cls: 'shared-status--done' },
-  4: { label: '已作废', cls: 'shared-status--cancelled' },
-}
-
-/** 检查申请状态 */
-export const EXAM_STATUS_MAP = {
-  1: { label: '待缴费', cls: 'shared-status--pending' },
-  2: { label: '已缴费', cls: 'shared-status--paid' },
-}
-
 /** 性别 */
 export const GENDER_MAP = {
   0: '女',
   1: '男',
   2: '未知',
-}
-
-/** 支付方式 */
-export const PAY_TYPE_MAP = {
-  1: '现金',
-  2: '微信',
-  3: '支付宝',
-  4: '医保',
 }
 
 /** 排班时段 */
@@ -123,18 +88,6 @@ export function formatVisitSchedule(workDate, timePeriod) {
   const date = formatDate(workDate)
   const period = formatTimePeriod(timePeriod)
   return period ? `${date} ${period}` : date
-}
-
-/** 通用状态文本获取 */
-export function getStatusLabel(item) {
-  if (!item) return ''
-  const map =
-    REG_STATUS_MAP[item.status] ||
-    VISIT_STATUS_MAP[item.status] ||
-    PAY_STATUS_MAP[item.payStatus] ||
-    RX_STATUS_MAP[item.status] ||
-    EXAM_STATUS_MAP[item.status]
-  return map?.label || '未知'
 }
 
 export { homePath, isPatientPortal } from './portal'

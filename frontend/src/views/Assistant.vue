@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useAuth } from '../stores'
@@ -12,6 +12,7 @@ import UiIcon from '../components/UiIcon.vue'
 import CitationList from '../components/CitationList.vue'
 
 const router = useRouter()
+const route = useRoute()
 const { user } = useAuth()
 const assistant = useAssistant(user)
 const input = ref('')
@@ -24,9 +25,8 @@ const copiedId = ref('')
 const taskReturnFocus = ref(null)
 let taskPreviousOverflow = ''
 let copiedTimer
-const suggestions = ['最近总是睡不好，挂什么科？', '查看我最近的预约', '我有待缴费用吗？', '如何查看就诊记录？']
+const suggestions = ['最近总是睡不好，挂什么方向？', '查看我最近的预约', '明天还有哪些号源？', '如何取消挂号？']
 const urgent = computed(() => /胸痛|呼吸困难|意识障碍|大量出血/.test([...assistant.activeSession.value?.messages || []].reverse().find((item) => item.role === 'user')?.content || ''))
-const totalCharges = computed(() => assistant.context.value.charges.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0))
 const hasMessages = computed(() => Boolean(assistant.activeSession.value?.messages.length))
 const visibleMessages = computed(() => (assistant.activeSession.value?.messages || []).filter((message) => (
   message.role === 'user'
@@ -172,7 +172,16 @@ function resizeComposer(event) {
   textarea.style.overflowY = textarea.scrollHeight > 200 ? 'auto' : 'hidden'
 }
 
-onMounted(() => marked.setOptions({ breaks: true, gfm: true }))
+onMounted(() => {
+  marked.setOptions({ breaks: true, gfm: true })
+  const prompt = typeof route.query.prompt === 'string' ? route.query.prompt.trim() : ''
+  const visualPreview = import.meta.env.DEV && route.query.preview === '1'
+  if (prompt) {
+    if (visualPreview) input.value = prompt
+    else send(prompt)
+    router.replace({ path: '/assistant', query: visualPreview ? { preview: '1' } : {} })
+  }
+})
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onTaskKeydown)
   document.body.style.overflow = taskPreviousOverflow
@@ -214,14 +223,9 @@ onBeforeUnmount(() => {
         <button type="button" @click="viewContext({ type: 'registration', title: '预约挂号' })">查看</button>
       </section>
       <section class="chat-context-card">
-        <small>待缴费用</small>
-        <strong>{{ contextText('charges', assistant.context.value.charges.length ? `¥${totalCharges.toFixed(2)}` : '', '暂无待缴账单') }}</strong>
-        <button type="button" @click="viewContext({ type: 'payment', title: '待缴费用' })">查看</button>
-      </section>
-      <section class="chat-context-card">
-        <small>最近就诊</small>
-        <strong>{{ contextText('visits', assistant.context.value.visits.length ? `${assistant.context.value.visits.length} 条记录` : '', '暂无就诊记录') }}</strong>
-        <button type="button" @click="viewContext({ type: 'records', title: '就诊记录' })">查看</button>
+        <small>挂号记录</small>
+        <strong>{{ assistant.context.value.appointments.length ? `${assistant.context.value.appointments.length} 条记录` : '暂无挂号记录' }}</strong>
+        <button type="button" @click="viewContext({ type: 'records', title: '挂号记录' })">查看</button>
       </section>
     </template>
 
@@ -307,11 +311,8 @@ onBeforeUnmount(() => {
             <button class="chat-composer__chip" type="button" @click="openTask({ type: 'registration', title: '预约挂号' })">
               <UiIcon name="calendar" :size="15" />挂号
             </button>
-            <button class="chat-composer__chip" type="button" @click="openTask({ type: 'payment', title: '待缴费用' })">
-              <UiIcon name="wallet" :size="15" />待缴
-            </button>
-            <button class="chat-composer__chip" type="button" @click="openTask({ type: 'records', title: '就诊记录' })">
-              <UiIcon name="record" :size="15" />记录
+            <button class="chat-composer__chip" type="button" @click="openTask({ type: 'records', title: '挂号记录' })">
+              <UiIcon name="record" :size="15" />我的挂号
             </button>
           </div>
           <button v-if="assistant.replying.value" class="chat-composer__send is-stop" type="button" aria-label="停止生成" @click="assistant.stopReply">
@@ -333,21 +334,9 @@ onBeforeUnmount(() => {
           <button class="icon-button assistant-task__close" type="button" aria-label="关闭" title="关闭" @click="assistant.closeTask">×</button>
           <p class="eyebrow">健康服务</p>
           <h2>{{ assistant.task.value.title }}</h2>
-          <template v-if="assistant.task.value.type === 'payment'">
-            <p>确认账单后将在安全支付页继续办理。</p>
-            <div class="assistant-task__options">
-              <button v-for="charge in assistant.context.value.charges" :key="charge.id" type="button" @click="router.push(`/payment/${charge.id}`);assistant.closeTask()">
-                <span><strong>{{ charge.orderNo || '门诊费用' }}</strong><small>{{ charge.createTime || '待缴费' }}</small></span>
-                <b>¥{{ Number(charge.totalAmount || 0).toFixed(2) }}</b>
-              </button>
-              <div v-if="!assistant.context.value.charges.length" class="assistant-task__empty">目前没有待缴账单。</div>
-            </div>
-          </template>
-          <template v-else>
-            <p>挂号与就诊记录保留在个人中心，便于完整查看。</p>
-            <div class="assistant-task__empty">你可以查看历史挂号、就诊信息和个人档案。</div>
-            <button class="btn btn--primary btn--full" type="button" @click="router.push('/user');assistant.closeTask()">查看个人中心</button>
-          </template>
+          <p>挂号记录保留在个人中心，便于统一管理。</p>
+          <div class="assistant-task__empty">你可以查看预约状态、取消挂号和个人档案。</div>
+          <button class="btn btn--primary btn--full" type="button" @click="router.push('/user');assistant.closeTask()">查看个人中心</button>
         </section>
       </div>
     </Transition>

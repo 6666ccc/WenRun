@@ -11,12 +11,13 @@ from app.graphs.hospital.context_builder import (
     bounded_system_text,
     build_context,
 )
+from app.graphs.hospital.nodes.plan import task_goal
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
 from app.observability.context_metrics import record_retrieval
+from app.rag.chroma import get_hospital_retriever
 from app.rag.documents import format_rag_context, to_rag_sources
-from app.rag.qdrant import get_hospital_retriever
 from app.rag.safety import prepare_rag_documents
 
 KNOWLEDGE_SYSTEM_PROMPT = """你是温润诊所的患者端知识助手。用简短、尊重、有温度的中文直接回复患者。
@@ -103,7 +104,11 @@ def _last_user_query(state: State) -> str:
 
 # 步骤二：院内资料未命中时，保留原有 web_search Agent 作为兜底。
 def _web_fallback_reply(state: State) -> str:
-    result = agent.invoke({"messages": build_context(state, purpose="knowledge")})
+    result = agent.invoke({
+        "messages": build_context(
+            state, purpose="knowledge", task_goal=task_goal(state, "knowledge")
+        )
+    })
     messages = result.get("messages") or []
     last = messages[-1] if messages else None
     content = getattr(last, "content", "") if last is not None else ""
@@ -121,8 +126,10 @@ def knowledge_node(state: State) -> dict:
     if urgent_reply:
         return {"knowledge_reply": urgent_reply, "rag_sources": []}
 
-    # 步骤六：将用户原问题传给 Retriever；内部会执行 embedding 与 Qdrant 相似度检索。
-    query = _last_user_query(state)
+    # 步骤六：将用户问题传给 Retriever；内部会执行 embedding 与 Chroma 相似度检索。
+    # 多意图回合里规划器已经把医疗部分单独摘出来，用它检索比整句原话更准。
+    goal = task_goal(state, "knowledge")
+    query = goal or _last_user_query(state)
     if not query:
         return {"knowledge_reply": "请告诉我您想咨询的具体问题。", "rag_sources": []}
 
@@ -175,7 +182,7 @@ def knowledge_node(state: State) -> dict:
             "retrievedAt": datetime.now(UTC).isoformat(),
             "content": context,
         }),
-        *build_context(state, purpose="knowledge"),
+        *build_context(state, purpose="knowledge", task_goal=goal),
     ]
 
     # 步骤九：用 stream 而非 invoke，让本节点的模型分片能被 SSE 路由立即转发。
