@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { assistantRedirect, patientHomePath, isPatientPortal } from '../src/features/experience/mode.js'
 import { filterSessionsByTitle, normalizeServerConversations, normalizeSessions, readOwnedLegacySessions, sessionHasPendingConfirm, shouldRemoveLocalSessionAfterDeleteError } from '../src/features/assistant/session.js'
 import { toTask } from '../src/features/assistant/task.js'
+import { bookableToday, nextAppointment } from '../src/features/home/overview.js'
 
 test('normalizeSessions recovers a unique session after corrupt storage', () => {
   const sessions = normalizeSessions('{broken json')
@@ -154,4 +155,29 @@ test('assistantRedirect folds the legacy assistant route into home and keeps que
   )
   assert.deepEqual(assistantRedirect({ path: '/assistant', query: {} }), { path: '/home', query: {} })
   assert.deepEqual(assistantRedirect({ path: '/assistant' }), { path: '/home', query: {} })
+})
+
+test('nextAppointment picks the first pending registration only', () => {
+  const registrations = [
+    { id: 1, status: 3, deptName: '已取消' },
+    { id: 2, status: 1, deptName: '心内科' },
+    { id: 3, status: 1, deptName: '呼吸内科' },
+  ]
+  assert.equal(nextAppointment(registrations)?.id, 2)
+  assert.equal(nextAppointment([{ id: 9, status: 2 }]), null)
+  assert.equal(nextAppointment(null), null)
+})
+
+test('bookableToday keeps only bookable schedules with remaining count and caps the list', () => {
+  const now = new Date('2026-09-19T01:00:00Z') // 北京时间 09:00
+  const schedules = [
+    { id: 1, workDate: '2026-09-19', timePeriod: '上午', remainingCount: 8 },
+    { id: 2, workDate: '2026-09-19', timePeriod: '下午', remainingCount: 0 },
+    { id: 3, workDate: '2026-09-18', timePeriod: '上午', remainingCount: 5 },
+    { id: 4, workDate: '2026-09-19', timePeriod: '下午', remainingCount: 2 },
+    { id: 5, workDate: '2026-09-20', timePeriod: '上午', remainingCount: 1 },
+    { id: 6, workDate: '2026-09-20', timePeriod: '下午', remainingCount: 1 },
+  ]
+  assert.deepEqual(bookableToday(schedules, 3, now).map((item) => item.id), [1, 4, 5])
+  assert.deepEqual(bookableToday(undefined, 3, now), [])
 })
