@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { patientHomePath, isPatientPortal } from '../src/features/experience/mode.js'
+import { assistantRedirect, patientHomePath, isPatientPortal } from '../src/features/experience/mode.js'
 import { filterSessionsByTitle, normalizeServerConversations, normalizeSessions, readOwnedLegacySessions, sessionHasPendingConfirm, shouldRemoveLocalSessionAfterDeleteError } from '../src/features/assistant/session.js'
 import { toTask } from '../src/features/assistant/task.js'
 
@@ -145,4 +145,13 @@ test('local session can be removed when server has no matching conversation', ()
   assert.equal(shouldRemoveLocalSessionAfterDeleteError(new Error('无权访问该会话'), true), true)
   assert.equal(shouldRemoveLocalSessionAfterDeleteError(new Error('网络异常，请检查网络连接'), false), false)
   assert.equal(shouldRemoveLocalSessionAfterDeleteError(new Error('请求超时'), true), true)
+})
+
+test('assistantRedirect folds the legacy assistant route into home and keeps query', () => {
+  assert.deepEqual(
+    assistantRedirect({ path: '/assistant', query: { prompt: '你好', preview: '1' } }),
+    { path: '/home', query: { prompt: '你好', preview: '1' } },
+  )
+  assert.deepEqual(assistantRedirect({ path: '/assistant', query: {} }), { path: '/home', query: {} })
+  assert.deepEqual(assistantRedirect({ path: '/assistant' }), { path: '/home', query: {} })
 })
