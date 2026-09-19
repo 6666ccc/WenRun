@@ -7,7 +7,10 @@ import { useAuth } from '../stores'
 import { useAssistant } from '../composables/useAssistant'
 import { filterSessionsByTitle } from '../features/assistant/session'
 import { renderAssistantMarkdown, stripInternalIds } from '../features/assistant/markdown'
+import { useIsPc } from '../composables/useIsPc'
 import AssistantShell from '../components/AssistantShell.vue'
+import AssistantWelcome from '../components/AssistantWelcome.vue'
+import MobileTabbar from '../components/MobileTabbar.vue'
 import UiIcon from '../components/UiIcon.vue'
 import CitationList from '../components/CitationList.vue'
 
@@ -15,6 +18,7 @@ const router = useRouter()
 const route = useRoute()
 const { user } = useAuth()
 const assistant = useAssistant(user)
+const isPc = useIsPc()
 const input = ref('')
 const query = ref('')
 const end = ref(null)
@@ -179,7 +183,7 @@ onMounted(() => {
   if (prompt) {
     if (visualPreview) input.value = prompt
     else send(prompt)
-    router.replace({ path: '/assistant', query: visualPreview ? { preview: '1' } : {} })
+    router.replace({ path: '/home', query: visualPreview ? { preview: '1' } : {} })
   }
 })
 onBeforeUnmount(() => {
@@ -236,10 +240,12 @@ onBeforeUnmount(() => {
             <div class="assistant-urgent" role="alert" aria-live="assertive"><strong>请优先处理急症</strong><span>前往急诊或拨打 120。</span></div>
           </div>
 
-          <div v-if="!hasMessages" class="chat-empty">
-            <span class="chat-empty__mark" aria-hidden="true"><UiIcon name="logo" :size="32" /></span>
-            <h1>你好，我是温润健康助手。</h1>
-          </div>
+          <AssistantWelcome
+            v-if="!hasMessages"
+            :appointments="assistant.context.value.appointments"
+            :appointments-error="Boolean(assistant.context.value.errors.appointments)"
+            @prompt="send"
+          />
 
           <div v-else class="chat-thread" aria-live="polite">
             <TransitionGroup name="message-in" tag="div" class="chat-message-list">
@@ -326,6 +332,8 @@ onBeforeUnmount(() => {
       </footer>
     </div>
   </AssistantShell>
+
+  <MobileTabbar v-if="!isPc" />
 
   <Teleport to="body">
     <Transition name="fade">
@@ -423,37 +431,6 @@ onBeforeUnmount(() => {
   color: var(--color-danger);
   font-size: 14px;
   line-height: 1.5;
-}
-
-.chat-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  padding: 12px 12px 24px;
-  text-align: center;
-}
-
-.chat-empty__mark {
-  width: 64px;
-  height: 64px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 20px;
-  border-radius: 18px;
-  background: var(--color-brand-800);
-  color: #fff;
-}
-
-.chat-empty h1 {
-  max-width: 18em;
-  margin: 0;
-  color: #1a1a1a;
-  font-size: clamp(28px, 3.6vw, 36px);
-  font-weight: 600;
-  letter-spacing: -.04em;
-  line-height: 1.3;
 }
 
 .chat-suggestions {
@@ -999,7 +976,6 @@ onBeforeUnmount(() => {
 @media (max-width: 767px) {
   .chat-main__inner { padding: 4px 16px 8px; }
   .chat-composer-wrap { padding-left: 12px; padding-right: 12px; }
-  .chat-empty h1 { font-size: 26px; }
   .chat-message__user-content { max-width: 86%; }
   .chat-message__copy { opacity: 1; }
   .chat-message__assistant-content :deep(.chat-slot) {

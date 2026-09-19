@@ -1,10 +1,19 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuth } from '../stores'
 import UiIcon from './UiIcon.vue'
 
 const FOCUSABLE = 'button:not([disabled]), [href], input, select, textarea'
 const router = useRouter()
+const { user, logout } = useAuth()
+const displayName = computed(() => user.value?.realName || user.value?.username || '患者')
+const initial = computed(() => displayName.value[0])
+
+async function signOut() {
+  await logout()
+  router.replace('/login')
+}
 const sidebarCollapsed = ref(false)
 const historyOpen = ref(false)
 const contextOpen = ref(false)
@@ -19,10 +28,6 @@ const isDrawerLayout = ref(drawerQuery.matches)
 function onDrawerQueryChange(event) {
   isDrawerLayout.value = event.matches
   if (!event.matches) closeHistory(false)
-}
-
-function goHome() {
-  router.push('/home')
 }
 
 const overlayOpen = computed(() => contextOpen.value || (isDrawerLayout.value && historyOpen.value))
@@ -169,19 +174,26 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
           <button class="assistant-shell__icon" type="button" :aria-label="isDrawerLayout ? '关闭会话栏' : '收起会话栏'" @click="toggleSidebar">
             <UiIcon name="panelLeft" :size="18" />
           </button>
-          <button class="assistant-shell__brand" type="button" @click="goHome">
+          <div class="assistant-shell__brand">
             <span class="assistant-shell__logo" aria-hidden="true"><UiIcon name="logo" :size="18" /></span>
             <span class="assistant-shell__brand-text">温润医院</span>
-          </button>
+          </div>
         </div>
         <div class="assistant-shell__sidebar-body">
           <slot name="sidebar" />
         </div>
         <div class="assistant-shell__sidebar-foot">
-          <button class="assistant-shell__home" type="button" @click="goHome">
-            <UiIcon name="arrowLeft" :size="16" />
-            返回患者服务
-          </button>
+          <nav class="assistant-shell__links" aria-label="患者服务">
+            <RouterLink class="assistant-shell__link" to="/registration"><UiIcon name="calendar" :size="16" />预约挂号</RouterLink>
+            <RouterLink class="assistant-shell__link" to="/user"><UiIcon name="user" :size="16" />个人中心</RouterLink>
+          </nav>
+          <div class="assistant-shell__account">
+            <span class="assistant-shell__avatar" aria-hidden="true">{{ initial }}</span>
+            <strong>{{ displayName }}</strong>
+            <button class="assistant-shell__logout" type="button" aria-label="退出登录" title="退出登录" @click="signOut">
+              <UiIcon name="logout" :size="16" />
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -311,17 +323,9 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
   min-width: 0;
   min-height: 40px;
   padding: 0 8px 0 4px;
-  border: 0;
   border-radius: 10px;
-  background: transparent;
   color: var(--color-text);
-  cursor: pointer;
-  font: inherit;
   text-align: left;
-}
-
-.assistant-shell__brand:hover {
-  background: rgba(16, 24, 32, .05);
 }
 
 .assistant-shell__logo {
@@ -374,29 +378,83 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
 }
 
 .assistant-shell__sidebar-foot {
-  padding: 8px 10px 14px;
+  padding: 8px 10px 12px;
+  border-top: 1px solid #eef0f2;
 }
 
-.assistant-shell__home {
+.assistant-shell__links {
+  display: grid;
+  gap: 2px;
+}
+
+.assistant-shell__link {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  gap: 10px;
   min-height: 40px;
   padding: 0 10px;
-  border: 0;
   border-radius: 10px;
+  color: var(--color-text);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.assistant-shell__link svg {
+  color: var(--color-brand-700);
+}
+
+.assistant-shell__link:hover,
+.assistant-shell__link:focus-visible {
+  background: rgba(16, 24, 32, .06);
+}
+
+.assistant-shell__account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 0 4px 0 10px;
+}
+
+.assistant-shell__avatar {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  border-radius: 9px;
+  background: var(--color-brand-800);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.assistant-shell__account strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-shell__logout {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  font: inherit;
-  font-size: 14px;
 }
 
-.assistant-shell__home:hover,
-.assistant-shell__home:focus-visible {
+.assistant-shell__logout:hover,
+.assistant-shell__logout:focus-visible {
   background: rgba(16, 24, 32, .06);
-  color: var(--color-text);
+  color: var(--color-danger);
 }
 
 .assistant-shell__chat {
@@ -578,6 +636,20 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
     pointer-events: auto;
     transform: translateX(0);
     transition: transform var(--motion-med) var(--ease-enter);
+  }
+}
+
+@media (max-width: 767px) {
+  .assistant-shell {
+    --tabbar-height: calc(68px + env(safe-area-inset-bottom));
+    height: calc(100dvh - var(--tabbar-height));
+    min-height: calc(100dvh - var(--tabbar-height));
+  }
+
+  .assistant-shell__sidebar,
+  .assistant-shell__context,
+  .assistant-shell__backdrop {
+    bottom: var(--tabbar-height);
   }
 }
 
