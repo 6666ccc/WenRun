@@ -264,19 +264,6 @@ select:focus-visible,
 .mobile-tabbar__item { min-height: 68px; padding: 9px 3px 7px; color: var(--color-text-secondary); font-size: 11px; }
 .mobile-tabbar__item::before { top: 6px; width: 18px; border-radius: 3px; background: var(--color-brand-700); }
 .mobile-tabbar__item--active { color: var(--color-brand-800); font-weight: 700; }
-.mobile-tabbar__item--featured { position: relative; padding-top: 3px; }
-.mobile-tabbar__item--featured svg {
-  width: 47px;
-  height: 47px;
-  margin-top: -20px;
-  padding: 11px;
-  border: 4px solid #fff;
-  border-radius: 50%;
-  background: var(--color-brand-700);
-  color: #fff;
-  box-shadow: 0 8px 20px rgba(11,79,134,.24);
-}
-.mobile-tabbar__item--featured.mobile-tabbar__item--active svg { background: var(--color-brand-900); }
 
 .vue-related { border: 1px solid var(--color-border); background: var(--color-surface-soft) !important; }
 .vue-info b, .vue-detail-grid strong { overflow-wrap: anywhere; }

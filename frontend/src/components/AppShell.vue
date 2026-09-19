@@ -15,7 +15,6 @@ const { user, logout } = useAuth()
 
 const nav = [
   { to: '/home', icon: 'home', label: '首页' },
-  { to: '/assistant', icon: 'ai', label: 'AI 健康助手' },
   { to: '/registration', icon: 'calendar', label: '预约挂号' },
   { to: '/user', icon: 'user', label: '个人中心' },
 ]
