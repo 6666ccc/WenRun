@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 
 import { assistantRedirect, patientHomePath, isPatientPortal } from '../src/features/experience/mode.js'
 import { filterSessionsByTitle, normalizeServerConversations, normalizeSessions, readOwnedLegacySessions, sessionHasPendingConfirm, shouldRemoveLocalSessionAfterDeleteError } from '../src/features/assistant/session.js'
-import { toTask } from '../src/features/assistant/task.js'
 import { bookableToday, nextAppointment } from '../src/features/home/overview.js'
+import { workspacePanelFor } from '../src/features/experience/workspace.js'
 
 test('normalizeSessions recovers a unique session after corrupt storage', () => {
   const sessions = normalizeSessions('{broken json')
@@ -125,13 +125,12 @@ test('filterSessionsByTitle returns an empty array without mutating the original
   assert.deepEqual(sessions, snapshot)
 })
 
-test('toTask only exposes approved patient task types', () => {
-  assert.deepEqual(toTask({ type: 'registration', title: '预约挂号' }), { type: 'registration', title: '预约挂号' })
-  assert.equal(toTask({ type: 'prescription' }), null)
-})
-
-test('toTask rejects removed payment tasks', () => {
-  assert.equal(toTask({ type: 'payment', chargeId: 12, title: '待缴费用' }), null)
+test('workspacePanelFor maps patient service paths to home drawers', () => {
+  assert.deepEqual(workspacePanelFor('/registration', {}), { kind: 'registration' })
+  assert.deepEqual(workspacePanelFor('/registration/12', { id: '12' }), { kind: 'record', id: '12' })
+  assert.deepEqual(workspacePanelFor('/user', {}), { kind: 'user' })
+  assert.equal(workspacePanelFor('/home', {}), null)
+  assert.equal(workspacePanelFor('/login', {}), null)
 })
 
 test('patient entry starts in the unified patient home', () => {

@@ -18,8 +18,6 @@ import {
   sessionHasPendingConfirm,
   shouldRemoveLocalSessionAfterDeleteError,
 } from '../features/assistant/session'
-import { toTask } from '../features/assistant/task'
-
 const FAST_MODE_KEY = 'wenrun_ai_fast_mode'
 const ACTIVE_ID_KEY = 'wenrun_ai_active_conversation'
 const fulfilled = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
@@ -55,7 +53,6 @@ function createRuntime(key) {
   const streamStatus = ref(null)
   const sessionError = ref(null)
   const fastMode = ref(readFastMode(key))
-  const task = ref(null)
   const activeRequestId = ref(null)
   const requests = new Map()
   let contextPromise = null
@@ -81,7 +78,6 @@ function createRuntime(key) {
     streamStatus,
     sessionError,
     fastMode,
-    task,
     activeRequestId,
     requests,
     get destroyed() { return destroyed },
@@ -431,7 +427,6 @@ export function useAssistant(user) {
     sessionError: runtime.sessionError,
     fastMode: runtime.fastMode,
     toggleFastMode: () => { runtime.fastMode.value = !runtime.fastMode.value },
-    task: runtime.task,
     sendMessage,
     stopReply: () => stopRequest(),
     confirmPending: (message) => respondToPending(message, 'approve'),
@@ -439,7 +434,5 @@ export function useAssistant(user) {
     newChat,
     deleteSession,
     refreshContext: () => runtime.refreshContext(user),
-    openTask: (value) => { runtime.task.value = toTask(value) },
-    closeTask: () => { runtime.task.value = null },
   }
 }

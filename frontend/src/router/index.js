@@ -7,11 +7,12 @@ const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: () => import('../views/Login.vue'), meta: { guest: true } },
   { path: '/mode-select', redirect: '/home', meta: { patient: true } },
-  { path: '/home', component: () => import('../views/Assistant.vue'), meta: { patient: true } },
+  // 首页与患者服务共用一个工作台组件：PC 上业务功能以抽屉叠在聊天之上，移动端仍是独立页面。
+  { path: '/home', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
   { path: '/assistant', redirect: assistantRedirect },
-  { path: '/user', component: () => import('../views/User.vue'), meta: { patient: true } },
-  { path: '/registration', component: () => import('../views/Registration.vue'), meta: { patient: true } },
-  { path: '/registration/:id', component: () => import('../views/RegistrationDetail.vue'), meta: { patient: true } },
+  { path: '/user', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
+  { path: '/registration', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
+  { path: '/registration/:id', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
   { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 

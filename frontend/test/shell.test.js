@@ -25,8 +25,19 @@ test('patient navigation no longer exposes a separate assistant entry', () => {
   assert.match(tabbar, /to: '\/home', icon: 'ai', label: '首页'/)
 })
 
-test('home route renders the assistant and the legacy assistant path redirects', () => {
-  assert.match(router, /path: '\/home', component: \(\) => import\('\.\.\/views\/Assistant\.vue'\)/)
+test('home and patient service routes share the workspace; legacy assistant path redirects', () => {
+  const workspace = (path) => new RegExp(`path: '${path.replace(/[/:]/g, '\\$&')}', component: \\(\\) => import\\('\\.\\.\\/views\\/PatientWorkspace\\.vue'\\)`)
+  for (const path of ['/home', '/user', '/registration', '/registration/:id']) assert.match(router, workspace(path))
   assert.match(router, /path: '\/assistant', redirect: assistantRedirect/)
   assert.doesNotMatch(router, /Home\.vue/)
+})
+
+test('workspace drawer content is reused by the standalone mobile views', () => {
+  const workspace = read('../src/views/PatientWorkspace.vue')
+  assert.match(workspace, /SideDrawer/)
+  for (const name of ['RegistrationBooking', 'RegistrationRecord', 'UserProfile']) assert.match(workspace, new RegExp(name))
+  assert.match(read('../src/views/Registration.vue'), /RegistrationBooking/)
+  assert.match(read('../src/views/RegistrationDetail.vue'), /RegistrationRecord/)
+  assert.match(read('../src/views/User.vue'), /UserProfile/)
+  assert.doesNotMatch(read('../src/views/Assistant.vue'), /assistant-task/)
 })

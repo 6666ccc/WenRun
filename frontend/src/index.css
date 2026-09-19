@@ -774,7 +774,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .clinic-page-leave-active { transition-duration: 1ms; }
   .shared-dialog,
   .chat-drawer,
-  .assistant-task,
   .card,
   .btn { transition: none; transform: none; }
 }

@@ -23,11 +23,8 @@ const input = ref('')
 const query = ref('')
 const end = ref(null)
 const composer = ref(null)
-const taskPanel = ref(null)
 const shell = ref(null)
 const copiedId = ref('')
-const taskReturnFocus = ref(null)
-let taskPreviousOverflow = ''
 let copiedTimer
 const suggestions = ['最近总是睡不好，挂什么方向？', '查看我最近的预约', '明天还有哪些号源？', '如何取消挂号？']
 const urgent = computed(() => /胸痛|呼吸困难|意识障碍|大量出血/.test([...assistant.activeSession.value?.messages || []].reverse().find((item) => item.role === 'user')?.content || ''))
@@ -99,10 +96,9 @@ function keydown(event) {
   }
 }
 
+/** 患者服务入口：PC 上由 PatientWorkspace 以抽屉呈现，移动端为独立页面。 */
 function openTask(task) {
-  if (task.type === 'registration') router.push('/registration')
-  else if (task.type === 'records') router.push('/user')
-  else assistant.openTask(task)
+  router.push(task.type === 'records' ? '/user' : '/registration')
 }
 
 function selectSession(id) {
@@ -125,43 +121,6 @@ function contextText(kind, filled, empty) {
   return filled || empty
 }
 
-function onTaskKeydown(event) {
-  if (!assistant.task.value) return
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    assistant.closeTask()
-    return
-  }
-  if (event.key !== 'Tab') return
-  const focusable = [...taskPanel.value?.querySelectorAll('button:not([disabled]), [href], input, select, textarea') || []]
-  if (!focusable.length) return
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
-
-watch(() => assistant.task.value, (task) => {
-  if (task) {
-    taskReturnFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    taskPreviousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    document.addEventListener('keydown', onTaskKeydown)
-    nextTick(() => taskPanel.value?.querySelector('button:not([disabled]), [href], input, select, textarea')?.focus())
-  } else {
-    document.removeEventListener('keydown', onTaskKeydown)
-    document.body.style.overflow = taskPreviousOverflow
-    const target = taskReturnFocus.value
-    taskReturnFocus.value = null
-    nextTick(() => target?.isConnected && target.focus())
-  }
-})
-
 function resetComposerHeight() {
   if (!composer.value) return
   composer.value.style.height = '28px'
@@ -176,19 +135,26 @@ function resizeComposer(event) {
   textarea.style.overflowY = textarea.scrollHeight > 200 ? 'auto' : 'hidden'
 }
 
+/** 消费 /home?prompt=... 并清掉地址栏参数。 */
+function consumePrompt() {
+  if (route.path !== '/home') return
+  const prompt = typeof route.query.prompt === 'string' ? route.query.prompt.trim() : ''
+  if (!prompt) return
+  const visualPreview = import.meta.env.DEV && route.query.preview === '1'
+  if (visualPreview) input.value = prompt
+  else send(prompt)
+  router.replace({ path: '/home', query: visualPreview ? { preview: '1' } : {} })
+}
+
 onMounted(() => {
   marked.setOptions({ breaks: true, gfm: true })
-  const prompt = typeof route.query.prompt === 'string' ? route.query.prompt.trim() : ''
-  const visualPreview = import.meta.env.DEV && route.query.preview === '1'
-  if (prompt) {
-    if (visualPreview) input.value = prompt
-    else send(prompt)
-    router.replace({ path: '/home', query: visualPreview ? { preview: '1' } : {} })
-  }
+  consumePrompt()
 })
+
+// 组件跨 /home 与业务路径复用、不会重新挂载，后续带 prompt 的导航靠 watch 消费。
+watch(() => [route.path, route.query.prompt], consumePrompt)
+
 onBeforeUnmount(() => {
-  document.removeEventListener('keydown', onTaskKeydown)
-  document.body.style.overflow = taskPreviousOverflow
   clearTimeout(copiedTimer)
 })
 </script>
@@ -334,21 +300,6 @@ onBeforeUnmount(() => {
   </AssistantShell>
 
   <MobileTabbar v-if="!isPc" />
-
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="assistant.task.value" class="assistant-task-overlay" role="presentation" @mousedown.self="assistant.closeTask">
-        <section ref="taskPanel" class="assistant-task" role="dialog" aria-modal="true" :aria-label="assistant.task.value.title">
-          <button class="icon-button assistant-task__close" type="button" aria-label="关闭" title="关闭" @click="assistant.closeTask">×</button>
-          <p class="eyebrow">健康服务</p>
-          <h2>{{ assistant.task.value.title }}</h2>
-          <p>挂号记录保留在个人中心，便于统一管理。</p>
-          <div class="assistant-task__empty">你可以查看预约状态、取消挂号和个人档案。</div>
-          <button class="btn btn--primary btn--full" type="button" @click="router.push('/user');assistant.closeTask()">查看个人中心</button>
-        </section>
-      </div>
-    </Transition>
-  </Teleport>
 </template>
 
 <style scoped>
@@ -899,54 +850,6 @@ onBeforeUnmount(() => {
   font-size: 20px;
 }
 
-.assistant-task-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(16, 42, 46, .4);
-}
-
-.assistant-task {
-  position: relative;
-  width: min(560px, 100%);
-  max-height: 85vh;
-  overflow: auto;
-  padding: 28px;
-  border-radius: 20px;
-  background: #fff;
-  box-shadow: 0 20px 48px rgba(16, 42, 46, .18);
-}
-
-.assistant-task__close { position: absolute; top: 18px; right: 18px; }
-.assistant-task h2 { margin: 6px 0; }
-.assistant-task > p { color: var(--color-text-secondary); }
-.assistant-task__options { display: grid; gap: 8px; margin: 18px 0; }
-.assistant-task__options button {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: #fff;
-  color: var(--color-text);
-  cursor: pointer;
-  text-align: left;
-}
-.assistant-task__options strong,
-.assistant-task__options small { display: block; }
-.assistant-task__options small { margin-top: 3px; color: var(--color-text-secondary); }
-.assistant-task__empty {
-  padding: 18px;
-  border-radius: 10px;
-  background: var(--color-mint-050);
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-.btn--full { width: 100%; }
 .chat-message-list { display: block; }
 
 .message-in-enter-active { transition: opacity var(--motion-med) var(--ease-enter), transform var(--motion-med) var(--ease-enter); }
@@ -954,8 +857,6 @@ onBeforeUnmount(() => {
 .message-in-leave-active { transition: opacity var(--motion-exit) var(--ease-exit); }
 .message-in-leave-to { opacity: 0; }
 .message-in-move { transition: none; }
-.assistant-task-overlay.fade-enter-from .assistant-task,
-.assistant-task-overlay.fade-leave-to .assistant-task { opacity: 0; transform: translateY(12px); }
 
 :deep(.chat-citations) { display: block; margin-top: 14px; font-size: 14px; overflow-wrap: anywhere; }
 :deep(.chat-citations summary) { width: max-content; color: var(--color-brand-700); cursor: pointer; font-size: 13px; }
@@ -995,7 +896,6 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .message-in-enter-active,
   .message-in-leave-active,
-  .assistant-task,
   .chat-typing span { animation: none; transition: none; }
 }
 
