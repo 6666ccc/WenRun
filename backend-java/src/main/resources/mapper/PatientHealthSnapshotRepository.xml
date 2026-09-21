@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.PatientHealthSnapshotRepository">
+
+    <resultMap id="BaseResultMap" type="com.wenrun.entity.PatientHealthSnapshot">
+        <id column="id" property="id"/>
+        <result column="patient_id" property="patientId"/>
+        <result column="height_cm" property="heightCm"/>
+        <result column="weight_kg" property="weightKg"/>
+        <result column="systolic_mmhg" property="systolicMmhg"/>
+        <result column="diastolic_mmhg" property="diastolicMmhg"/>
+        <result column="glucose_mmol" property="glucoseMmol"/>
+        <result column="glucose_type" property="glucoseType"/>
+        <result column="heart_rate_bpm" property="heartRateBpm"/>
+        <result column="spo2_pct" property="spo2Pct"/>
+        <result column="respiratory_rate_bpm" property="respiratoryRateBpm"/>
+        <result column="temperature_c" property="temperatureC"/>
+        <result column="measured_at" property="measuredAt"/>
+        <result column="past_history" property="pastHistory"/>
+        <result column="family_history" property="familyHistory"/>
+        <result column="personal_history" property="personalHistory"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, patient_id, height_cm, weight_kg, systolic_mmhg, diastolic_mmhg,
+        glucose_mmol, glucose_type, heart_rate_bpm, spo2_pct, respiratory_rate_bpm, temperature_c,
+        measured_at, past_history, family_history, personal_history, create_time
+    </sql>
+
+    <select id="selectByPatientId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_health_snapshot
+        WHERE patient_id = #{patientId}
+        ORDER BY measured_at DESC, id DESC
+    </select>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_health_snapshot
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO patient_health_snapshot (
+            patient_id, height_cm, weight_kg, systolic_mmhg, diastolic_mmhg,
+            glucose_mmol, glucose_type, heart_rate_bpm, spo2_pct, respiratory_rate_bpm, temperature_c, measured_at,
+            past_history, family_history, personal_history
+        ) VALUES (
+            #{patientId}, #{heightCm}, #{weightKg}, #{systolicMmhg}, #{diastolicMmhg},
+            #{glucoseMmol}, #{glucoseType}, #{heartRateBpm}, #{spo2Pct}, #{respiratoryRateBpm}, #{temperatureC}, #{measuredAt},
+            #{pastHistory}, #{familyHistory}, #{personalHistory}
+        )
+    </insert>
+
+    <delete id="deleteById">
+        DELETE FROM patient_health_snapshot
+        WHERE id = #{id}
+    </delete>
+</mapper>

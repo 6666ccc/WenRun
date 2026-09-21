@@ -39,8 +39,7 @@ public class aiRequest {
     @JsonIgnore
     private Long userId;
 
-    /** 由 Java 根据当前用户绑定的患者档案写入。 */
-    @JsonIgnore
+    /** 当前会话讨论的患者。前端可传 activePatientId，后端校验授权后写入。 */
     private Long patientId;
 
     /** 捕获进入 Java 的追踪号，供异步 SSE 线程继续向 Python 透传。 */

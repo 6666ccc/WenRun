@@ -1,41 +1,41 @@
 /*
  * 温润医院 · 连续照护主题
- * 视觉原则：明亮、清楚、可信。医疗蓝承载品牌与主操作，
+ * 视觉原则：明亮、清楚、可信。首页微绿色承载品牌与主操作，
  * 路径节点用于表达连续的就诊流程，不作为无意义装饰。
  */
 
 :root {
-  --color-brand-900: #0b4f86;
-  --color-brand-800: #0f6fb7;
-  --color-brand-700: #1686de;
-  --color-brand-600: #2b9bec;
-  --color-mint-500: #2196e8;
-  --color-mint-300: #9ed7f7;
-  --color-mint-200: #cbe9fb;
-  --color-mint-100: #e7f5ff;
-  --color-mint-050: #f3f9fd;
-  --color-bg: #eff7fc;
+  --color-brand-900: #075b55;
+  --color-brand-800: #0c746c;
+  --color-brand-700: #0f8f82;
+  --color-brand-600: #2aa396;
+  --color-mint-500: #0f8f82;
+  --color-mint-300: #9ed9d3;
+  --color-mint-200: #c7ebe7;
+  --color-mint-100: #dff5f2;
+  --color-mint-050: #eef8f7;
+  --color-bg: #edf6f7;
   --color-surface: #ffffff;
-  --color-surface-soft: #f7fbfe;
-  --color-text: #102f4d;
-  --color-text-secondary: #50697f;
-  --color-text-muted: #6d8396;
-  --color-border: #d3e6f2;
-  --color-border-strong: #7fa9c6;
-  --color-sidebar: #0b4f86;
+  --color-surface-soft: #f7fbfb;
+  --color-text: #17343b;
+  --color-text-secondary: #60777d;
+  --color-text-muted: #7a9194;
+  --color-border: #d5e6e6;
+  --color-border-strong: #9ec9c4;
+  --color-sidebar: #075b55;
   --color-sidebar-text: #ffffff;
   --color-sidebar-muted: rgba(255, 255, 255, .74);
   --color-on-primary: #ffffff;
-  --color-chip-bg: #e7f5ff;
+  --color-chip-bg: #dff5f2;
   --color-success: #17623e;
   --color-success-bg: #e7f6ee;
   --color-warning: #7c4a12;
   --color-warning-bg: #fff3dd;
   --color-danger: #a61b16;
   --color-danger-bg: #fff0ee;
-  --color-info: #135b72;
-  --color-info-bg: #e8f5f8;
-  --color-focus: #1686de;
+  --color-info: #0f6e6a;
+  --color-info-bg: #e8f6f4;
+  --color-focus: #0f8f82;
 
   --c-bg: var(--color-bg);
   --c-card: var(--color-surface);
@@ -63,10 +63,10 @@
   --radius: 10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
-  --shadow-xs: 0 1px 2px rgba(11, 79, 134, .05);
-  --shadow-sm: 0 8px 22px rgba(11, 79, 134, .08);
-  --shadow: 0 14px 34px rgba(11, 79, 134, .10);
-  --shadow-lg: 0 26px 70px rgba(11, 79, 134, .15);
+  --shadow-xs: 0 1px 2px rgba(7, 91, 85, .05);
+  --shadow-sm: 0 8px 22px rgba(7, 91, 85, .08);
+  --shadow: 0 14px 34px rgba(7, 91, 85, .10);
+  --shadow-lg: 0 26px 70px rgba(7, 91, 85, .15);
   --font-sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   --font-serif: var(--font-sans);
   --font-utility: "Segoe UI", "Aptos", "Noto Sans SC", system-ui, sans-serif;
@@ -106,7 +106,7 @@ select:focus-visible,
 
 .btn:active:not(:disabled) { transform: scale(.985); }
 .btn--primary, .btn--accent { background: var(--color-brand-700); color: #fff; }
-.btn--primary:hover:not(:disabled), .btn--accent:hover:not(:disabled) { background: var(--color-brand-800); color: #fff; box-shadow: 0 8px 18px rgba(11, 79, 134, .18); }
+.btn--primary:hover:not(:disabled), .btn--accent:hover:not(:disabled) { background: var(--color-brand-800); color: #fff; box-shadow: 0 8px 18px rgba(7, 91, 85, .18); }
 .btn--outline { border-color: var(--color-border-strong); background: var(--color-surface); color: var(--color-brand-800); }
 .btn--outline:hover:not(:disabled) { border-color: var(--color-brand-700); background: var(--color-mint-050); color: var(--color-brand-900); }
 .btn--ghost { color: var(--color-text-secondary); }
@@ -125,7 +125,7 @@ select:focus-visible,
 
 .input::placeholder, .view-form-input::placeholder { color: var(--color-text-muted); opacity: .85; }
 .input:hover:not(:disabled), .view-form-input:hover:not(:disabled) { border-color: var(--color-brand-600); }
-.input:focus, .view-form-input:focus { border-color: var(--color-brand-700); box-shadow: 0 0 0 4px rgba(22, 134, 222, .15); }
+.input:focus, .view-form-input:focus { border-color: var(--color-brand-700); box-shadow: 0 0 0 4px rgba(15, 143, 130, .16); }
 .form-label { color: var(--color-text-secondary); font-weight: 700; }
 
 .card {
@@ -204,7 +204,7 @@ select:focus-visible,
 
 .shared-status__dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: currentColor; }
 .shared-status--pending, .shared-status--refund { background: #fff3dd; color: #7c4a12; }
-.shared-status--active { background: #e8f5f8; color: #135b72; }
+.shared-status--active { background: #e8f6f4; color: #0f6e6a; }
 .shared-status--done { background: #f1edf6; color: #57466e; }
 .shared-status--cancelled, .shared-status--closed { background: #eef2f1; color: #465c61; }
 .shared-status--paid, .shared-status--open { background: #e7f6ee; color: #17623e; }

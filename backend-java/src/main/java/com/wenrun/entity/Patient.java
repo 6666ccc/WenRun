@@ -19,7 +19,7 @@ public class Patient {
     private LocalDate birthDate;
     private String idCard;
     private String phone;
-    /** 绑定 sys_user（患者端登录） */
+    /** 主账号/创建账号，对应 sys_user.id；授权以 user_patient_relation 为准 */
     private Long userId;
     private String allergyHistory;
     private String address;

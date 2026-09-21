@@ -26,6 +26,7 @@ class ApiModel(BaseModel):
 
 class UserContext(ApiModel):
     user_id: int | None = Field(default=None, alias="userId")
+    operator_user_id: int | None = Field(default=None, alias="operatorUserId")
     patient_id: int | None = Field(default=None, alias="patientId")
 
 

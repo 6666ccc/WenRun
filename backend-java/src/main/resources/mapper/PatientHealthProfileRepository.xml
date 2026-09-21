@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.PatientHealthProfileRepository">
+
+    <resultMap id="BaseResultMap" type="com.wenrun.entity.PatientHealthProfile">
+        <id column="id" property="id"/>
+        <result column="patient_id" property="patientId"/>
+        <result column="height_cm" property="heightCm"/>
+        <result column="weight_kg" property="weightKg"/>
+        <result column="systolic_mmhg" property="systolicMmhg"/>
+        <result column="diastolic_mmhg" property="diastolicMmhg"/>
+        <result column="glucose_mmol" property="glucoseMmol"/>
+        <result column="glucose_type" property="glucoseType"/>
+        <result column="heart_rate_bpm" property="heartRateBpm"/>
+        <result column="spo2_pct" property="spo2Pct"/>
+        <result column="respiratory_rate_bpm" property="respiratoryRateBpm"/>
+        <result column="temperature_c" property="temperatureC"/>
+        <result column="measured_at" property="measuredAt"/>
+        <result column="past_history" property="pastHistory"/>
+        <result column="family_history" property="familyHistory"/>
+        <result column="personal_history" property="personalHistory"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, patient_id, height_cm, weight_kg, systolic_mmhg, diastolic_mmhg,
+        glucose_mmol, glucose_type, heart_rate_bpm, spo2_pct, respiratory_rate_bpm, temperature_c,
+        measured_at, past_history, family_history, personal_history, create_time, update_time
+    </sql>
+
+    <select id="selectByPatientId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_health_profile
+        WHERE patient_id = #{patientId}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO patient_health_profile (
+            patient_id, height_cm, weight_kg, systolic_mmhg, diastolic_mmhg,
+            glucose_mmol, glucose_type, heart_rate_bpm, spo2_pct, respiratory_rate_bpm, temperature_c, measured_at,
+            past_history, family_history, personal_history
+        ) VALUES (
+            #{patientId}, #{heightCm}, #{weightKg}, #{systolicMmhg}, #{diastolicMmhg},
+            #{glucoseMmol}, #{glucoseType}, #{heartRateBpm}, #{spo2Pct}, #{respiratoryRateBpm}, #{temperatureC}, #{measuredAt},
+            #{pastHistory}, #{familyHistory}, #{personalHistory}
+        )
+    </insert>
+
+    <update id="updateById">
+        UPDATE patient_health_profile
+        SET height_cm = #{heightCm},
+            weight_kg = #{weightKg},
+            systolic_mmhg = #{systolicMmhg},
+            diastolic_mmhg = #{diastolicMmhg},
+            glucose_mmol = #{glucoseMmol},
+            glucose_type = #{glucoseType},
+            heart_rate_bpm = #{heartRateBpm},
+            spo2_pct = #{spo2Pct},
+            respiratory_rate_bpm = #{respiratoryRateBpm},
+            temperature_c = #{temperatureC},
+            measured_at = #{measuredAt},
+            past_history = #{pastHistory},
+            family_history = #{familyHistory},
+            personal_history = #{personalHistory}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteByPatientId">
+        DELETE FROM patient_health_profile
+        WHERE patient_id = #{patientId}
+    </delete>
+</mapper>

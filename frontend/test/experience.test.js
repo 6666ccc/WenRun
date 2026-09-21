@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { assistantRedirect, patientHomePath, isPatientPortal } from '../src/features/experience/mode.js'
+import { assistantRedirect, patientHomePath, isPatientPortal, userArchiveRedirect } from '../src/features/experience/mode.js'
 import { filterSessionsByTitle, normalizeServerConversations, normalizeSessions, readOwnedLegacySessions, sessionHasPendingConfirm, shouldRemoveLocalSessionAfterDeleteError } from '../src/features/assistant/session.js'
 import { bookableToday, nextAppointment } from '../src/features/home/overview.js'
 import { workspacePanelFor } from '../src/features/experience/workspace.js'
@@ -128,9 +128,14 @@ test('filterSessionsByTitle returns an empty array without mutating the original
 test('workspacePanelFor maps patient service paths to home drawers', () => {
   assert.deepEqual(workspacePanelFor('/registration', {}), { kind: 'registration' })
   assert.deepEqual(workspacePanelFor('/registration/12', { id: '12' }), { kind: 'record', id: '12' })
-  assert.deepEqual(workspacePanelFor('/user', {}), { kind: 'user' })
+  assert.equal(workspacePanelFor('/user', {}), null)
+  assert.equal(workspacePanelFor('/archive', {}), null)
   assert.equal(workspacePanelFor('/home', {}), null)
   assert.equal(workspacePanelFor('/login', {}), null)
+})
+
+test('userArchiveRedirect sends legacy personal center to the archive page', () => {
+  assert.equal(userArchiveRedirect(), '/archive')
 })
 
 test('patient entry starts in the unified patient home', () => {

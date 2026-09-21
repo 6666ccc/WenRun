@@ -30,7 +30,7 @@ public class aiResumeRequest {
     @JsonIgnore
     private Long userId;
 
-    @JsonIgnore
+    /** 恢复时以前次会话绑定的患者为准；前端传入时仅用于校验。 */
     private Long patientId;
 
     @JsonIgnore

@@ -79,10 +79,16 @@ public class RedisConversationExecutionLock implements ConversationExecutionLock
                     return;
                 }
                 renewal.cancel(false);
+                // SSE 正常结束时工作线程可能已被 cancel(true) 打断；Lettuce 同步等待会直接失败。
+                boolean interrupted = Thread.interrupted();
                 try {
                     redisTemplate.execute(RELEASE_SCRIPT, List.of(key), ownerToken);
                 } catch (RuntimeException ex) {
                     log.error("AI conversation lock release failed key={}", key, ex);
+                } finally {
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
             });
         } catch (RuntimeException ex) {

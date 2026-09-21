@@ -101,14 +101,14 @@ public class AiToolController {
     @GetMapping("/registrations")
     public Result<List<RegistrationVO>> listMyRegistrations(@RequestParam(required = false) Integer status) {
         return Result.success(registrationService.list(
-                requirePatientId(), null, null, null, status));
+                requirePatientId(), null, null, status));
     }
 
     /** 对齐 {@code /api/registrations/pending}，只看本人待就诊的号。 */
     @GetMapping("/registrations/pending")
     public Result<List<RegistrationVO>> listMyPendingRegistrations() {
         return Result.success(registrationService.list(
-                requirePatientId(), null, null, null, BizStatus.REG_REGISTERED));
+                requirePatientId(), null, null, BizStatus.REG_REGISTERED));
     }
 
     /** 为令牌所属患者挂号。真正的过期、号源、重复校验与幂等都在 RegistrationServiceImpl 里。 */

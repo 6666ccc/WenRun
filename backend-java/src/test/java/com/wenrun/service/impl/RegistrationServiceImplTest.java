@@ -10,6 +10,7 @@ import com.wenrun.entity.Schedule;
 import com.wenrun.repository.PatientRepository;
 import com.wenrun.repository.RegistrationRepository;
 import com.wenrun.repository.ScheduleRepository;
+import com.wenrun.service.PatientAccessService;
 import com.wenrun.vo.RegistrationVO;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,8 +35,9 @@ class RegistrationServiceImplTest {
     private final ScheduleRepository scheduleMapper = mock(ScheduleRepository.class);
     private final PatientRepository patientMapper = mock(PatientRepository.class);
     private final ClinicProperties clinic = new ClinicProperties();
+    private final PatientAccessService patientAccess = mock(PatientAccessService.class);
     private final RegistrationServiceImpl service = new RegistrationServiceImpl(
-            registrationMapper, scheduleMapper, patientMapper, clinic);
+            registrationMapper, scheduleMapper, patientMapper, clinic, patientAccess);
 
     @Test
     void registerRejectsPastSchedule() {
@@ -205,12 +207,12 @@ class RegistrationServiceImplTest {
     @Test
     void listReleasesSeatWhenExpiredRegistrationIsAutoCancelled() {
         RegistrationVO expired = registeredVO(clinic.today().minusDays(1));
-        when(registrationMapper.selectList(1L, null, null, null, null))
+        when(registrationMapper.selectList(1L, null, null, null))
                 .thenReturn(List.of(expired));
         when(registrationMapper.updateStatusIfCurrent(
                 55L, BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED)).thenReturn(1);
 
-        List<RegistrationVO> result = service.list(1L, null, null, null, null);
+        List<RegistrationVO> result = service.list(1L, null, null, null);
 
         assertEquals(BizStatus.REG_CANCELLED, result.get(0).getStatus());
         verify(scheduleMapper).incrementRemaining(9L);
@@ -219,12 +221,12 @@ class RegistrationServiceImplTest {
     @Test
     void listDoesNotReleaseSeatWhenAnotherRequestAlreadyCancelled() {
         RegistrationVO expired = registeredVO(clinic.today().minusDays(1));
-        when(registrationMapper.selectList(1L, null, null, null, null))
+        when(registrationMapper.selectList(1L, null, null, null))
                 .thenReturn(List.of(expired));
         when(registrationMapper.updateStatusIfCurrent(
                 55L, BizStatus.REG_REGISTERED, BizStatus.REG_CANCELLED)).thenReturn(0);
 
-        service.list(1L, null, null, null, null);
+        service.list(1L, null, null, null);
 
         verify(scheduleMapper, never()).incrementRemaining(anyLong());
     }
@@ -232,10 +234,10 @@ class RegistrationServiceImplTest {
     @Test
     void listLeavesUnexpiredRegistrationUntouched() {
         RegistrationVO upcoming = registeredVO(clinic.today().plusDays(1));
-        when(registrationMapper.selectList(1L, null, null, null, null))
+        when(registrationMapper.selectList(1L, null, null, null))
                 .thenReturn(List.of(upcoming));
 
-        List<RegistrationVO> result = service.list(1L, null, null, null, null);
+        List<RegistrationVO> result = service.list(1L, null, null, null);
 
         assertEquals(BizStatus.REG_REGISTERED, result.get(0).getStatus());
         verify(registrationMapper, never())

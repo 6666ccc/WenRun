@@ -6,11 +6,9 @@ import { WORKSPACE_TITLES, workspacePanelFor } from '../features/experience/work
 import Assistant from './Assistant.vue'
 import Registration from './Registration.vue'
 import RegistrationDetail from './RegistrationDetail.vue'
-import User from './User.vue'
 import SideDrawer from '../components/SideDrawer.vue'
 import RegistrationBooking from '../components/workspace/RegistrationBooking.vue'
 import RegistrationRecord from '../components/workspace/RegistrationRecord.vue'
-import UserProfile from '../components/workspace/UserProfile.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,9 +19,9 @@ const panelTitle = computed(() => (panel.value ? WORKSPACE_TITLES[panel.value.ki
 const mobileView = computed(() => {
   if (!panel.value) return Assistant
   if (panel.value.kind === 'registration') return Registration
-  if (panel.value.kind === 'record') return RegistrationDetail
-  return User
+  return RegistrationDetail
 })
+const archiveRecords = { path: '/archive', query: { tab: 'registrations' } }
 
 /** 关闭抽屉：来自首页就后退（浏览器后退 = 关闭），否则直接回首页且不留历史。 */
 function closePanel() {
@@ -39,18 +37,17 @@ function closePanel() {
     <SideDrawer
       :open="Boolean(panel)"
       :title="panelTitle"
-      :back-label="panel?.kind === 'record' ? '个人中心' : ''"
+      :back-label="panel?.kind === 'record' ? '个人档案' : ''"
       @close="closePanel"
-      @back="router.push('/user')"
+      @back="router.push(archiveRecords)"
     >
       <RegistrationBooking v-if="panel?.kind === 'registration'" />
       <RegistrationRecord
         v-else-if="panel?.kind === 'record'"
         :id="panel.id"
         :show-back="false"
-        @cancelled="router.replace('/user')"
+        @cancelled="router.replace(archiveRecords)"
       />
-      <UserProfile v-else-if="panel?.kind === 'user'" />
     </SideDrawer>
   </template>
   <component :is="mobileView" v-else />

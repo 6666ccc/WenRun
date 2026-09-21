@@ -15,8 +15,10 @@ import com.wenrun.repository.PatientRepository;
 import com.wenrun.repository.StaffRepository;
 import com.wenrun.repository.SysUserRepository;
 import com.wenrun.service.AuthService;
+import com.wenrun.service.PatientAccessService;
 import com.wenrun.service.PatientService;
 import com.wenrun.service.support.LoginAssembler;
+import com.wenrun.vo.AccessiblePatientVO;
 import com.wenrun.vo.LoginVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,6 +35,7 @@ public class AuthServiceImpl implements AuthService {
     private final StaffRepository staffMapper;
     private final PatientRepository patientMapper;
     private final PatientService patientService;
+    private final PatientAccessService patientAccess;
     private final TokenSessionStore authTokenStore;
     private final PasswordEncoder passwordEncoder;
 
@@ -79,10 +82,10 @@ public class AuthServiceImpl implements AuthService {
             return;
         }
         if (AccountType.PATIENT.equals(accountType)) {
-            Patient patient = patientMapper.selectByUserId(user.getId());
-            if (patient != null) {
-                vo.setPatientId(patient.getId());
-            }
+            List<AccessiblePatientVO> patients = patientAccess.listAccessible(user.getId());
+            vo.setPatients(patients);
+            Long defaultPatientId = patientAccess.defaultPatientId(user.getId());
+            vo.setPatientId(defaultPatientId);
         }
     }
 
@@ -133,7 +136,9 @@ public class AuthServiceImpl implements AuthService {
 
         // 更新 patient 档案（仅患者端）
         if (AccountType.PATIENT.equals(user.getAccountType())) {
-            Patient patient = patientMapper.selectByUserId(userId);
+            Long patientId = patientAccess.defaultPatientId(userId);
+            if (patientId == null) return;
+            Patient patient = patientMapper.selectById(patientId);
             if (patient == null) return;
 
             boolean needUpdatePatient = false;

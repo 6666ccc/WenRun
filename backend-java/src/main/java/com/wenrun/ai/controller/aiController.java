@@ -16,10 +16,10 @@ import com.wenrun.common.ResultCode;
 import com.wenrun.common.context.UserContext;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.config.RequestTrace;
+import com.wenrun.entity.AiConversation;
 import com.wenrun.entity.ChatMessage;
-import com.wenrun.entity.Patient;
 import com.wenrun.repository.ChatMessageRepository;
-import com.wenrun.repository.PatientRepository;
+import com.wenrun.service.PatientAccessService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -58,7 +58,7 @@ public class aiController {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final aiService aiService;
-    private final PatientRepository patientRepository;
+    private final PatientAccessService patientAccess;
     private final ChatMessageRepository chatMessageRepository;
     private final ConversationOwnershipService ownershipService;
     private final AsyncTaskExecutor streamExecutor;
@@ -69,7 +69,7 @@ public class aiController {
 
     public aiController(
             aiService aiService,
-            PatientRepository patientRepository,
+            PatientAccessService patientAccess,
             ChatMessageRepository chatMessageRepository,
             ConversationOwnershipService ownershipService,
             @Qualifier("aiStreamExecutor") AsyncTaskExecutor streamExecutor,
@@ -78,7 +78,7 @@ public class aiController {
             AiPatientMemoryService memoryService,
             com.wenrun.repository.AiConversationRepository conversationRepository) {
         this.aiService = aiService;
-        this.patientRepository = patientRepository;
+        this.patientAccess = patientAccess;
         this.chatMessageRepository = chatMessageRepository;
         this.ownershipService = ownershipService;
         this.streamExecutor = streamExecutor;
@@ -223,7 +223,8 @@ public class aiController {
         }
         Long userId = UserContext.getUserId();
         request.setUserId(userId);
-        request.setPatientId(currentPatientId(userId));
+        request.setPatientId(resolveConversationPatient(
+                request.getConversationId(), userId, request.getPatientId()));
         ownershipService.establishIfAbsent(
                 request.getConversationId(), userId, request.getPatientId());
         request.setRequestId(RequestTrace.get());
@@ -249,7 +250,8 @@ public class aiController {
         Long userId = UserContext.getUserId();
         ownershipService.assertOwned(request.getConversationId(), userId);
         request.setUserId(userId);
-        request.setPatientId(currentPatientId(userId));
+        request.setPatientId(resolveConversationPatient(
+                request.getConversationId(), userId, request.getPatientId()));
         request.setRequestId(RequestTrace.get());
         request.setDelegatedToken(
                 delegationTokenService.issue(
@@ -264,17 +266,21 @@ public class aiController {
             String resumeInterruptId) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
         AtomicBoolean terminal = new AtomicBoolean(false);
+        AtomicBoolean abort = new AtomicBoolean(false);
         AtomicReference<Future<?>> upstreamTask = new AtomicReference<>();
-        Runnable cancelUpstream = () -> {
+        Runnable abortUpstream = () -> {
             terminal.set(true);
+            abort.set(true);
             Future<?> task = upstreamTask.get();
             if (task != null) {
                 task.cancel(true);
             }
         };
-        emitter.onTimeout(cancelUpstream);
-        emitter.onError(error -> cancelUpstream.run());
-        emitter.onCompletion(cancelUpstream);
+        emitter.onTimeout(abortUpstream);
+        emitter.onError(error -> abortUpstream.run());
+        // complete() 会在工作线程上同步触发 onCompletion。这里不能 cancel(true)，
+        // 否则 finally 里释放 Redis 会话锁会被 Lettuce 当成 Command interrupted。
+        emitter.onCompletion(() -> terminal.set(true));
 
         Future<?> task;
         try {
@@ -342,7 +348,7 @@ public class aiController {
             throw ex;
         }
         upstreamTask.set(task);
-        if (terminal.get()) {
+        if (abort.get()) {
             task.cancel(true);
         }
         return emitter;
@@ -458,12 +464,16 @@ public class aiController {
         }
     }
 
-    private Long currentPatientId(Long userId) {
-        if (userId == null) {
-            return null;
+    private Long resolveConversationPatient(String conversationId, Long userId, Long requestedPatientId) {
+        AiConversation existing = conversationRepository.selectByUserIdAndConversationId(userId, conversationId);
+        if (existing != null && existing.getPatientId() != null) {
+            patientAccess.assertAccess(existing.getPatientId());
+            if (requestedPatientId != null && !requestedPatientId.equals(existing.getPatientId())) {
+                throw new BusinessException("该会话已绑定其他患者，请新开会话");
+            }
+            return existing.getPatientId();
         }
-        Patient patient = patientRepository.selectByUserId(userId);
-        return patient == null ? null : patient.getId();
+        return patientAccess.resolvePatientId(requestedPatientId);
     }
 
     @FunctionalInterface

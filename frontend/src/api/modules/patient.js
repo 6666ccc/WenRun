@@ -15,3 +15,7 @@ export function createPatient(data) {
 export function updatePatient(id, data) {
   return request.put(`/api/patients/${id}`, data)
 }
+
+export function listMyPatients() {
+  return request.get('/api/me/patients')
+}

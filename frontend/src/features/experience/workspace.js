@@ -4,7 +4,6 @@
  */
 export function workspacePanelFor(path, params = {}) {
   if (path === '/registration') return { kind: 'registration' }
-  if (path === '/user') return { kind: 'user' }
   if (path.startsWith('/registration/') && params?.id !== undefined) return { kind: 'record', id: String(params.id) }
   return null
 }
@@ -12,5 +11,4 @@ export function workspacePanelFor(path, params = {}) {
 export const WORKSPACE_TITLES = {
   registration: '预约挂号',
   record: '挂号详情',
-  user: '个人中心',
 }

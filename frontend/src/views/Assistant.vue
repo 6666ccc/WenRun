@@ -98,7 +98,7 @@ function keydown(event) {
 
 /** 患者服务入口：PC 上由 PatientWorkspace 以抽屉呈现，移动端为独立页面。 */
 function openTask(task) {
-  router.push(task.type === 'records' ? '/user' : '/registration')
+  router.push(task.type === 'records' ? { path: '/archive', query: { tab: 'registrations' } } : '/registration')
 }
 
 function selectSession(id) {

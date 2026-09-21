@@ -185,7 +185,7 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
         <div class="assistant-shell__sidebar-foot">
           <nav class="assistant-shell__links" aria-label="患者服务">
             <RouterLink class="assistant-shell__link" to="/registration"><UiIcon name="calendar" :size="16" />预约挂号</RouterLink>
-            <RouterLink class="assistant-shell__link" to="/user"><UiIcon name="user" :size="16" />个人中心</RouterLink>
+            <RouterLink class="assistant-shell__link" to="/archive"><UiIcon name="user" :size="16" />个人档案</RouterLink>
           </nav>
           <div class="assistant-shell__account">
             <span class="assistant-shell__avatar" aria-hidden="true">{{ initial }}</span>

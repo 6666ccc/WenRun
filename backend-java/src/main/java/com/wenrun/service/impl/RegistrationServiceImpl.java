@@ -13,6 +13,7 @@ import com.wenrun.entity.Schedule;
 import com.wenrun.repository.PatientRepository;
 import com.wenrun.repository.RegistrationRepository;
 import com.wenrun.repository.ScheduleRepository;
+import com.wenrun.service.PatientAccessService;
 import com.wenrun.service.RegistrationService;
 import com.wenrun.vo.RegistrationVO;
 import lombok.RequiredArgsConstructor;
@@ -32,23 +33,19 @@ public class RegistrationServiceImpl implements RegistrationService {
     private final ScheduleRepository scheduleMapper;
     private final PatientRepository patientMapper;
     private final ClinicProperties clinicProperties;
+    private final PatientAccessService patientAccess;
 
-    //获取用户挂号的信息
     @Override
     @Transactional
-    public List<RegistrationVO> list(Long patientId, Long userId, Long registrantUserId, Long staffId, Integer status) {
-
-        // 患者端的数据范围由登录态决定，不能信任前端传入的 patientId/userId。
-        if (AccountType.PATIENT.equals(UserContext.getAccountType())) {
-            patientId = currentPatientId();
-            userId = null;
+    public List<RegistrationVO> list(Long patientId, Long registrantUserId, Long staffId, Integer status) {
+        if (isPatientAccount()) {
+            patientId = patientAccess.resolvePatientId(patientId);
             registrantUserId = null;
             staffId = null;
         }
 
-        //获取患者所有的挂号记录
         List<RegistrationVO> registrationVOList = registrationMapper.selectList(
-                patientId, userId, registrantUserId, staffId, status);
+                patientId, registrantUserId, staffId, status);
 
         //判断当前患者挂号是否过期,如果过期则自动退号并把号源还回排班
         for (RegistrationVO registrationVO : registrationVOList) {
@@ -76,10 +73,7 @@ public class RegistrationServiceImpl implements RegistrationService {
     @Override
     @Transactional
     public Long register(RegistrationCreateDTO dto) {
-        Long patientId = dto.getPatientId();
-        if (AccountType.PATIENT.equals(UserContext.getAccountType())) {
-            patientId = currentPatientId();
-        }
+        Long patientId = resolveSubjectPatientId(dto.getPatientId());
         Patient patient = patientMapper.selectById(patientId);
         if (patient == null) {
             throw new BusinessException("患者不存在");
@@ -160,9 +154,8 @@ public class RegistrationServiceImpl implements RegistrationService {
         if (reg == null) {
             throw new BusinessException("挂号单不存在");
         }
-        if (AccountType.PATIENT.equals(UserContext.getAccountType())
-                && !reg.getPatientId().equals(currentPatientId())) {
-            throw new BusinessException("无权操作该挂号单");
+        if (isPatientAccount()) {
+            patientAccess.assertAccess(reg.getPatientId());
         }
         if (reg.getStatus() != BizStatus.REG_REGISTERED) {
             throw new BusinessException("只有待就诊挂号可以改约");
@@ -216,9 +209,8 @@ public class RegistrationServiceImpl implements RegistrationService {
         if (reg.getStatus() == BizStatus.REG_VISITED) {
             throw new BusinessException("已就诊不能退号");
         }
-        if (AccountType.PATIENT.equals(UserContext.getAccountType())
-                && !reg.getPatientId().equals(currentPatientId())) {
-            throw new BusinessException("无权操作该挂号单");
+        if (isPatientAccount()) {
+            patientAccess.assertAccess(reg.getPatientId());
         }
         // 前面的状态判断只为给出友好文案；真正的并发守卫是这次条件更新。
         if (registrationMapper.updateStatusIfCurrent(
@@ -228,11 +220,17 @@ public class RegistrationServiceImpl implements RegistrationService {
         scheduleMapper.incrementRemaining(reg.getScheduleId());
     }
 
-    private Long currentPatientId() {
-        Patient patient = patientMapper.selectByUserId(UserContext.getUserId());
-        if (patient == null) {
-            throw new BusinessException("患者档案不存在");
+    private Long resolveSubjectPatientId(Long requestedPatientId) {
+        if (isPatientAccount()) {
+            return patientAccess.resolvePatientId(requestedPatientId);
         }
-        return patient.getId();
+        if (requestedPatientId == null) {
+            throw new BusinessException("患者不存在");
+        }
+        return requestedPatientId;
+    }
+
+    private boolean isPatientAccount() {
+        return AccountType.PATIENT.equals(UserContext.getAccountType());
     }
 }

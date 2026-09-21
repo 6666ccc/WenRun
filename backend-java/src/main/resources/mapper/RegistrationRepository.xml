@@ -17,9 +17,6 @@
         LEFT JOIN schedule sc ON sc.id = r.schedule_id
         LEFT JOIN sys_user ru ON ru.id = r.registrant_user_id
         <where>
-            <if test="userId != null">
-                AND (p.user_id = #{userId} OR r.registrant_user_id = #{userId})
-            </if>
             <if test="patientId != null">AND r.patient_id = #{patientId}</if>
             <if test="registrantUserId != null">AND r.registrant_user_id = #{registrantUserId}</if>
             <if test="staffId != null">AND r.staff_id = #{staffId}</if>

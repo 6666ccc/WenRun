@@ -1,16 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '../stores'
 import { homePath } from '../utils/portal'
-import { assistantRedirect, isPatientPortal } from '../features/experience/mode'
+import { assistantRedirect, isPatientPortal, userArchiveRedirect } from '../features/experience/mode'
 
 const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: () => import('../views/Login.vue'), meta: { guest: true } },
   { path: '/mode-select', redirect: '/home', meta: { patient: true } },
-  // 首页与患者服务共用一个工作台组件：PC 上业务功能以抽屉叠在聊天之上，移动端仍是独立页面。
+  // 首页与挂号共用工作台：PC 上挂号以抽屉叠在聊天之上，移动端仍是独立页面。个人档案为独立全页。
   { path: '/home', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
   { path: '/assistant', redirect: assistantRedirect },
-  { path: '/user', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
+  { path: '/archive', component: () => import('../views/PatientArchive.vue'), meta: { patient: true } },
+  { path: '/user', redirect: userArchiveRedirect, meta: { patient: true } },
   { path: '/registration', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
   { path: '/registration/:id', component: () => import('../views/PatientWorkspace.vue'), meta: { patient: true } },
   { path: '/:pathMatch(.*)*', redirect: '/login' },

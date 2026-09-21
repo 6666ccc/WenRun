@@ -24,7 +24,7 @@ const fulfilled = (result) => result.status === 'fulfilled' && Array.isArray(res
 const runtimes = new Map()
 
 function runtimeKey(user) {
-  return String(user?.value?.userId || user?.value?.patientId || 'anonymous')
+  return `${user?.value?.userId || 'anonymous'}:${user?.value?.activePatientId || user?.value?.patientId || 'none'}`
 }
 
 function scopedFastModeKey(key) {
@@ -95,13 +95,13 @@ function createRuntime(key) {
     },
     async refreshContext(user) {
       if (contextPromise) return contextPromise
-      if (!user?.value?.userId && !user?.value?.patientId) {
+      if (!user?.value?.userId && !user?.value?.activePatientId && !user?.value?.patientId) {
         context.value = { appointments: [], loading: false, errors: {} }
         return context.value
       }
       context.value.loading = true
       contextPromise = Promise.allSettled([
-        listRegistrations({ userId: user.value?.userId }),
+        listRegistrations({ patientId: user.value?.activePatientId || user.value?.patientId }),
       ]).then(([appointments]) => {
         context.value = {
           appointments: fulfilled(appointments),
@@ -331,7 +331,13 @@ export function useAssistant(user) {
     runtime.streamStatus.value = null
     try {
       await chatStream(
-        { message: content, conversationId, clientRequestId: requestId, fastMode: runtime.fastMode.value },
+        {
+          message: content,
+          conversationId,
+          clientRequestId: requestId,
+          fastMode: runtime.fastMode.value,
+          patientId: user.value?.activePatientId || user.value?.patientId,
+        },
         createStreamHandlers(runtime, conversationId, requestId),
       )
     } catch (nextError) {
@@ -390,6 +396,7 @@ export function useAssistant(user) {
           decision,
           clientRequestId: requestId,
           interruptId,
+          patientId: user.value?.activePatientId || user.value?.patientId,
         },
         createStreamHandlers(runtime, conversationId, requestId),
       )
@@ -413,6 +420,9 @@ export function useAssistant(user) {
   onMounted(() => {
     runtime.refreshContext(user)
     runtime.hydrateSessions()
+  })
+  watch(() => user?.value?.activePatientId || user?.value?.patientId, () => {
+    runtime.refreshContext(user)
   })
 
   return {

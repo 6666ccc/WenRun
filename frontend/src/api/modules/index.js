@@ -1,5 +1,7 @@
 export * from './user'
 export * from './patient'
+export * from './healthProfile'
+export * from './healthMetric'
 export * from './schedule'
 export * from './registration'
 export * from './ai'

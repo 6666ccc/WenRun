@@ -1,7 +1,11 @@
 import request from '../request'
 
 export function listRegistrations(params) {
-  return request.get('/api/registrations', { params })
+  const { patientId, ...rest } = params || {}
+  if (patientId) {
+    return request.get(`/api/patients/${patientId}/registrations`, { params: rest })
+  }
+  return request.get('/api/registrations', { params: rest })
 }
 
 export function listPendingRegistrations(params) {

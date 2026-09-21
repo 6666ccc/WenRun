@@ -6,7 +6,7 @@ const route = useRoute()
 const tabs = [
   { to: '/home', icon: 'ai', label: '首页' },
   { to: '/registration', icon: 'calendar', label: '挂号' },
-  { to: '/user', icon: 'user', label: '个人中心' },
+  { to: '/archive', icon: 'user', label: '个人档案' },
 ]
 const active = (path) => route.path === path || route.path.startsWith(`${path}/`)
 </script>

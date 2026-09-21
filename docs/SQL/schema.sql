@@ -1,5 +1,5 @@
 -- WenRun 轻量运行库建表脚本
--- 当前运行边界：账号、患者档案、专家/号源、在线挂号与 AI Agent 元数据。
+-- 当前运行边界：账号、患者档案、健康档案、健康指标纵向记录、就医资料、专家/号源、在线挂号与 AI Agent 元数据。
 -- 科室和医护表仅作为挂号及 Agent 查询的兼容基础数据，不再对应独立前端模块。
 -- 数据库: wenrun
 -- 约定: InnoDB / utf8mb4；主键自增；不加外键；业务单号/编码加 UNIQUE；关联查询列加普通索引
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS patient (
   birth_date      DATE         DEFAULT NULL COMMENT '出生日期',
   id_card         VARCHAR(32)  DEFAULT NULL COMMENT '身份证号',
   phone           VARCHAR(20)  DEFAULT NULL COMMENT '手机号',
-  user_id         BIGINT       DEFAULT NULL COMMENT '绑定患者端用户',
+  user_id         BIGINT       DEFAULT NULL COMMENT '主账号/创建账号，对应 sys_user.id；不作授权依据',
   allergy_history VARCHAR(500) DEFAULT NULL COMMENT '过敏史',
   address         VARCHAR(255) DEFAULT NULL COMMENT '地址',
   create_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -127,6 +127,108 @@ CREATE TABLE IF NOT EXISTS patient (
   KEY idx_patient_id_card (id_card),
   KEY idx_patient_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='患者';
+
+CREATE TABLE IF NOT EXISTS user_patient_relation (
+  id              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id         BIGINT       NOT NULL COMMENT '登录账号ID，对应 sys_user.id',
+  patient_id      BIGINT       NOT NULL COMMENT '患者ID，对应 patient.id',
+  relation_type   VARCHAR(32)  NOT NULL COMMENT 'SELF/SPOUSE/CHILD/PARENT/OTHER',
+  is_default      TINYINT      NOT NULL DEFAULT 0 COMMENT '是否为该账号当前默认患者',
+  status          TINYINT      NOT NULL DEFAULT 1 COMMENT '1有效 0停用',
+  created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_patient (user_id, patient_id),
+  KEY idx_user_patient_user_id (user_id),
+  KEY idx_user_patient_patient_id (patient_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='账号与患者授权关系；授权只认此表';
+
+CREATE TABLE IF NOT EXISTS patient_health_profile (
+  id                  BIGINT         NOT NULL AUTO_INCREMENT COMMENT '主键',
+  patient_id          BIGINT         NOT NULL COMMENT '患者ID，对应 patient.id',
+  height_cm           DECIMAL(5, 1)  DEFAULT NULL COMMENT '身高cm',
+  weight_kg           DECIMAL(5, 1)  DEFAULT NULL COMMENT '体重kg',
+  systolic_mmhg       SMALLINT       DEFAULT NULL COMMENT '收缩压mmHg',
+  diastolic_mmhg      SMALLINT       DEFAULT NULL COMMENT '舒张压mmHg',
+  glucose_mmol        DECIMAL(4, 1)  DEFAULT NULL COMMENT '血糖mmol/L',
+  glucose_type        VARCHAR(24)    DEFAULT NULL COMMENT 'fasting空腹 / random随机 / postprandial餐后',
+  heart_rate_bpm      SMALLINT       DEFAULT NULL COMMENT '心率次/分',
+  spo2_pct            SMALLINT       DEFAULT NULL COMMENT '血氧%',
+  respiratory_rate_bpm SMALLINT      DEFAULT NULL COMMENT '呼吸频率次/分',
+  temperature_c       DECIMAL(4, 1)  DEFAULT NULL COMMENT '体温℃',
+  measured_at         DATETIME       DEFAULT NULL COMMENT '上述体征最近一次测量时间',
+  past_history        VARCHAR(2000)  DEFAULT NULL COMMENT '既往史',
+  family_history      VARCHAR(2000)  DEFAULT NULL COMMENT '家族史',
+  personal_history    VARCHAR(2000)  DEFAULT NULL COMMENT '个人史：烟酒、职业等',
+  create_time         DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time         DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_patient_health_profile_patient (patient_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='患者健康档案当前值';
+
+CREATE TABLE IF NOT EXISTS patient_health_snapshot (
+  id                  BIGINT         NOT NULL AUTO_INCREMENT COMMENT '主键',
+  patient_id          BIGINT         NOT NULL COMMENT '患者ID，对应 patient.id',
+  height_cm           DECIMAL(5, 1)  DEFAULT NULL COMMENT '身高cm',
+  weight_kg           DECIMAL(5, 1)  DEFAULT NULL COMMENT '体重kg',
+  systolic_mmhg       SMALLINT       DEFAULT NULL COMMENT '收缩压mmHg',
+  diastolic_mmhg      SMALLINT       DEFAULT NULL COMMENT '舒张压mmHg',
+  glucose_mmol        DECIMAL(4, 1)  DEFAULT NULL COMMENT '血糖mmol/L',
+  glucose_type        VARCHAR(24)    DEFAULT NULL COMMENT 'fasting空腹 / random随机 / postprandial餐后',
+  heart_rate_bpm      SMALLINT       DEFAULT NULL COMMENT '心率次/分',
+  spo2_pct            SMALLINT       DEFAULT NULL COMMENT '血氧%',
+  respiratory_rate_bpm SMALLINT      DEFAULT NULL COMMENT '呼吸频率次/分',
+  temperature_c       DECIMAL(4, 1)  DEFAULT NULL COMMENT '体温℃',
+  measured_at         DATETIME       NOT NULL COMMENT '用户确认的测量/填写时间',
+  past_history        VARCHAR(2000)  DEFAULT NULL COMMENT '既往史',
+  family_history      VARCHAR(2000)  DEFAULT NULL COMMENT '家族史',
+  personal_history    VARCHAR(2000)  DEFAULT NULL COMMENT '个人史',
+  create_time         DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '系统写入时间',
+  PRIMARY KEY (id),
+  KEY idx_health_snapshot_patient_time (patient_id, measured_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='患者健康档案历史快照';
+
+-- 健康指标纵向记录：一行 = 某患者在某时刻的一项指标。
+-- 身高仍在 patient_health_profile.height_cm；BMI 不落库，由身高 + 体重历史动态计算。
+-- 趋势图必须按 measured_at 排序，不能按 created_at（支持补录历史数据）。
+CREATE TABLE IF NOT EXISTS health_metric_record (
+  id                  BIGINT         NOT NULL AUTO_INCREMENT COMMENT '主键',
+  patient_id          BIGINT         NOT NULL COMMENT '患者ID，对应 patient.id',
+  metric_type         VARCHAR(32)    NOT NULL COMMENT '指标类型英文枚举，如 WEIGHT/BLOOD_PRESSURE',
+  primary_value       DECIMAL(10, 3) NOT NULL COMMENT '主要指标值；血压为收缩压',
+  secondary_value     DECIMAL(10, 3) DEFAULT NULL COMMENT '第二指标值；血压为舒张压',
+  measure_context     VARCHAR(32)    DEFAULT NULL COMMENT '测量场景，主要用于血糖 FASTING/BEFORE_MEAL 等',
+  source_type         VARCHAR(32)    NOT NULL DEFAULT 'MANUAL' COMMENT '数据来源：MANUAL/DEVICE/HOSPITAL/REPORT/AI_EXTRACT',
+  measured_at         DATETIME       NOT NULL COMMENT '实际测量时间，趋势图按此排序',
+  created_by_user_id  BIGINT         DEFAULT NULL COMMENT '录入人账号ID，对应 sys_user.id',
+  remark              VARCHAR(255)   DEFAULT NULL COMMENT '备注',
+  created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录写入数据库的时间',
+  updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  is_deleted          TINYINT        NOT NULL DEFAULT 0 COMMENT '0正常 1逻辑删除',
+  PRIMARY KEY (id),
+  KEY idx_health_metric_patient_type_time (patient_id, metric_type, measured_at),
+  KEY idx_health_metric_patient_time (patient_id, measured_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='健康指标纵向记录；归属患者 patient_id，录入人 created_by_user_id';
+
+-- 就医资料：一份资料一行，COS/OSS 稳定 URL 存在 files_json。
+-- 归属 patient_id；uploaded_by_user_id 是上传人，不是资料主人。不关联 registration。
+CREATE TABLE IF NOT EXISTS patient_medical_document (
+  id                   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  patient_id           BIGINT       NOT NULL COMMENT '患者ID，对应 patient.id',
+  doc_type             VARCHAR(32)  NOT NULL COMMENT 'MEDICAL_RECORD/LAB_REPORT/MEDICATION/CHECKUP',
+  title                VARCHAR(128) DEFAULT NULL COMMENT '标题，可空',
+  occurred_at          DATETIME     DEFAULT NULL COMMENT '检查或资料发生时间；列表优先按此排序',
+  files_json           JSON         NOT NULL COMMENT '文件数组，至少 1 项；url 为去 query 的稳定地址',
+  uploaded_by_user_id  BIGINT       NOT NULL COMMENT '上传人账号ID，对应 sys_user.id；不是资料主人',
+  created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '写入时间',
+  updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  is_deleted           TINYINT      NOT NULL DEFAULT 0 COMMENT '0正常 1逻辑删除',
+  PRIMARY KEY (id),
+  KEY idx_med_doc_patient_type_time (patient_id, doc_type, occurred_at),
+  KEY idx_med_doc_patient_created (patient_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='患者就医资料；一份一行，文件地址在 files_json';
 
 CREATE TABLE IF NOT EXISTS registration (
   id                  BIGINT         NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -158,9 +260,9 @@ CREATE TABLE IF NOT EXISTS registration (
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS ai_conversations (
-  user_id          BIGINT       NOT NULL COMMENT '会话所有者用户ID',
+  user_id          BIGINT       NOT NULL COMMENT '会话发起者账号ID，对应 sys_user.id',
   conversation_id  VARCHAR(64)  NOT NULL COMMENT '用户作用域内的会话ID',
-  patient_id       BIGINT       NULL COMMENT '会话创建时绑定的患者ID',
+  patient_id       BIGINT       NULL COMMENT '当前会话讨论的患者ID，对应 patient.id',
   status           VARCHAR(24)  NOT NULL DEFAULT 'active' COMMENT 'active',
   version          BIGINT       NOT NULL DEFAULT 0 COMMENT '会话状态乐观版本',
   create_time      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -172,8 +274,8 @@ CREATE TABLE IF NOT EXISTS ai_conversations (
 
 CREATE TABLE IF NOT EXISTS chat_messages (
   id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  conversation_id   VARCHAR(64)  NOT NULL COMMENT '会话ID',
-  user_id           BIGINT       NOT NULL COMMENT '发送者用户ID',
+  conversation_id   VARCHAR(64)  NOT NULL COMMENT '会话ID，仅在 user_id 作用域内唯一',
+  user_id           BIGINT       NOT NULL COMMENT '会话所有者账号ID；患者主体以 ai_conversations.patient_id 为准',
   client_request_id VARCHAR(64)  NULL COMMENT '客户端对话轮次幂等键',
   role              VARCHAR(32)  NOT NULL COMMENT 'user/assistant',
   content           MEDIUMTEXT   NOT NULL COMMENT '消息纯文本',

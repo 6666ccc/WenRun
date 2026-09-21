@@ -3,6 +3,7 @@
  * 基址通过 Vite proxy → localhost:8080
  */
 import axios from 'axios'
+import { shouldSkipAuth } from './authSkip'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
@@ -29,10 +30,8 @@ export function setToken(token) {
 }
 
 /* ---------- 请求拦截器 ---------- */
-const SKIP_AUTH = ['/api/health', '/api/auth/login', '/api/auth/register']
-
 request.interceptors.request.use((config) => {
-  const skip = SKIP_AUTH.some((p) => config.url?.includes(p))
+  const skip = shouldSkipAuth(config.url)
   if (!skip) {
     const token = getToken()
     if (token) {

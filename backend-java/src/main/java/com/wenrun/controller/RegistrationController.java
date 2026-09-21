@@ -27,13 +27,12 @@ public class RegistrationController {
     /** GET /api/registrations — 查询挂号列表（医生端自动按当前登录医生过滤） */
     @GetMapping
     public Result<List<RegistrationVO>> list(@RequestParam(required = false) Long patientId,
-            @RequestParam(required = false) Long userId,
             @RequestParam(required = false) Long registrantUserId,
             @RequestParam(required = false) Long staffId,
             @RequestParam(required = false) Integer status) {
         Long effectiveStaffId = currentStaffSupport.resolveStaffId(staffId);
         return Result.success(registrationService.list(
-                patientId, userId, registrantUserId, effectiveStaffId, status));
+                patientId, registrantUserId, effectiveStaffId, status));
     }
 
     /** GET /api/registrations/pending — 查询待就诊挂号（医生端自动过滤） */
@@ -41,7 +40,7 @@ public class RegistrationController {
     public Result<List<RegistrationVO>> pending(@RequestParam(required = false) Long staffId) {
         Long effectiveStaffId = currentStaffSupport.resolveStaffId(staffId);
         return Result.success(registrationService.list(
-                null, null, null, effectiveStaffId, BizStatus.REG_REGISTERED));
+                null, null, effectiveStaffId, BizStatus.REG_REGISTERED));
     }
 
     /** POST /api/registrations — 患者挂号 */

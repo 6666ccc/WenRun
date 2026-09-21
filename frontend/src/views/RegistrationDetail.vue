@@ -9,6 +9,6 @@ const router = useRouter()
 
 <template>
   <AppShell>
-    <RegistrationRecord :id="String(route.params.id)" @back="router.push('/user')" @cancelled="router.replace('/user')" />
+    <RegistrationRecord :id="String(route.params.id)" @back="router.push({ path: '/archive', query: { tab: 'registrations' } })" @cancelled="router.replace({ path: '/archive', query: { tab: 'registrations' } })" />
   </AppShell>
 </template>

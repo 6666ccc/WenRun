@@ -10,3 +10,8 @@ export function isPatientPortal(user) {
 export function assistantRedirect(to) {
   return { path: '/home', query: { ...(to?.query || {}) } }
 }
+
+/** 旧的个人中心路径并入独立档案页。 */
+export function userArchiveRedirect() {
+  return '/archive'
+}

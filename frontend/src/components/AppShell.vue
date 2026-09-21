@@ -11,12 +11,12 @@ defineProps({ padded: { type: Boolean, default: true } })
 const router = useRouter()
 const route = useRoute()
 const isPc = useIsPc()
-const { user, logout } = useAuth()
+const { user, patients, activePatientId, setActivePatient, logout } = useAuth()
 
 const nav = [
   { to: '/home', icon: 'home', label: '首页' },
   { to: '/registration', icon: 'calendar', label: '预约挂号' },
-  { to: '/user', icon: 'user', label: '个人中心' },
+  { to: '/archive', icon: 'user', label: '个人档案' },
 ]
 const pageLabel = computed(() => nav.find((item) => route.path === item.to || route.path.startsWith(`${item.to}/`))?.label || '患者服务')
 const active = (path) => route.path === path || route.path.startsWith(`${path}/`)
@@ -50,10 +50,18 @@ async function signOut() {
       </nav>
 
       <div class="app-shell__account">
-        <RouterLink to="/user" class="app-shell__account-link">
+        <RouterLink to="/archive" class="app-shell__account-link">
           <span class="app-shell__avatar" aria-hidden="true">{{ (user?.realName || user?.username || '患')[0] }}</span>
-          <span><strong>{{ user?.realName || user?.username || '患者' }}</strong><small>查看个人中心</small></span>
+          <span><strong>{{ user?.realName || user?.username || '患者' }}</strong><small>查看个人档案</small></span>
         </RouterLink>
+        <label v-if="patients.length > 1" class="app-shell__patient">
+          当前患者
+          <select class="input" :value="activePatientId" @change="setActivePatient($event.target.value)">
+            <option v-for="item in patients" :key="item.patientId" :value="item.patientId">
+              {{ item.name || '未命名' }}
+            </option>
+          </select>
+        </label>
         <button class="app-shell__logout" type="button" @click="signOut"><UiIcon name="logout" :size="18" />退出登录</button>
       </div>
     </aside>
@@ -126,6 +134,8 @@ async function signOut() {
 .app-shell__account-link strong { font-size: 14px; }
 .app-shell__account-link small { margin-top: 2px; color: var(--color-sidebar-muted); font-size: 12px; }
 .app-shell__logout { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 12px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--color-sidebar-muted); cursor: pointer; font: inherit; text-align: left; }
+.app-shell__patient { display: grid; gap: 6px; margin-top: 10px; color: var(--color-sidebar-muted); font-size: 12px; }
+.app-shell__patient .input { min-height: 36px; }
 .app-shell__logout:hover, .app-shell__logout:focus-visible { background: rgba(255,255,255,.1); color: #fff; }
 .app-shell__main { min-width: 0; min-height: 100vh; flex: 1; display: flex; flex-direction: column; }
 .app-shell__topbar { position: sticky; top: 0; z-index: 20; min-height: 64px; border-bottom: 1px solid var(--color-border); background: rgba(255,255,255,.92); backdrop-filter: blur(14px); }

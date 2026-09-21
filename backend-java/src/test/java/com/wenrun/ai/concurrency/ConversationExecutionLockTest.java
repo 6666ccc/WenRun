@@ -68,4 +68,34 @@ class ConversationExecutionLockTest {
                 .contains("redis.call('get', KEYS[1]) == ARGV[1]")
                 .contains("del");
     }
+
+    @Test
+    void redisLockReleaseClearsCallerInterruptSoLettuceCanFinish() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.setIfAbsent(eq("wenrun:ai:conversation-lock:7:conversation-1"), any(String.class),
+                eq(Duration.ofSeconds(330)))).thenReturn(true);
+        when(redis.execute(eq(RedisConversationExecutionLock.RELEASE_SCRIPT), any(), any()))
+                .thenAnswer(invocation -> {
+                    assertThat(Thread.currentThread().isInterrupted())
+                            .as("release must not run on an interrupted thread")
+                            .isFalse();
+                    return 1L;
+                });
+
+        RedisConversationExecutionLock lock = new RedisConversationExecutionLock(redis);
+        ReflectionTestUtils.setField(lock, "lease", Duration.ofSeconds(330));
+        ReflectionTestUtils.setField(lock, "renewEvery", Duration.ofSeconds(30));
+
+        ConversationExecutionLock.Handle handle = lock.tryAcquire(7L, "conversation-1").orElseThrow();
+        Thread.currentThread().interrupt();
+        try {
+            handle.close();
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
 }

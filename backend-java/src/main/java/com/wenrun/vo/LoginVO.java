@@ -21,8 +21,10 @@ public class LoginVO {
     private String userType;
     /** 医生端业务 ID */
     private Long staffId;
-    /** 患者端业务 ID */
+    /** 患者端当前默认患者 ID */
     private Long patientId;
+    /** 当前账号可管理的患者列表 */
+    private List<AccessiblePatientVO> patients;
     /** 全部角色编码 */
     private List<String> roles;
 }

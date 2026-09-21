@@ -302,5 +302,6 @@ npm run build
 | 流式答案重复或不完整 | 前端是否为同一轮复用 `clientRequestId`、检查 `done.reply`、用 `X-Request-Id` 对照 Java/Python 日志 |
 | 正常模式“挂号/查排班”没有实际结果 | 检查委托 JWT scope、患者绑定、Java 内部 Tool API 与 Redis checkpoint；写操作必须先收到 `confirm` 再携带同一 `interruptId` 调 `/resume` |
 | 快速模式答不出号源排班或本院楼层/须知 | 这是设计行为，不是故障。快速模式只有闲聊、联网和记忆，请关闭快速模式重问 |
+| `done` 后出现 `AI conversation lock release failed` / `Redis command interrupted` | 不是 Redis 宕机。正常结束时不要打断正在 `lock.close()` 的工作线程，否则锁残留，下一句可能 `AI_CONVERSATION_BUSY`。见 [2026-09-20 会话锁释放被中断](./2026-09-20-ai-conversation-lock-release.md) |
 
 相关实现可从 [`ai-python/README.md`](../ai-python/README.md) 和 [`aiController.java`](../backend-java/src/main/java/com/wenrun/ai/controller/aiController.java) 继续阅读。

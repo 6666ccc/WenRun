@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.UserPatientRelationRepository">
+
+    <resultMap id="BaseResultMap" type="com.wenrun.entity.UserPatientRelation">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="patient_id" property="patientId"/>
+        <result column="relation_type" property="relationType"/>
+        <result column="is_default" property="isDefault"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="selectByUserIdAndPatientId" resultMap="BaseResultMap">
+        SELECT id, user_id, patient_id, relation_type, is_default, status, created_at, updated_at
+        FROM user_patient_relation
+        WHERE user_id = #{userId}
+          AND patient_id = #{patientId}
+        LIMIT 1
+    </select>
+
+    <select id="selectActive" resultMap="BaseResultMap">
+        SELECT id, user_id, patient_id, relation_type, is_default, status, created_at, updated_at
+        FROM user_patient_relation
+        WHERE user_id = #{userId}
+          AND patient_id = #{patientId}
+          AND status = 1
+        LIMIT 1
+    </select>
+
+    <select id="selectAccessibleByUserId" resultType="com.wenrun.vo.AccessiblePatientVO">
+        SELECT r.patient_id AS patientId,
+               p.patient_no AS patientNo,
+               p.name AS name,
+               r.relation_type AS relationType,
+               r.is_default AS isDefault
+        FROM user_patient_relation r
+        INNER JOIN patient p ON p.id = r.patient_id
+        WHERE r.user_id = #{userId}
+          AND r.status = 1
+        ORDER BY r.is_default DESC, r.id ASC
+    </select>
+
+    <select id="countActiveByUserId" resultType="int">
+        SELECT COUNT(*)
+        FROM user_patient_relation
+        WHERE user_id = #{userId}
+          AND status = 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_patient_relation (
+            user_id, patient_id, relation_type, is_default, status
+        ) VALUES (
+            #{userId}, #{patientId}, #{relationType}, #{isDefault}, #{status}
+        )
+    </insert>
+</mapper>

@@ -264,6 +264,7 @@ public class aiService {
         Map<String, Object> context = new LinkedHashMap<>();
         if (userId != null) {
             context.put("userId", userId);
+            context.put("operatorUserId", userId);
         }
         if (patientId != null) {
             context.put("patientId", patientId);

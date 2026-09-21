@@ -179,7 +179,7 @@ class AiToolControllerTest {
         registration.setId(5L);
         registration.setRegNo("R-2026-0001");
         registration.setDeptName("内科");
-        when(registrationService.list(11L, null, null, null, BizStatus.REG_REGISTERED))
+        when(registrationService.list(11L, null, null, BizStatus.REG_REGISTERED))
                 .thenReturn(List.of(registration));
         DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, "patient",
                 Set.of("registrations:read"), "token-1"));
@@ -187,19 +187,19 @@ class AiToolControllerTest {
         List<RegistrationVO> found = controller.listMyRegistrations(BizStatus.REG_REGISTERED).getData();
 
         assertEquals("R-2026-0001", found.getFirst().getRegNo());
-        verify(registrationService).list(11L, null, null, null, BizStatus.REG_REGISTERED);
+        verify(registrationService).list(11L, null, null, BizStatus.REG_REGISTERED);
     }
 
     @Test
     void pendingRegistrationsToolFiltersByRegisteredStatus() {
-        when(registrationService.list(11L, null, null, null, BizStatus.REG_REGISTERED))
+        when(registrationService.list(11L, null, null, BizStatus.REG_REGISTERED))
                 .thenReturn(List.of());
         DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, "patient",
                 Set.of("registrations:read"), "token-1"));
 
         controller.listMyPendingRegistrations();
 
-        verify(registrationService).list(11L, null, null, null, BizStatus.REG_REGISTERED);
+        verify(registrationService).list(11L, null, null, BizStatus.REG_REGISTERED);
     }
 
     @Test
@@ -289,13 +289,13 @@ class AiToolControllerTest {
 
     @Test
     void readEndpointsStillWorkWithoutWriteScope() {
-        when(registrationService.list(11L, null, null, null, null)).thenReturn(List.of());
+        when(registrationService.list(11L, null, null, null)).thenReturn(List.of());
         DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
                 Set.of("registrations:read"), "token-1"));
 
         controller.listMyRegistrations(null);
 
-        verify(registrationService).list(11L, null, null, null, null);
+        verify(registrationService).list(11L, null, null, null);
     }
 
     @Test

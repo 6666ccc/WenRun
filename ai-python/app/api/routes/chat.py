@@ -73,7 +73,12 @@ def _assert_request_identity(request: ChatRequest | ChatResumeRequest, delegatio
 
     supplied = request.user_context
     identity = delegation.identity
-    if supplied.user_id is not None and supplied.user_id != identity.user_id:
+    operator_id = (
+        supplied.operator_user_id
+        if supplied.operator_user_id is not None
+        else supplied.user_id
+    )
+    if operator_id is not None and operator_id != identity.user_id:
         raise HTTPException(status_code=403, detail="delegated user identity mismatch")
     if supplied.patient_id is not None and supplied.patient_id != identity.patient_id:
         raise HTTPException(status_code=403, detail="delegated patient identity mismatch")

@@ -7,7 +7,7 @@ import { isBookableSchedule, isOccupiedSlot, shiftClinicDate, todayISO } from '.
 import UiIcon from '../UiIcon.vue'
 import UiState from '../UiState.vue'
 
-const { user } = useAuth()
+const { activePatientId } = useAuth()
 const schedules = ref([])
 const myRegistrations = ref([])
 const loading = ref(true)
@@ -40,8 +40,8 @@ async function load() {
   error.value = ''
   try {
     schedules.value = (await listSchedules()) || []
-    if (user.value?.userId) {
-      try { myRegistrations.value = (await listRegistrations({ userId: user.value.userId })) || [] }
+    if (activePatientId.value) {
+      try { myRegistrations.value = (await listRegistrations({ patientId: activePatientId.value })) || [] }
       catch { myRegistrations.value = [] }
     } else {
       myRegistrations.value = []
@@ -51,6 +51,7 @@ async function load() {
   finally { loading.value = false }
 }
 onMounted(load)
+watch(activePatientId, load)
 
 function clearFilters() { Object.assign(filters, { date: '', dept: '', doctor: '' }) }
 function setDate(offset) {
@@ -58,10 +59,10 @@ function setDate(offset) {
 }
 function selectSchedule(schedule) { selected.value = schedule; reviewing.value = true }
 async function book() {
-  if (!selected.value || !user.value?.patientId) return
+  if (!selected.value || !activePatientId.value) return
   booking.value = true
   try {
-    await createRegistration({ patientId: user.value.patientId, scheduleId: selected.value.id })
+    await createRegistration({ patientId: activePatientId.value, scheduleId: selected.value.id })
     schedules.value = schedules.value.map((item) => item.id === selected.value.id ? { ...item, remainingCount: Math.max(0, Number(item.remainingCount) - 1) } : item)
     myRegistrations.value = [...myRegistrations.value, {
       status: 1,
@@ -104,7 +105,7 @@ async function book() {
     </UiState>
     <Teleport to="body">
       <div v-if="reviewing && selected" class="shared-dialog-overlay" role="presentation" @click="reviewing=false"><div class="shared-dialog vue-review-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-title" @click.stop>
-        <p class="vue-review-dialog__eyebrow">确认预约</p><h3 id="booking-title">核对挂号信息</h3><p>提交后将创建挂号记录，可在个人中心查看和管理。</p>
+        <p class="vue-review-dialog__eyebrow">确认预约</p><h3 id="booking-title">核对挂号信息</h3><p>提交后将创建挂号记录，可在个人档案查看和管理。</p>
         <dl class="booking-review"><div><dt>科室 / 医生</dt><dd>{{ selected.deptName }} · {{ selected.staffName }}</dd></div><div><dt>日期 / 时段</dt><dd>{{ selected.workDate }} · {{ formatTimePeriod(selected.timePeriod) }}</dd></div><div><dt>挂号费</dt><dd>{{ formatMoney(selected.registerFee) }}</dd></div><div><dt>剩余号源</dt><dd>{{ selected.remainingCount }}</dd></div></dl>
         <div class="shared-dialog__actions"><button class="btn btn--ghost" type="button" @click="reviewing=false">返回筛选</button><button class="btn btn--primary" type="button" :disabled="booking" @click="book">{{ booking ? '提交中…' : '确认挂号' }}</button></div>
       </div></div>

@@ -3,12 +3,8 @@ package com.wenrun.ai.controller;
 import com.wenrun.ai.service.AiPatientMemoryService;
 import com.wenrun.ai.vo.AiMemoryWriteRequest;
 import com.wenrun.common.Result;
-import com.wenrun.common.ResultCode;
-import com.wenrun.common.context.UserContext;
-import com.wenrun.common.exception.BusinessException;
 import com.wenrun.entity.AiPatientMemory;
-import com.wenrun.entity.Patient;
-import com.wenrun.repository.PatientRepository;
+import com.wenrun.service.PatientAccessService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,37 +24,33 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiMemoryController {
     private final AiPatientMemoryService memoryService;
-    private final PatientRepository patientRepository;
+    private final PatientAccessService patientAccess;
 
     @GetMapping
-    public Result<List<AiPatientMemory>> list(@RequestParam(defaultValue = "0") int page,
+    public Result<List<AiPatientMemory>> list(@RequestParam(required = false) Long patientId,
+                                              @RequestParam(defaultValue = "0") int page,
                                               @RequestParam(defaultValue = "20") int size) {
-        return Result.success(memoryService.listManageable(currentPatientId(), page, size));
+        return Result.success(memoryService.listManageable(patientAccess.resolvePatientId(patientId), page, size));
     }
 
     @PutMapping("/{memoryId}")
     public Result<AiPatientMemory> update(@PathVariable String memoryId,
+                                          @RequestParam(required = false) Long patientId,
                                           @Valid @RequestBody AiMemoryWriteRequest request) {
-        return Result.success(memoryService.update(currentPatientId(), memoryId, request));
+        return Result.success(memoryService.update(patientAccess.resolvePatientId(patientId), memoryId, request));
     }
 
     @PostMapping("/{memoryId}/confirm")
-    public Result<Void> confirm(@PathVariable String memoryId) {
-        memoryService.confirm(currentPatientId(), memoryId);
+    public Result<Void> confirm(@PathVariable String memoryId,
+                                @RequestParam(required = false) Long patientId) {
+        memoryService.confirm(patientAccess.resolvePatientId(patientId), memoryId);
         return Result.success();
     }
 
     @DeleteMapping("/{memoryId}")
-    public Result<Void> delete(@PathVariable String memoryId) {
-        memoryService.delete(currentPatientId(), memoryId);
+    public Result<Void> delete(@PathVariable String memoryId,
+                               @RequestParam(required = false) Long patientId) {
+        memoryService.delete(patientAccess.resolvePatientId(patientId), memoryId);
         return Result.success();
-    }
-
-    private Long currentPatientId() {
-        Patient patient = patientRepository.selectByUserId(UserContext.getUserId());
-        if (patient == null) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "当前账号还没有绑定患者档案");
-        }
-        return patient.getId();
     }
 }

@@ -15,7 +15,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['cancelled', 'back'])
 
-const { user } = useAuth()
+const { activePatientId } = useAuth()
 const registration = ref(null)
 const registrations = ref([]), schedules = ref([])
 const loading = ref(true), error = ref(''), operationError = ref('')
@@ -33,7 +33,7 @@ async function load() {
   error.value = ''
   try {
     const [recordList, slotList] = await Promise.all([
-      listRegistrations({ userId: user.value.userId }),
+      listRegistrations({ patientId: activePatientId.value }),
       listSchedules(),
     ])
     registrations.value = recordList || []
@@ -71,7 +71,7 @@ async function reschedule() {
 
 <template>
   <div class="record">
-    <button v-if="showBack" class="view-back" type="button" @click="emit('back')">‹ 返回个人中心</button>
+    <button v-if="showBack" class="view-back" type="button" @click="emit('back')">‹ 返回个人档案</button>
     <p v-if="operationError" class="vue-operation-error" role="alert">{{ operationError }}</p>
     <UiState :loading="loading" :error="error" :empty="!registration" empty-text="挂号记录不存在">
       <div class="vue-record">
