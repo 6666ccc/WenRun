@@ -18,6 +18,7 @@ import {
   sessionHasPendingConfirm,
   shouldRemoveLocalSessionAfterDeleteError,
 } from '../features/assistant/session'
+import { appendProgressStep, completeProgressSteps } from '../features/assistant/progress'
 const FAST_MODE_KEY = 'wenrun_ai_fast_mode'
 const ACTIVE_ID_KEY = 'wenrun_ai_active_conversation'
 const fulfilled = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
@@ -222,6 +223,20 @@ function appendAssistantSource(runtime, conversationId, requestId, source) {
   }))
 }
 
+function appendAssistantProgress(runtime, conversationId, requestId, text) {
+  const request = runtime.requests.get(requestId)
+  if (!request || request.status !== 'running') return
+  updateAssistant(runtime, conversationId, requestId, (message) => ({
+    ...message,
+    meta: {
+      ...message.meta,
+      requestId,
+      status: 'streaming',
+      progressSteps: appendProgressStep(message.meta?.progressSteps, text),
+    },
+  }))
+}
+
 function finalizeAssistantMessage(runtime, conversationId, requestId, { reply, intent, sources }) {
   const request = runtime.requests.get(requestId)
   if (!request || request.status !== 'running') return
@@ -230,7 +245,13 @@ function finalizeAssistantMessage(runtime, conversationId, requestId, { reply, i
     ...message,
     content: reply || message.content,
     sources: sources || message.sources || [],
-    meta: { ...message.meta, requestId, status: 'completed', intent },
+    meta: {
+      ...message.meta,
+      requestId,
+      status: 'completed',
+      intent,
+      progressSteps: completeProgressSteps(message.meta?.progressSteps),
+    },
   }))
   setRequestStatus(runtime, conversationId, requestId, 'completed')
 }
@@ -246,6 +267,13 @@ function appendAssistantError(runtime, conversationId, requestId, code, message,
   setRequestStatus(runtime, conversationId, requestId, status)
 }
 
+export function friendlyAssistantError(error = {}) {
+  const message = String(error.message || '').trim()
+  if (/超时|timeout/i.test(message)) return '助手响应超时，请稍后重新发送。'
+  if (/网络|连接|network|fetch|502|503|504|server error/i.test(message)) return '助手暂时无法连接，请稍后重新发送。'
+  return message || '助手暂时不可用，请稍后重新发送。'
+}
+
 function markAssistantAwaitingConfirm(runtime, conversationId, requestId, confirming) {
   const request = runtime.requests.get(requestId)
   if (request?.status === 'stopped') return
@@ -253,7 +281,13 @@ function markAssistantAwaitingConfirm(runtime, conversationId, requestId, confir
   updateAssistant(runtime, conversationId, requestId, (message) => ({
     ...message,
     content: message.content?.trim() ? message.content : (confirming.prompt || ''),
-    meta: { ...message.meta, requestId, status: 'confirming', confirm: confirming },
+    meta: {
+      ...message.meta,
+      requestId,
+      status: 'confirming',
+      confirm: confirming,
+      progressSteps: appendProgressStep(message.meta?.progressSteps, '等待您确认'),
+    },
   }))
 }
 
@@ -261,13 +295,16 @@ function createStreamHandlers(runtime, conversationId, requestId) {
   return {
     signal: runtime.requests.get(requestId)?.controller.signal,
     onStatus: (text) => {
-      if (runtime.requests.get(requestId)?.status === 'running') runtime.streamStatus.value = text
+      if (runtime.requests.get(requestId)?.status === 'running') {
+        runtime.streamStatus.value = text
+        appendAssistantProgress(runtime, conversationId, requestId, text)
+      }
     },
     onToken: (chunk) => appendAssistantToken(runtime, conversationId, requestId, chunk),
     onCitation: (source) => appendAssistantSource(runtime, conversationId, requestId, source),
     onConfirm: (confirming) => markAssistantAwaitingConfirm(runtime, conversationId, requestId, confirming),
     onDone: (result) => finalizeAssistantMessage(runtime, conversationId, requestId, result),
-    onError: ({ code, message }) => appendAssistantError(runtime, conversationId, requestId, code, message),
+    onError: ({ code, message }) => appendAssistantError(runtime, conversationId, requestId, code, friendlyAssistantError({ code, message })),
   }
 }
 
@@ -344,7 +381,7 @@ export function useAssistant(user) {
       const request = runtime.requests.get(requestId)
       if (nextError.name === 'AbortError' && request?.status === 'stopped') return
       if (request?.status === 'running') {
-        appendAssistantError(runtime, conversationId, requestId, nextError.code, `暂时没有连接上医院智能体。${nextError.message || '请稍后重试。'}`)
+        appendAssistantError(runtime, conversationId, requestId, nextError.code, friendlyAssistantError(nextError))
       }
     } finally {
       runtime.requests.delete(requestId)
@@ -355,6 +392,20 @@ export function useAssistant(user) {
         runtime.streamStatus.value = null
       }
     }
+  }
+
+  async function retryMessage(message) {
+    if (runtime.activeRequestId.value || !activeSession.value) return
+    const requestId = message?.meta?.requestId
+    const prompt = activeSession.value.messages.find((item) => (
+      item.role === 'user' && item.meta?.requestId === requestId
+    ))?.content
+    if (!prompt) return
+    updateSession(runtime, activeSession.value.id, (session) => ({
+      ...session,
+      messages: session.messages.filter((item) => item.meta?.requestId !== requestId),
+    }))
+    await sendMessage(prompt)
   }
 
   function stopRequest(requestId = runtime.activeRequestId.value) {
@@ -438,6 +489,7 @@ export function useAssistant(user) {
     fastMode: runtime.fastMode,
     toggleFastMode: () => { runtime.fastMode.value = !runtime.fastMode.value },
     sendMessage,
+    retryMessage,
     stopReply: () => stopRequest(),
     confirmPending: (message) => respondToPending(message, 'approve'),
     rejectPending: (message) => respondToPending(message, 'reject'),

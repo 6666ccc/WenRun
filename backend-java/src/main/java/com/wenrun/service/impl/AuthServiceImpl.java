@@ -23,6 +23,7 @@ import com.wenrun.vo.LoginVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -48,13 +49,11 @@ public class AuthServiceImpl implements AuthService {
         if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
             throw new BusinessException("用户名或密码错误");
         }
-        String token = authTokenStore.createToken(user.getId(), user.getAccountType());
         List<SysRole> roleList = sysUserMapper.selectRolesByUserId(user.getId());
         SysRole primaryRole = LoginAssembler.pickPrimaryRole(roleList);
         String portalType = LoginAssembler.resolvePortalType(user, primaryRole);
 
         LoginVO vo = new LoginVO();
-        vo.setToken(token);
         vo.setUserId(user.getId());
         vo.setUsername(user.getUsername());
         vo.setRealName(user.getRealName());
@@ -66,6 +65,7 @@ public class AuthServiceImpl implements AuthService {
             vo.setRoleName(primaryRole.getRoleName());
         }
         fillBusinessIds(user, vo);
+        vo.setToken(authTokenStore.createToken(user.getId(), user.getAccountType()));
         return vo;
     }
 
@@ -177,6 +177,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public LoginVO register(RegisterDTO dto) {
         // 1. 校验两次密码一致
         if (!dto.getPassword().equals(dto.getConfirmPassword())) {
@@ -219,14 +220,12 @@ public class AuthServiceImpl implements AuthService {
         patient.setUserId(user.getId());
         patientService.create(patient);
 
-        // 8. 生成 Token 并返回登录信息（注册即登录）
-        String token = authTokenStore.createToken(user.getId(), user.getAccountType());
+        // 8. 组装完整登录信息后再签发 Token，任何失败均回滚本次注册写入
         List<SysRole> roleList = sysUserMapper.selectRolesByUserId(user.getId());
         SysRole primaryRole = LoginAssembler.pickPrimaryRole(roleList);
         String portalType = LoginAssembler.resolvePortalType(user, primaryRole);
 
         LoginVO vo = new LoginVO();
-        vo.setToken(token);
         vo.setUserId(user.getId());
         vo.setUsername(user.getUsername());
         vo.setRealName(user.getRealName());
@@ -238,6 +237,7 @@ public class AuthServiceImpl implements AuthService {
             vo.setRoleName(primaryRole.getRoleName());
         }
         fillBusinessIds(user, vo);
+        vo.setToken(authTokenStore.createToken(user.getId(), user.getAccountType()));
         return vo;
     }
 }

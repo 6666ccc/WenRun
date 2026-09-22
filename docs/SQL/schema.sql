@@ -129,18 +129,31 @@ CREATE TABLE IF NOT EXISTS patient (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='患者';
 
 CREATE TABLE IF NOT EXISTS user_patient_relation (
-  id              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  user_id         BIGINT       NOT NULL COMMENT '登录账号ID，对应 sys_user.id',
-  patient_id      BIGINT       NOT NULL COMMENT '患者ID，对应 patient.id',
-  relation_type   VARCHAR(32)  NOT NULL COMMENT 'SELF/SPOUSE/CHILD/PARENT/OTHER',
-  is_default      TINYINT      NOT NULL DEFAULT 0 COMMENT '是否为该账号当前默认患者',
-  status          TINYINT      NOT NULL DEFAULT 1 COMMENT '1有效 0停用',
-  created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  id                     BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id                BIGINT      NOT NULL COMMENT '登录账号ID，对应 sys_user.id',
+  patient_id             BIGINT      NOT NULL COMMENT '患者ID，对应 patient.id',
+  relation_type          VARCHAR(32) NOT NULL COMMENT 'SELF/SPOUSE/CHILD/PARENT/OTHER',
+  is_default             TINYINT     NOT NULL DEFAULT 0 COMMENT '是否为该账号当前默认患者',
+  status                 TINYINT     NOT NULL DEFAULT 1 COMMENT '1有效 0停用',
+  active_default_user_id BIGINT GENERATED ALWAYS AS (
+    CASE WHEN status = 1 AND is_default = 1 THEN user_id ELSE NULL END
+  ) STORED COMMENT '用于保证每个账号至多一个有效默认患者',
+  active_self_user_id    BIGINT GENERATED ALWAYS AS (
+    CASE WHEN status = 1 AND relation_type = 'SELF' THEN user_id ELSE NULL END
+  ) STORED COMMENT '用于保证每个账号至多一个有效本人患者',
+  created_at             DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at             DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_user_patient (user_id, patient_id),
-  KEY idx_user_patient_user_id (user_id),
-  KEY idx_user_patient_patient_id (patient_id)
+  UNIQUE KEY uk_user_patient_active_default (active_default_user_id),
+  UNIQUE KEY uk_user_patient_active_self (active_self_user_id),
+  KEY idx_user_patient_active_list (user_id, status, is_default, id),
+  KEY idx_patient_user_active (patient_id, status, user_id),
+  CONSTRAINT chk_user_patient_relation_type
+    CHECK (relation_type IN ('SELF', 'SPOUSE', 'CHILD', 'PARENT', 'OTHER')),
+  CONSTRAINT chk_user_patient_is_default CHECK (is_default IN (0, 1)),
+  CONSTRAINT chk_user_patient_status CHECK (status IN (0, 1)),
+  CONSTRAINT chk_user_patient_inactive_not_default CHECK (status = 1 OR is_default = 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='账号与患者授权关系；授权只认此表';
 
 CREATE TABLE IF NOT EXISTS patient_health_profile (
@@ -262,14 +275,15 @@ CREATE TABLE IF NOT EXISTS registration (
 CREATE TABLE IF NOT EXISTS ai_conversations (
   user_id          BIGINT       NOT NULL COMMENT '会话发起者账号ID，对应 sys_user.id',
   conversation_id  VARCHAR(64)  NOT NULL COMMENT '用户作用域内的会话ID',
-  patient_id       BIGINT       NULL COMMENT '当前会话讨论的患者ID，对应 patient.id',
+  patient_id       BIGINT       NOT NULL COMMENT '当前会话讨论的患者ID，对应 patient.id；会话内不可切换',
   status           VARCHAR(24)  NOT NULL DEFAULT 'active' COMMENT 'active',
   version          BIGINT       NOT NULL DEFAULT 0 COMMENT '会话状态乐观版本',
   create_time      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   update_time      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   deleted_time     DATETIME     NULL COMMENT '软删除时间',
   PRIMARY KEY (user_id, conversation_id),
-  KEY idx_ai_conversations_update_time (update_time)
+  KEY idx_ai_conversations_update_time (update_time),
+  KEY idx_ai_conversations_user_patient_update (user_id, patient_id, update_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI会话归属';
 
 CREATE TABLE IF NOT EXISTS chat_messages (

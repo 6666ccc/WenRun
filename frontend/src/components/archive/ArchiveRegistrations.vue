@@ -19,7 +19,7 @@ const history = computed(() => props.registrations.filter((item) => item.status 
         <h2>我的挂号</h2>
         <p>待就诊与历史挂号统一在此管理</p>
       </div>
-      <span class="archive-panel__count">{{ pending.length }} 项待就诊</span>
+      <span class="archive-panel__count">待就诊 {{ pending.length }} · 历史 {{ history.length }}</span>
     </header>
     <p v-if="error" class="archive-panel__error" role="alert">{{ error }}</p>
     <div v-else-if="registrations.length" class="archive-regs">

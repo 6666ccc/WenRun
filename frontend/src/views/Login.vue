@@ -10,7 +10,10 @@ const router = useRouter();
 const { login, loading, setSession } = useAuth();
 const showRegister = ref(false);
 const showPassword = ref(false);
+const showRegisterPassword = ref(false);
+const showConfirmPassword = ref(false);
 const error = ref("");
+const credentialError = ref(false);
 const form = reactive({ username: "", password: "" });
 const regForm = reactive({
   username: "",
@@ -20,9 +23,12 @@ const regForm = reactive({
 });
 
 async function submitLogin() {
-  if (!form.username || !form.password) return showError("请输入用户名和密码");
+  if (!form.username || !form.password) return showError("请输入用户名和密码", true);
   const result = await login(form.username, form.password);
-  if (!result.success) return showError(result.error || "登录失败");
+  if (!result.success) {
+    const message = result.error || "登录失败";
+    return showError(message, /用户名|密码|账号|凭证|认证失败/.test(message));
+  }
   router.replace(homePath());
 }
 
@@ -39,15 +45,19 @@ async function submitRegister() {
   }
 }
 
-function showError(message) {
+function showError(message, affectsCredentials = false) {
   error.value = message;
+  credentialError.value = affectsCredentials;
   nextTick(() => document.querySelector(".login-error")?.focus());
 }
 
 function switchMode(next) {
   showRegister.value = next;
   showPassword.value = false;
+  showRegisterPassword.value = false;
+  showConfirmPassword.value = false;
   error.value = "";
+  credentialError.value = false;
 }
 
 </script>
@@ -63,6 +73,17 @@ function switchMode(next) {
     </header>
 
     <main class="login-form-panel">
+      <svg class="login-vital" viewBox="0 0 960 160" aria-hidden="true" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="login-vital-gradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#0f8f82" stop-opacity="0" />
+            <stop offset=".22" stop-color="#0f8f82" stop-opacity=".8" />
+            <stop offset=".78" stop-color="#2aa396" stop-opacity=".8" />
+            <stop offset="1" stop-color="#2aa396" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <path pathLength="1" d="M0 92H180l20-1 16-16 18 32 23-68 25 53h196l18-1 14-13 18 27 22-53 23 40h391" />
+      </svg>
       <div class="login-stage">
         <section class="login-card" :aria-labelledby="showRegister ? 'register-title' : 'login-title'">
           <header class="login-heading">
@@ -90,8 +111,8 @@ function switchMode(next) {
                   placeholder="输入用户名"
                   autocomplete="username"
                   required
-                  :aria-invalid="!!error"
-                  :aria-describedby="error ? 'login-error' : undefined"
+                  :aria-invalid="credentialError || undefined"
+                  :aria-describedby="credentialError ? 'login-error' : undefined"
                 />
               </div>
               <div class="form-group">
@@ -105,8 +126,8 @@ function switchMode(next) {
                     placeholder="输入密码"
                     autocomplete="current-password"
                     required
-                    :aria-invalid="!!error"
-                    :aria-describedby="error ? 'login-error' : undefined"
+                    :aria-invalid="credentialError || undefined"
+                    :aria-describedby="credentialError ? 'login-error' : undefined"
                   />
                   <button type="button" :aria-pressed="showPassword" @click="showPassword = !showPassword">
                     {{ showPassword ? "隐藏" : "显示" }}
@@ -130,11 +151,17 @@ function switchMode(next) {
               </div>
               <div class="form-group">
                 <label class="form-label" for="register-password">密码</label>
-                <input id="register-password" v-model="regForm.password" class="input" type="password" placeholder="至少 6 位" autocomplete="new-password" minlength="6" required />
+                <div class="login-password-field">
+                  <input id="register-password" v-model="regForm.password" class="input" :type="showRegisterPassword ? 'text' : 'password'" placeholder="至少 6 位" autocomplete="new-password" minlength="6" required />
+                  <button type="button" :aria-pressed="showRegisterPassword" @click="showRegisterPassword = !showRegisterPassword">{{ showRegisterPassword ? "隐藏" : "显示" }}</button>
+                </div>
               </div>
               <div class="form-group">
                 <label class="form-label" for="register-confirm-password">确认密码</label>
-                <input id="register-confirm-password" v-model="regForm.confirmPassword" class="input" type="password" placeholder="再次输入密码" autocomplete="new-password" minlength="6" required />
+                <div class="login-password-field">
+                  <input id="register-confirm-password" v-model="regForm.confirmPassword" class="input" :type="showConfirmPassword ? 'text' : 'password'" placeholder="再次输入密码" autocomplete="new-password" minlength="6" required />
+                  <button type="button" :aria-pressed="showConfirmPassword" @click="showConfirmPassword = !showConfirmPassword">{{ showConfirmPassword ? "隐藏" : "显示" }}</button>
+                </div>
               </div>
               <div class="form-group">
                 <label class="form-label" for="register-phone">手机号</label>
@@ -152,13 +179,6 @@ function switchMode(next) {
           </Transition>
         </section>
 
-        <div class="login-route" aria-hidden="true">
-          <span class="login-route__track" />
-          <span class="login-route__node login-route__node--start" />
-          <span class="login-route__node login-route__node--middle" />
-          <span class="login-route__node login-route__node--end" />
-          <span class="login-route__pulse" />
-        </div>
       </div>
     </main>
   </div>
@@ -230,14 +250,35 @@ function switchMode(next) {
   padding: 10px 24px 30px;
 }
 
-.login-stage { width: min(440px, 100%); display: grid; gap: 22px; }
+.login-vital {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(960px, 92vw);
+  height: 160px;
+  pointer-events: none;
+  opacity: .16;
+  filter: drop-shadow(0 6px 14px rgba(15, 143, 130, .08));
+  transform: translate(-50%, -53%);
+}
+.login-vital path {
+  fill: none;
+  stroke: url(#login-vital-gradient);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: .18 .82;
+  animation: login-vital-trace 7.2s linear infinite;
+}
+
+.login-stage { position: relative; z-index: 1; width: min(440px, 100%); display: grid; gap: 22px; }
 .login-card {
   width: 100%;
   padding: 38px 40px 30px;
   border: 1px solid var(--color-border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, .98);
-  box-shadow: 0 18px 48px rgba(7, 63, 59, .09);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .995), rgba(252, 255, 254, .98));
+  box-shadow: var(--shadow-clinical);
   animation: login-card-in 420ms var(--ease-enter) both;
 }
 
@@ -316,46 +357,6 @@ function switchMode(next) {
   font-weight: 750;
 }
 
-.login-route { position: relative; width: 286px; height: 18px; margin: 0 auto; }
-.login-route__track {
-  position: absolute;
-  top: 8px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  overflow: hidden;
-  background: var(--color-border);
-}
-.login-route__track::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--color-brand-700);
-  transform: scaleX(0);
-  transform-origin: left;
-  animation: login-route-draw 720ms 180ms var(--ease-enter) both;
-}
-.login-route__node, .login-route__pulse {
-  position: absolute;
-  top: 4px;
-  width: 9px;
-  height: 9px;
-  border: 2px solid #f5f8f7;
-  border-radius: 50%;
-  background: var(--color-brand-700);
-  box-shadow: 0 0 0 1px var(--color-border-strong);
-}
-.login-route__node--start { left: 0; }
-.login-route__node--middle { left: calc(50% - 4px); }
-.login-route__node--end { right: 0; }
-.login-route__pulse {
-  left: 0;
-  z-index: 2;
-  background: var(--color-mint-300);
-  box-shadow: 0 0 0 5px rgba(15, 118, 110, .11);
-  animation: login-route-travel 5.6s 1.1s var(--ease-standard) infinite;
-}
-
 .login-form-enter-active { transition: opacity 240ms var(--ease-enter), transform 240ms var(--ease-enter); }
 .login-form-leave-active { transition: opacity 130ms var(--ease-exit), transform 130ms var(--ease-exit); }
 .login-form-enter-from { opacity: 0; transform: translateY(7px); }
@@ -367,12 +368,9 @@ function switchMode(next) {
   from { opacity: 0; transform: translateY(14px) scale(.992); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-@keyframes login-route-draw { to { transform: scaleX(1); } }
-@keyframes login-route-travel {
-  0%, 12% { left: 0; opacity: 0; }
-  18% { opacity: 1; }
-  82% { opacity: 1; }
-  88%, 100% { left: calc(100% - 9px); opacity: 0; }
+@keyframes login-vital-trace {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
 }
 
 @media (max-width: 540px) {
@@ -386,13 +384,10 @@ function switchMode(next) {
   .login-heading { margin-bottom: 24px; }
   .login-heading h1 { font-size: 27px; }
   .login-form { gap: 18px; }
-  .login-route { width: 220px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .login-card, .login-route__track::after, .login-route__pulse { animation: none; }
-  .login-route__track::after { transform: scaleX(1); }
-  .login-route__pulse { display: none; }
+  .login-card, .login-vital path { animation: none; }
   .login-form-enter-active, .login-form-leave-active, .login-error-enter-active, .login-error-leave-active { transition-duration: 1ms; }
 }
 </style>

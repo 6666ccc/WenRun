@@ -12,6 +12,26 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;')
 }
 
+function compactBareUrlLines(text) {
+  return String(text || '').replace(/^(\s*(?:(?:\d+[.)]|[-*])\s+)?)(https?:\/\/\S+)\s*$/gm, (_line, prefix, rawUrl) => {
+    const url = rawUrl.replace(/[，。；、]+$/, '')
+    let host = '公开资料'
+    try { host = new URL(url).hostname.replace(/^www\./, '') }
+    catch { /* 保留通用来源名称 */ }
+    return `${prefix}[${host}](${url})`
+  })
+}
+
+function collapseReferenceLists(html) {
+  return String(html || '').replace(
+    /<(p|h[1-6])>(?:<strong>)?\s*(?:参考来源|参考资料|资料来源)[：:]?\s*(?:<\/strong>)?<\/\1>\s*<(ol|ul)>([\s\S]*?)<\/\2>/gi,
+    (_full, _heading, listTag, items) => {
+      const count = (items.match(/<li>/gi) || []).length
+      return `<details class="chat-reference-links"><summary>参考来源（${count}）</summary><${listTag}>${items}</${listTag}></details>`
+    },
+  )
+}
+
 function stripTags(html) {
   return String(html)
     .replace(/<[^>]+>/g, ' ')
@@ -97,7 +117,7 @@ export function enhanceAssistantHtml(html) {
     if (hits < Math.ceil(items.length / 2)) return full
     return `<div class="chat-slots">${parsed.map(renderSlot).join('')}</div>`
   })
-  return next
+  return collapseReferenceLists(next)
 }
 
 function dayLabel(line) {
@@ -126,6 +146,6 @@ export function normalizeScheduleMarkdown(text) {
 }
 
 export function renderAssistantMarkdown(markdown, { parse, sanitize }) {
-  const cleaned = normalizeScheduleMarkdown(stripInternalIds(markdown))
+  const cleaned = compactBareUrlLines(normalizeScheduleMarkdown(stripInternalIds(markdown)))
   return sanitize(enhanceAssistantHtml(parse(cleaned)))
 }

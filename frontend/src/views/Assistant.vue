@@ -13,6 +13,7 @@ import AssistantWelcome from '../components/AssistantWelcome.vue'
 import MobileTabbar from '../components/MobileTabbar.vue'
 import UiIcon from '../components/UiIcon.vue'
 import CitationList from '../components/CitationList.vue'
+import AgentProgress from '../components/AgentProgress.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -25,6 +26,7 @@ const end = ref(null)
 const composer = ref(null)
 const shell = ref(null)
 const copiedId = ref('')
+const fastModeHelp = ref(false)
 let copiedTimer
 const suggestions = ['最近总是睡不好，挂什么方向？', '查看我最近的预约', '明天还有哪些号源？', '如何取消挂号？']
 const urgent = computed(() => /胸痛|呼吸困难|意识障碍|大量出血/.test([...assistant.activeSession.value?.messages || []].reverse().find((item) => item.role === 'user')?.content || ''))
@@ -35,9 +37,13 @@ const visibleMessages = computed(() => (assistant.activeSession.value?.messages 
   || message.meta?.confirm
   || message.meta?.status === 'error'
   || message.meta?.status === 'stopped'
+  || message.meta?.progressSteps?.length
 )))
 const visibleSessions = computed(() => filterSessionsByTitle(assistant.sessions.value, query.value))
 const nextAppointment = computed(() => assistant.context.value.appointments[0])
+const showTyping = computed(() => assistant.replying.value && !visibleMessages.value.some((message) => (
+  message.role === 'assistant' && message.meta?.status === 'streaming' && message.meta?.progressSteps?.length
+)))
 
 watch(() => [assistant.activeSession.value?.messages.length, assistant.replying.value], async () => {
   await nextTick()
@@ -50,6 +56,24 @@ function send(text = input.value) {
   assistant.sendMessage(text)
   input.value = ''
   nextTick(resetComposerHeight)
+}
+
+function promptForMessage(message) {
+  const requestId = message?.meta?.requestId
+  return assistant.activeSession.value?.messages.find((item) => (
+    item.role === 'user' && item.meta?.requestId === requestId
+  ))?.content || ''
+}
+
+function retryMessage(message) {
+  assistant.retryMessage(message)
+}
+
+async function editMessage(message) {
+  input.value = promptForMessage(message)
+  await nextTick()
+  composer.value?.focus()
+  resizeComposer({ target: composer.value })
 }
 
 async function copyMessage(message) {
@@ -129,6 +153,7 @@ function resetComposerHeight() {
 
 function resizeComposer(event) {
   const textarea = event.target
+  if (!textarea) return
   textarea.style.height = 'auto'
   const nextHeight = Math.min(textarea.scrollHeight, 200)
   textarea.style.height = `${Math.max(28, nextHeight)}px`
@@ -218,6 +243,11 @@ onBeforeUnmount(() => {
               <article v-for="message in visibleMessages" :key="message.id" class="chat-message" :class="`chat-message--${message.role}`">
                 <div v-if="message.role === 'user'" class="chat-message__user-content">{{ message.content }}</div>
                 <div v-else class="chat-message__assistant-content">
+                  <AgentProgress
+                    v-if="message.meta?.progressSteps?.length"
+                    :steps="message.meta.progressSteps"
+                    :status="message.meta.status"
+                  />
                   <div class="chat-md" v-html="renderMarkdown(message.content)" />
                   <div v-if="message.meta?.confirm" class="chat-confirm">
                     <dl class="chat-confirm__detail">
@@ -232,6 +262,10 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
                   <CitationList v-if="message.sources?.length" :sources="message.sources" />
+                  <div v-if="message.meta?.status === 'error'" class="chat-error-actions" aria-label="回复失败后的操作">
+                    <button type="button" :disabled="assistant.replying.value" @click="retryMessage(message)">重新发送</button>
+                    <button type="button" @click="editMessage(message)">编辑问题</button>
+                  </div>
                   <button
                     v-if="message.content"
                     class="chat-message__copy"
@@ -245,7 +279,7 @@ onBeforeUnmount(() => {
                 </div>
               </article>
             </TransitionGroup>
-            <div v-if="assistant.replying.value && !assistant.streaming.value" class="chat-typing" aria-live="polite" aria-label="正在整理信息">
+            <div v-if="showTyping" class="chat-typing" aria-live="polite" aria-label="正在连接健康助手">
               <span /><span /><span />
             </div>
             <div ref="end" />
@@ -270,16 +304,18 @@ onBeforeUnmount(() => {
             @keydown="keydown"
           />
           <div class="chat-composer__tools">
-            <button
-              class="chat-composer__chip"
-              type="button"
-              :class="{ 'is-active': assistant.fastMode.value }"
-              :aria-pressed="assistant.fastMode.value"
-              :title="assistant.fastMode.value ? '快速模式已开启：回答更快，可联网查公开资料，但查不了号源排班和本院规定' : '开启快速模式：回答更快，可联网查公开资料，但查不了号源排班和本院规定'"
-              @click="assistant.toggleFastMode()"
-            >
-              <UiIcon name="zap" :size="15" />快速
-            </button>
+            <span class="chat-composer__mode">
+              <button
+                class="chat-composer__chip"
+                type="button"
+                :class="{ 'is-active': assistant.fastMode.value }"
+                :aria-pressed="assistant.fastMode.value"
+                @click="assistant.toggleFastMode()"
+              >
+                <UiIcon name="zap" :size="15" />快速模式<span v-if="assistant.fastMode.value" class="chat-composer__active-text">已开启</span>
+              </button>
+              <button class="chat-composer__mode-help" type="button" aria-controls="fast-mode-help" :aria-expanded="fastModeHelp" @click="fastModeHelp = !fastModeHelp">说明</button>
+            </span>
             <button class="chat-composer__chip" type="button" @click="openTask({ type: 'registration', title: '预约挂号' })">
               <UiIcon name="calendar" :size="15" />挂号
             </button>
@@ -287,6 +323,7 @@ onBeforeUnmount(() => {
               <UiIcon name="record" :size="15" />我的挂号
             </button>
           </div>
+          <p v-if="fastModeHelp" id="fast-mode-help" class="chat-composer__mode-note">快速模式回答更快，可查询公开资料，但不能查询本院号源、排班或院内规定。</p>
           <button v-if="assistant.replying.value" class="chat-composer__send is-stop" type="button" aria-label="停止生成" @click="assistant.stopReply">
             <UiIcon name="stop" :size="13" />
           </button>
@@ -323,13 +360,45 @@ onBeforeUnmount(() => {
 
 .chat-page {
   --chat-column: 960px;
+  position: relative;
+  isolation: isolate;
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, #fff 0%, #fbfefd 52%, #fff 100%);
+}
+
+.chat-page::before,
+.chat-page::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(2px);
+}
+.chat-page::before {
+  width: 420px;
+  height: 420px;
+  top: 8%;
+  right: -150px;
+  background: radial-gradient(circle, rgba(73, 186, 171, .09), rgba(73, 186, 171, 0) 68%);
+  animation: chat-ambient-a 13s ease-in-out infinite alternate;
+}
+.chat-page::after {
+  width: 340px;
+  height: 340px;
+  bottom: 12%;
+  left: -150px;
+  background: radial-gradient(circle, rgba(117, 205, 194, .075), rgba(117, 205, 194, 0) 70%);
+  animation: chat-ambient-b 16s ease-in-out infinite alternate;
 }
 
 .chat-main {
+  position: relative;
+  z-index: 1;
   width: 100%;
   flex: 1;
   min-height: 0;
@@ -386,15 +455,19 @@ onBeforeUnmount(() => {
 
 .chat-suggestions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
   gap: 8px;
   width: 100%;
   margin-bottom: 12px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .chat-suggestions button {
-  min-height: 36px;
+  min-height: 44px;
+  flex: 0 0 auto;
   padding: 7px 14px;
   border: 1px solid #e5e7eb;
   border-radius: 999px;
@@ -568,6 +641,14 @@ onBeforeUnmount(() => {
   color: #111827;
 }
 
+.chat-error-actions { display: flex; gap: 8px; margin-top: 10px; }
+.chat-error-actions button {
+  min-height: 40px; padding: 0 14px; border: 1px solid var(--color-border); border-radius: 10px;
+  background: #fff; color: var(--color-brand-800); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.chat-error-actions button:first-child { border-color: var(--color-brand-700); background: var(--color-mint-050); }
+.chat-error-actions button:disabled { opacity: .55; cursor: not-allowed; }
+
 .chat-typing {
   display: flex;
   align-items: center;
@@ -587,6 +668,8 @@ onBeforeUnmount(() => {
 .chat-typing span:nth-child(3) { animation-delay: .32s; }
 
 .chat-composer-wrap {
+  position: relative;
+  z-index: 1;
   width: min(var(--chat-column), 100%);
   max-width: 100%;
   margin: 0 auto;
@@ -598,10 +681,11 @@ onBeforeUnmount(() => {
 .chat-composer {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 44px;
   grid-template-areas:
     "input input"
-    "tools send";
+    "tools send"
+    "help help";
   align-items: end;
   column-gap: 8px;
   row-gap: 10px;
@@ -645,13 +729,25 @@ onBeforeUnmount(() => {
   scrollbar-width: none;
 }
 
+.chat-composer__mode { display: inline-flex; align-items: stretch; flex: 0 0 auto; }
+.chat-composer__mode .chat-composer__chip { border-radius: 999px 0 0 999px; }
+.chat-composer__mode-help {
+  min-height: 44px; padding: 0 10px; border: 1px solid #e5e7eb; border-left: 0; border-radius: 0 999px 999px 0;
+  background: #fff; color: var(--color-brand-700); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.chat-composer__mode-note {
+  grid-area: help; margin: 0; padding: 9px 11px; border-radius: 10px; background: var(--color-mint-050);
+  color: var(--color-text-secondary); font-size: 12px; line-height: 1.5;
+}
+.chat-composer__active-text { margin-left: 2px; font-size: 11px; }
+
 .chat-composer__tools::-webkit-scrollbar { display: none; }
 
 .chat-composer__chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
+  min-height: 44px;
   padding: 0 12px;
   border: 1px solid #e5e7eb;
   border-radius: 999px;
@@ -674,8 +770,8 @@ onBeforeUnmount(() => {
   grid-area: send;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   justify-self: end;
   border: 0;
   border-radius: 50%;
@@ -706,8 +802,9 @@ onBeforeUnmount(() => {
 
 .chat-disclaimer {
   margin: 10px 0 0;
-  color: #9ca3af;
+  color: #667085;
   font-size: 12px;
+  line-height: 1.5;
   text-align: center;
 }
 
@@ -868,11 +965,18 @@ onBeforeUnmount(() => {
 :deep(.chat-citations strong) { font-size: 13px; }
 :deep(.chat-citations small) { margin-top: 2px; color: var(--color-text-secondary); font-size: 12px; }
 :deep(.chat-citations p) { margin: 5px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; }
+:deep(.chat-reference-links) { margin-top: 14px; }
+:deep(.chat-reference-links summary) { width: max-content; color: var(--color-brand-700); cursor: pointer; font-size: 13px; font-weight: 700; }
+:deep(.chat-reference-links ol), :deep(.chat-reference-links ul) { display: grid; gap: 8px; margin: 10px 0 0; padding-left: 22px; }
+:deep(.chat-reference-links li) { padding: 8px 10px; border-radius: 9px; background: var(--color-mint-050); }
+:deep(.chat-reference-links a) { color: var(--color-brand-800); word-break: normal; overflow-wrap: anywhere; }
 
 @keyframes chat-dot {
   0%, 80%, 100% { opacity: .28; transform: translateY(0); }
   40% { opacity: 1; transform: translateY(-3px); }
 }
+@keyframes chat-ambient-a { to { transform: translate(-46px, 34px) scale(1.08); opacity: .7; } }
+@keyframes chat-ambient-b { to { transform: translate(52px, -28px) scale(.94); opacity: .6; } }
 
 @media (max-width: 767px) {
   .chat-main__inner { padding: 4px 16px 8px; }
@@ -893,10 +997,29 @@ onBeforeUnmount(() => {
   }
 }
 
+@media (max-width: 767px) and (max-height: 520px) and (orientation: landscape) {
+  .chat-main__inner { padding-top: 2px; padding-bottom: 4px; }
+  .chat-suggestions { display: none; }
+  .chat-composer-wrap { padding-top: 4px; padding-bottom: 4px; }
+  .chat-composer {
+    grid-template-columns: minmax(160px, 1fr) minmax(0, auto) 44px;
+    grid-template-areas: "input tools send" "help help help";
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 20px;
+  }
+  .chat-composer textarea, .chat-composer textarea:focus, .chat-composer textarea:focus-visible { max-height: 52px; padding-block: 7px; }
+  .chat-composer__tools { align-items: center; }
+  .chat-composer__tools > .chat-composer__chip:last-child { display: none; }
+  .chat-composer__active-text { display: none; }
+  .chat-disclaimer { margin-top: 4px; font-size: 11px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .message-in-enter-active,
   .message-in-leave-active,
   .chat-typing span { animation: none; transition: none; }
+  .chat-page::before, .chat-page::after { animation: none; }
 }
 
 .chat-composer__chip.is-active {

@@ -71,3 +71,19 @@ test('keeps each date as its own slot group', () => {
   assert.doesNotMatch(html, /张伟 9月17日/)
   assert.doesNotMatch(html, /排班id/)
 })
+
+test('compacts bare reference urls and folds the source list', () => {
+  marked.setOptions({ breaks: true, gfm: true })
+  const html = renderAssistantMarkdown(`建议清淡饮食。
+
+参考来源：
+1. https://www.example.com/very/long/path?tracking=1
+2. https://news.example.cn/article/2`, {
+    parse: (text) => marked.parse(text || ''),
+    sanitize: (value) => value,
+  })
+  assert.match(html, /chat-reference-links/)
+  assert.match(html, /参考来源（2）/)
+  assert.match(html, />example\.com</)
+  assert.doesNotMatch(html, />https:\/\//)
+})

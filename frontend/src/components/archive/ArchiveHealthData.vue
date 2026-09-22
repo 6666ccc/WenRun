@@ -1,9 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { formatDate, formatDateTime, GENDER_MAP } from '../../utils'
 import { maskIdCard } from '../../features/archive/tabs'
 import { calcBmi, formatBloodPressure, formatGlucoseType } from '../../utils/healthProfile'
-import ArchiveHealthTrend from './ArchiveHealthTrend.vue'
+import ArchiveTrendSkeleton from './ArchiveTrendSkeleton.vue'
 import UiIcon from '../UiIcon.vue'
 
 const props = defineProps({
@@ -13,6 +13,11 @@ const props = defineProps({
   error: { type: String, default: '' },
 })
 const emit = defineEmits(['record', 'unavailable', 'open-tab'])
+const ArchiveHealthTrend = defineAsyncComponent({
+  loader: () => import('./ArchiveHealthTrend.vue'),
+  loadingComponent: ArchiveTrendSkeleton,
+  delay: 80,
+})
 
 const bmi = computed(() => calcBmi(props.health?.heightCm, props.health?.weightKg))
 const pressure = computed(() => formatBloodPressure(props.health?.systolicMmhg, props.health?.diastolicMmhg))

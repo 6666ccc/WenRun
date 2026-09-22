@@ -118,9 +118,12 @@ onMounted(async () => {
 }
 .welcome__head p { margin: 0 0 5px; color: #5c7a7b; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
 .welcome__head h1 { margin: 0; color: #153b3c; font-size: clamp(26px, 3vw, 34px); font-weight: 750; line-height: 1.2; letter-spacing: -.03em; }
+.welcome__head { animation: clinical-reveal var(--motion-reveal) var(--ease-clinical) both; }
 
-.visit-strip { width: 100%; min-height: 72px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 13px; margin-top: 22px; padding: 11px 13px; border: 1px solid rgba(15, 143, 130, .2); border-radius: 18px; background: #f6fbfb; color: inherit; cursor: pointer; text-align: left; font: inherit; transition: border-color 160ms ease, box-shadow 160ms ease; }
-.visit-strip:hover, .visit-strip:focus-visible { border-color: var(--home-teal); box-shadow: 0 10px 28px rgba(27, 78, 81, .1); }
+.visit-strip { position: relative; overflow: hidden; width: 100%; min-height: 72px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 13px; margin-top: 22px; padding: 11px 13px; border: 1px solid rgba(15, 143, 130, .2); border-radius: 18px; background: linear-gradient(110deg, #f9fdfc 0%, #f1faf9 58%, #f8fcfc 100%); color: inherit; cursor: pointer; text-align: left; font: inherit; box-shadow: var(--shadow-xs); animation: clinical-reveal var(--motion-reveal) 70ms var(--ease-clinical) both; transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.visit-strip::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(105deg, transparent 22%, rgba(255,255,255,.78) 48%, transparent 72%); opacity: 0; transform: translateX(-70%); transition: opacity var(--motion-fast) ease, transform 520ms var(--ease-clinical); }
+.visit-strip:hover, .visit-strip:focus-visible { border-color: var(--home-teal); box-shadow: var(--shadow-clinical); transform: translateY(-1px); }
+.visit-strip:hover::after, .visit-strip:focus-visible::after { opacity: .72; transform: translateX(70%); }
 .visit-strip__icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 13px; background: var(--home-aqua); color: var(--home-teal); }
 .visit-strip__body { min-width: 0; }
 .visit-strip__body small, .visit-strip__body strong { display: block; }
@@ -128,21 +131,23 @@ onMounted(async () => {
 .visit-strip__body strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .visit-strip__action { display: inline-flex; align-items: center; gap: 2px; color: var(--home-teal); font-size: 12px; font-weight: 750; white-space: nowrap; }
 
-.welcome__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-.welcome__actions button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 1px solid #d9e9e8; border-radius: 999px; background: #f7fbfb; color: var(--home-ink); cursor: pointer; font: inherit; font-size: 13px; font-weight: 650; transition: border-color 160ms ease, background-color 160ms ease; }
+.welcome__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; animation: clinical-reveal var(--motion-reveal) 120ms var(--ease-clinical) both; }
+.welcome__actions button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid #d9e9e8; border-radius: 999px; background: #f7fbfb; color: var(--home-ink); cursor: pointer; font: inherit; font-size: 13px; font-weight: 650; transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 80ms ease; }
 .welcome__actions button svg { color: var(--home-teal); }
-.welcome__actions button:hover, .welcome__actions button:focus-visible { border-color: #73bdb5; background: #eef8f7; }
+.welcome__actions button:hover, .welcome__actions button:focus-visible { border-color: #73bdb5; background: #eef8f7; box-shadow: 0 6px 16px rgba(7,91,85,.08); }
+.welcome__actions button:active { transform: scale(.98); }
 
-.welcome__panel { margin-top: 26px; }
+.welcome__panel { margin-top: 26px; animation: clinical-reveal var(--motion-reveal) 180ms var(--ease-clinical) both; }
 .welcome__panel-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.welcome__panel-head span { display: block; margin-bottom: 3px; color: var(--home-teal); font-size: 10px; font-weight: 800; letter-spacing: .11em; }
+.welcome__panel-head span { display: block; margin-bottom: 3px; color: #0b6f66; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
 .welcome__panel-head h2 { margin: 0; color: var(--home-ink); font-size: 17px; }
-.welcome__panel-head a { min-height: 36px; display: inline-flex; align-items: center; gap: 2px; color: var(--home-muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.welcome__panel-head a { min-height: 44px; display: inline-flex; align-items: center; gap: 2px; color: var(--home-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
 
 .schedule-stack { display: grid; }
-.schedule-stack button { min-width: 0; min-height: 62px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 0; border: 0; border-bottom: 1px solid #e1ebeb; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.schedule-stack button { min-width: 0; min-height: 62px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 8px; border: 0; border-bottom: 1px solid #e1ebeb; border-radius: 12px; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; transition: background-color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-clinical); }
 .schedule-stack button:first-child { border-top: 1px solid #e1ebeb; }
 .schedule-stack button:hover span:nth-child(2) strong, .schedule-stack button:focus-visible span:nth-child(2) strong { color: var(--home-teal); }
+.schedule-stack button:hover, .schedule-stack button:focus-visible { background: var(--color-mint-050); transform: translateX(2px); }
 .schedule-stack__icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: #e9f6f4; color: var(--home-teal); }
 .schedule-stack strong, .schedule-stack small { display: block; }
 .schedule-stack strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
@@ -159,6 +164,8 @@ onMounted(async () => {
   .visit-strip__action { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .visit-strip, .welcome__actions button { transition: none; }
+  .welcome__head, .visit-strip, .welcome__actions, .welcome__panel { animation: none; }
+  .visit-strip, .welcome__actions button, .schedule-stack button { transition: none; transform: none; }
+  .visit-strip::after { display: none; }
 }
 </style>

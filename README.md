@@ -9,7 +9,7 @@
 3. 保证根目录 `AI_SERVICE_API_KEY` 与 AI 目录 `AI_INTERNAL_API_KEY` 完全一致。
 4. 运行 `docker compose up --build`，然后访问 `http://localhost:5173`。
 
-新数据库会由 `docs/SQL/schema.sql` 初始化。已有数据库升级到本轮上下文架构时，应在备份后按顺序执行 `docs/SQL/migrations/2026-09-13-ai-chat-message-metadata.sql`、`2026-09-13-ai-conversation-registry.sql`、`2026-09-13-ai-patient-memory.sql`、`2026-09-13-ai-knowledge-lifecycle.sql`；这些迁移不会因已有 MySQL volume 而自动重跑。
+新数据库会由 `docs/SQL/schema.sql` 初始化。已有数据库升级到本轮身份与上下文架构时，应在备份后按日期顺序执行 `docs/SQL/migrations/` 中尚未执行的脚本；账号—患者模型至少需要 `2026-09-19-user-patient-subject.sql`，随后执行 `2026-09-22-patient-access-integrity.sql`，以保证每个账号至多一个有效默认患者和一个有效 SELF 患者，并强制 AI 会话绑定 `patient_id`。这些迁移不会因已有 MySQL volume 而自动重跑。
 
 开发 Compose 会启动 Redis 8。Java 登录 Session 使用 db1，Python Agent checkpoint 与会话锁使用 db0（`AI_REDIS_URL`，RediSearch 只能建在 db0）。未配置 `AI_REDIS_URL` 时不保存跨轮 checkpoint，但当前请求仍可使用 Java 从 MySQL 提供的有限消息窗口恢复上下文。
 

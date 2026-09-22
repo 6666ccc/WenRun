@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { GENDER_MAP, formatDate } from '../../utils'
 import { calcAge, maskIdCard } from '../../features/archive/tabs'
 import { useAuth } from '../../stores'
@@ -11,12 +11,34 @@ const props = defineProps({
 const emit = defineEmits(['open-tab', 'unavailable', 'register'])
 const { patients, activePatientId, setActivePatient } = useAuth()
 const showSwitcher = computed(() => (patients.value || []).length > 1)
+const showPrivate = ref(false)
+let privacyTimer
+
+function maskPhone(value) {
+  const phone = String(value || '')
+  return phone.length >= 7 ? `${phone.slice(0, 3)}****${phone.slice(-4)}` : (phone || '—')
+}
+
+function maskPatientNo(value) {
+  const text = String(value || '')
+  if (!text) return '—'
+  if (text.length <= 6) return `${text.slice(0, 1)}***${text.slice(-1)}`
+  return `${text.slice(0, 3)}••••••${text.slice(-3)}`
+}
+
+function togglePrivate() {
+  showPrivate.value = !showPrivate.value
+  clearTimeout(privacyTimer)
+  if (showPrivate.value) privacyTimer = setTimeout(() => { showPrivate.value = false }, 30000)
+}
+
+onBeforeUnmount(() => clearTimeout(privacyTimer))
 
 const age = computed(() => calcAge(props.patient.birthDate))
 const gender = computed(() => GENDER_MAP[props.patient.gender] || '未知')
 const initial = computed(() => (props.patient.name || '?')[0])
 const facts = computed(() => [
-  { icon: 'phone', label: '手机号', value: props.patient.phone || '—' },
+  { icon: 'phone', label: '手机号', value: showPrivate.value ? (props.patient.phone || '—') : maskPhone(props.patient.phone) },
   { icon: 'idCard', label: '身份证号', value: maskIdCard(props.patient.idCard) },
   { icon: 'calendar', label: '出生日期', value: formatDate(props.patient.birthDate) || '—' },
   { icon: 'mapPin', label: '地址', value: props.patient.address || '—' },
@@ -42,7 +64,7 @@ const facts = computed(() => [
         <div>
           <strong>{{ patient.name || '未设置姓名' }}</strong>
           <p>{{ gender }} · {{ age ? `${age}岁` : '年龄未知' }}</p>
-          <small>患者ID {{ patient.patientNo || '—' }}</small>
+          <small>患者ID {{ showPrivate ? (patient.patientNo || '—') : maskPatientNo(patient.patientNo) }}</small>
         </div>
       </div>
       <dl class="archive-side__facts">
@@ -51,6 +73,9 @@ const facts = computed(() => [
           <dd>{{ item.value }}</dd>
         </div>
       </dl>
+      <button class="archive-side__privacy" type="button" :aria-pressed="showPrivate" @click="togglePrivate">
+        {{ showPrivate ? '隐藏敏感信息' : '显示完整信息 30 秒' }}
+      </button>
       <button class="archive-side__more" type="button" @click="emit('open-tab', 'basic')">修改资料 →</button>
     </section>
 
@@ -106,6 +131,11 @@ const facts = computed(() => [
   width: 100%; margin-top: 16px; padding: 10px 0; border: 0; border-radius: 12px;
   background: var(--color-mint-050); color: var(--color-brand-800); font: inherit; font-weight: 700; cursor: pointer;
 }
+.archive-side__privacy {
+  min-height: 44px; margin-top: 12px; padding: 0 8px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--color-brand-700); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.archive-side__privacy:hover, .archive-side__privacy:focus-visible { background: var(--color-mint-050); }
 .archive-side__actions { display: grid; gap: 6px; }
 .archive-side__actions button {
   display: grid; grid-template-columns: 18px minmax(0, 1fr) 14px; align-items: center; gap: 10px;

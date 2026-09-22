@@ -160,7 +160,7 @@ async function saveHealth(patch = {}) {
 }
 
 function showUnavailable(label) {
-  notice.value = `${label}：数据库还未设计`
+  notice.value = `${label}暂未开放，我们正在完善这项能力。`
 }
 
 async function cancel(item) {
@@ -215,7 +215,7 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
             @unavailable="showUnavailable"
             @open-tab="openTab"
           />
-          <ArchiveUnavailable v-else-if="tab === 'activity'" title="运动睡眠" hint="步数、运动时长、睡眠时长等还没有对应数据表。" />
+          <ArchiveUnavailable v-else-if="tab === 'activity'" title="运动睡眠" hint="暂未接入运动与睡眠数据，后续将支持手动记录或设备同步。" />
           <ArchiveDocuments v-else-if="tab === 'documents'" @unavailable="showUnavailable" />
           <ArchiveRegistrations v-else :registrations="registrations" :error="recordsError" @cancel="cancel" />
         </div>
@@ -313,6 +313,7 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
   font: inherit;
   font-size: 15px;
   cursor: pointer;
+  transition: color var(--motion-fast) ease;
 }
 .archive-tabs button.is-active { color: var(--color-brand-800); font-weight: 750; }
 .archive-tabs button.is-active::after {
@@ -322,6 +323,7 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
   height: 3px;
   border-radius: 99px;
   background: var(--color-brand-700);
+  animation: archive-tab-in var(--motion-emphasis) var(--ease-clinical) both;
 }
 .archive-dialog-overlay {
   position: fixed;
@@ -354,11 +356,17 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
 
 <style>
 .archive-panel {
+  position: relative;
+  overflow: hidden;
   padding: 18px 18px 16px;
   border: 1px solid var(--color-border);
   border-radius: 20px;
   background: #fff;
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, transform var(--motion-fast) var(--ease-clinical);
 }
+.archive-panel::before { content: ''; position: absolute; inset: 0 0 auto; height: 1px; background: linear-gradient(90deg, transparent, rgba(15,143,130,.34), transparent); opacity: .65; }
+.archive-panel:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-clinical); transform: translateY(-1px); }
 .archive-panel header {
   display: flex;
   justify-content: space-between;
@@ -406,6 +414,7 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
   display: flex; align-items: center; gap: 10px;
   min-height: 84px; padding: 12px 14px;
   border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface-soft);
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, transform var(--motion-fast) var(--ease-clinical);
 }
 .metric-card--wide { min-height: 72px; }
 .metric-card--shell { opacity: .92; }
@@ -435,7 +444,10 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
   display: flex; gap: 10px; align-items: center; width: 100%; padding: 10px 8px;
   border: 0; border-radius: 12px; background: transparent; text-align: left; font: inherit; cursor: pointer;
 }
-.history-list button:hover, .doc-card:hover, .metric-cta:hover { background: var(--color-mint-050); }
+.metric-card:hover, .metric-card:focus-within, .doc-card:hover, .doc-card:focus-visible, .metric-cta:hover, .metric-cta:focus-visible { border-color: var(--color-border-strong); background: #fff; box-shadow: 0 10px 26px rgba(7,91,85,.08); transform: translateY(-1px); }
+.history-list button { transition: background-color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-clinical); }
+.history-list button:hover, .history-list button:focus-visible { background: var(--color-mint-050); transform: translateX(2px); }
+@keyframes archive-tab-in { from { opacity: 0; transform: scaleX(.25); } to { opacity: 1; transform: scaleX(1); } }
 @media (max-width: 1100px) {
   .metric-grid, .vital-grid, .doc-grid { grid-template-columns: 1fr 1fr; }
   .metric-cta { grid-column: 1 / -1; }
@@ -444,5 +456,9 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
   .archive-regs article { grid-template-columns: 1fr auto; }
   .archive-regs__actions { grid-column: 1 / -1; }
   .archive-form__grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .archive-panel, .metric-card, .metric-cta, .doc-card, .history-list button { transition: none; transform: none; }
+  .archive-tabs button.is-active::after { animation: none; }
 }
 </style>

@@ -337,6 +337,7 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
   border-radius: 8px;
   background: var(--color-brand-800);
   color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 6px 14px rgba(7,91,85,.16);
 }
 
 .assistant-shell__brand-text {
@@ -360,7 +361,9 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-instant) ease;
 }
+.assistant-shell__icon:active { transform: scale(.95); }
 
 .assistant-shell__icon:hover,
 .assistant-shell__icon:focus-visible {
@@ -397,6 +400,7 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
   color: var(--color-text);
   font-size: 14px;
   text-decoration: none;
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-clinical);
 }
 
 .assistant-shell__link svg {
@@ -406,6 +410,7 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
 .assistant-shell__link:hover,
 .assistant-shell__link:focus-visible {
   background: rgba(16, 24, 32, .06);
+  transform: translateX(2px);
 }
 
 .assistant-shell__account {
@@ -475,6 +480,8 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
   min-height: 52px;
   padding: 0 6px;
   background: #fff;
+  border-bottom: 1px solid rgba(213, 230, 230, .58);
+  box-shadow: 0 1px 0 rgba(255,255,255,.9), 0 4px 18px rgba(7,91,85,.025);
 }
 
 .assistant-shell__chat-start {
@@ -658,5 +665,7 @@ defineExpose({ openHistory, closeHistory, openContext, closeContext, closeDrawer
   .assistant-shell__context {
     transition: none;
   }
+  .assistant-shell__icon,
+  .assistant-shell__link { transition: none; transform: none; }
 }
 </style>
