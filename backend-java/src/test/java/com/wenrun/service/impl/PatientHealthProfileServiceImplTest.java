@@ -168,7 +168,7 @@ class PatientHealthProfileServiceImplTest {
     }
 
     @Test
-    void createWritesVitalsOntoMetricTimelineButNotHeight() {
+    void createWritesVitalsOntoMetricTimelineButNotHeightOrDerivedWhtr() {
         ownPatient(1L, 11L);
         loginPatient(11L);
         when(profileMapper.selectByPatientId(1L)).thenReturn(null, savedProfile());
@@ -176,9 +176,9 @@ class PatientHealthProfileServiceImplTest {
         service.create(1L, validDto());
 
         ArgumentCaptor<HealthMetricRecord> captor = ArgumentCaptor.forClass(HealthMetricRecord.class);
-        verify(metricMapper, times(4)).insert(captor.capture());
+        verify(metricMapper, times(5)).insert(captor.capture());
         List<String> types = captor.getAllValues().stream().map(HealthMetricRecord::getMetricType).toList();
-        assertEquals(List.of("WEIGHT", "BLOOD_PRESSURE", "BLOOD_GLUCOSE", "HEART_RATE"), types);
+        assertEquals(List.of("WEIGHT", "WAIST", "BLOOD_PRESSURE", "BLOOD_GLUCOSE", "HEART_RATE"), types);
 
         HealthMetricRecord weight = captor.getAllValues().get(0);
         assertEquals(1L, weight.getPatientId());
@@ -187,11 +187,14 @@ class PatientHealthProfileServiceImplTest {
         assertEquals("MANUAL", weight.getSourceType());
         assertEquals(LocalDateTime.of(2026, 9, 19, 8, 30), weight.getMeasuredAt());
 
-        HealthMetricRecord pressure = captor.getAllValues().get(1);
+        HealthMetricRecord waist = captor.getAllValues().get(1);
+        assertEquals(0, new BigDecimal("85.0").compareTo(waist.getPrimaryValue()));
+
+        HealthMetricRecord pressure = captor.getAllValues().get(2);
         assertEquals(0, new BigDecimal("118").compareTo(pressure.getPrimaryValue()));
         assertEquals(0, new BigDecimal("76").compareTo(pressure.getSecondaryValue()));
 
-        HealthMetricRecord glucose = captor.getAllValues().get(2);
+        HealthMetricRecord glucose = captor.getAllValues().get(3);
         assertEquals("FASTING", glucose.getMeasureContext());
         assertEquals(0, new BigDecimal("5.4").compareTo(glucose.getPrimaryValue()));
     }
@@ -256,7 +259,7 @@ class PatientHealthProfileServiceImplTest {
         service.create(1L, validDto());
 
         ArgumentCaptor<HealthMetricRecord> captor = ArgumentCaptor.forClass(HealthMetricRecord.class);
-        verify(metricMapper, times(4)).insert(captor.capture());
+        verify(metricMapper, times(5)).insert(captor.capture());
         assertEquals(1L, captor.getAllValues().get(0).getPatientId());
         assertEquals(7L, captor.getAllValues().get(0).getCreatedByUserId());
         verify(snapshotMapper).insert(any(PatientHealthSnapshot.class));
@@ -282,6 +285,7 @@ class PatientHealthProfileServiceImplTest {
         HealthProfileDTO dto = new HealthProfileDTO();
         dto.setHeightCm(new BigDecimal("170.0"));
         dto.setWeightKg(new BigDecimal("62.5"));
+        dto.setWaistCm(new BigDecimal("85.0"));
         dto.setSystolicMmhg(118);
         dto.setDiastolicMmhg(76);
         dto.setGlucoseMmol(new BigDecimal("5.4"));
@@ -305,6 +309,7 @@ class PatientHealthProfileServiceImplTest {
     private static PatientHealthProfile completeProfile() {
         PatientHealthProfile profile = savedProfile();
         profile.setWeightKg(new BigDecimal("62.5"));
+        profile.setWaistCm(new BigDecimal("85.0"));
         profile.setSystolicMmhg(118);
         profile.setDiastolicMmhg(76);
         profile.setGlucoseMmol(new BigDecimal("5.4"));

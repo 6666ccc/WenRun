@@ -35,7 +35,11 @@ def test_summarize_node_compresses_old_messages(monkeypatch):
     monkeypatch.setattr(summarize_module, "model", FakeModel())
     history = _history(7)
     result = summarize_module.summarize_node({"messages": history, "summary": "已有摘要"})
-    assert result["summary"]["patient_self_reports"] == ["已有摘要", "症状：感冒"]
+    reports = result["summary"]["patient_self_reports"]
+    assert [item["text"] for item in reports] == ["已有摘要", "症状：感冒"]
+    assert reports[1]["source"] == "user_statement"
+    assert reports[1]["verification"] == "unverified"
+    assert reports[1]["reported_at"]
     assert result["summary"]["pending_tasks"] == ["确认内科号源"]
     assert all(isinstance(item, RemoveMessage) for item in result["messages"])
     assert [item.id for item in result["messages"]] == [m.id for m in history[:-6]]

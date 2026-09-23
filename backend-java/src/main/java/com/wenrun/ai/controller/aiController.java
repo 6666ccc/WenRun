@@ -88,17 +88,30 @@ public class aiController {
         this.conversationRepository = conversationRepository;
     }
 
+    /**
+     * 获取会话列表
+     * @param page 页码
+     * @param size 每页大小
+     * @return 会话列表
+     */
     @GetMapping("/conversations")
     public Result<List<AiConversationVO>> listConversations(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "30") int size) {
         Long userId = UserContext.getUserId();
-        int boundedSize = Math.max(1, Math.min(size, 50));
-        int offset = Math.max(0, page) * boundedSize;
+        int boundedSize = Math.max(1, Math.min(size, 50));//限制每页大小不超过50
+        int offset = Math.max(0, page) * boundedSize;//计算偏移量
         return Result.success(conversationRepository.selectSummariesByUserId(
                 userId, offset, boundedSize));
     }
 
+    /**
+     * 获取会话消息列表
+     * @param conversationId 会话ID
+     * @param page 页码
+     * @param size 每页大小
+     * @return 会话消息列表
+     */
     @GetMapping("/conversations/{conversationId}/messages")
     public Result<List<AiChatMessageVO>> listMessages(
             @PathVariable String conversationId,
@@ -109,10 +122,15 @@ public class aiController {
         int boundedSize = Math.max(1, Math.min(size, 100));
         int offset = Math.max(0, page) * boundedSize;
         return Result.success(chatMessageRepository.selectPageByConversationIdAndUserId(
-                        conversationId, userId, offset, boundedSize)
+                conversationId, userId, offset, boundedSize)
                 .stream().map(AiChatMessageVO::from).toList());
     }
 
+    /**
+     * 流式聊天
+     * @param request 聊天请求
+     * @return 流式聊天响应
+     */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatStream(@Valid @RequestBody aiRequest request) {
         prepare(request);
@@ -150,7 +168,8 @@ public class aiController {
                 if (racedUser != null) {
                     lock.close();
                     ChatMessage racedAssistant = chatMessageRepository.selectByClientRequestId(
-                            request.getConversationId(), request.getUserId(), request.getClientRequestId(), "assistant");
+                            request.getConversationId(), request.getUserId(), request.getClientRequestId(),
+                            "assistant");
                     return duplicateRequestStream(request, racedAssistant);
                 }
                 throw new IllegalStateException("AI 用户消息保存失败");
@@ -168,6 +187,11 @@ public class aiController {
         }
     }
 
+    /**
+     * 恢复聊天
+     * @param request 恢复请求
+     * @return 恢复聊天响应
+     */
     @PostMapping(value = "/chat/resume", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatResume(@Valid @RequestBody aiResumeRequest request) {
         prepareResume(request);
@@ -189,7 +213,12 @@ public class aiController {
                 request.getInterruptId() == null ? "" : request.getInterruptId());
     }
 
-    @DeleteMapping("/conversations/{conversationId}")
+    /**
+     * 删除会话
+     * @param conversationId 会话ID
+     * @return 删除会话响应
+     */
+        @DeleteMapping("/conversations/{conversationId}")
     public Result<Void> deleteConversation(@PathVariable String conversationId) {
         Long userId = UserContext.getUserId();
         ConversationExecutionLock.Handle lock;
@@ -210,6 +239,10 @@ public class aiController {
         }
     }
 
+    /**
+     * 准备聊天请求
+     * @param request 聊天请求
+     */
     private void prepare(aiRequest request) {
         if (!StringUtils.hasText(request.getConversationId())) {
             request.setConversationId("java-" + UUID.randomUUID());
@@ -240,6 +273,10 @@ public class aiController {
      * 恢复只能发生在已存在且属于当前用户的会话上，所以用 assertOwned 而不是 establishIfAbsent。
      * 委托令牌必须重新签发：原令牌 5 分钟就过期，而患者盯着确认卡片可能想很久。
      */
+    /**
+     * 准备恢复请求
+     * @param request 恢复请求
+     */
     private void prepareResume(aiResumeRequest request) {
         request.setConversationId(request.getConversationId().trim());
         if (!StringUtils.hasText(request.getClientRequestId())) {
@@ -261,6 +298,16 @@ public class aiController {
                         DelegationTokenService.PATIENT_ASSISTANT_SCOPES));
     }
 
+    /**
+     * 流式聊天
+     * @param action 流式聊天动作
+     * @param conversationId 会话ID
+     * @param userId 用户ID
+     * @param clientRequestId 客户端请求ID
+     * @param lock 会话锁
+     * @param resumeInterruptId 恢复中断ID
+     * @return 流式聊天响应
+     */
     private SseEmitter stream(StreamAction action, String conversationId, Long userId,
             String clientRequestId, ConversationExecutionLock.Handle lock,
             String resumeInterruptId) {
@@ -287,51 +334,51 @@ public class aiController {
             task = streamExecutor.submit(() -> {
                 StringBuilder accumulatedReply = new StringBuilder();
                 try {
-                action.run(event -> {
-                    if (event == null || terminal.get()) {
-                        return;
-                    }
-                    String type = String.valueOf(event.get("type"));
-                    if ("token".equals(type) && event.get("content") != null) {
-                        accumulatedReply.append(event.get("content"));
-                    }
-                    send(emitter, event);
-                    if ("done".equals(type)) {
-                        log.info("ai_stream_event type=done conversationId={} clientRequestId={}",
-                                conversationId, clientRequestId);
-                        String reply = event.get("reply") instanceof String value && StringUtils.hasText(value)
-                                ? value
-                                : accumulatedReply.toString();
-                        if (resumeInterruptId != null) {
-                            chatMessageRepository.completeLatestConfirmation(
-                                    conversationId, userId, resumeInterruptId);
+                    action.run(event -> {
+                        if (event == null || terminal.get()) {
+                            return;
                         }
-                        saveMessage(conversationId, userId, clientRequestId, "assistant", reply);
-                        terminal.set(true);
-                        emitter.complete();
-                    } else if ("confirm".equals(type)) {
-                        // 写操作挂起等患者确认，本轮到此为止：Python 不会再发 done。
-                        // 落一条确认提示语，让历史连贯，也让这条 clientRequestId 的幂等记录闭环。
-                        log.info("ai_stream_event type=confirm conversationId={} kind={} interruptId={}",
-                                conversationId, event.get("kind"), event.get("interruptId"));
-                        String prompt = event.get("prompt") instanceof String value && StringUtils.hasText(value)
-                                ? value
-                                : "请确认是否继续办理";
-                        saveMessage(conversationId, userId, clientRequestId, "assistant", prompt,
-                                confirmationMetadata(event));
-                        terminal.set(true);
-                        emitter.complete();
-                    } else if ("error".equals(type)) {
-                        log.warn("ai_stream_event type=error conversationId={} code={} message={}",
-                                conversationId, event.get("code"), event.get("message"));
-                        terminal.set(true);
+                        String type = String.valueOf(event.get("type"));
+                        if ("token".equals(type) && event.get("content") != null) {
+                            accumulatedReply.append(event.get("content"));
+                        }
+                        send(emitter, event);
+                        if ("done".equals(type)) {
+                            log.info("ai_stream_event type=done conversationId={} clientRequestId={}",
+                                    conversationId, clientRequestId);
+                            String reply = event.get("reply") instanceof String value && StringUtils.hasText(value)
+                                    ? value
+                                    : accumulatedReply.toString();
+                            if (resumeInterruptId != null) {
+                                chatMessageRepository.completeLatestConfirmation(
+                                        conversationId, userId, resumeInterruptId);
+                            }
+                            saveMessage(conversationId, userId, clientRequestId, "assistant", reply);
+                            terminal.set(true);
+                            emitter.complete();
+                        } else if ("confirm".equals(type)) {
+                            // 写操作挂起等患者确认，本轮到此为止：Python 不会再发 done。
+                            // 落一条确认提示语，让历史连贯，也让这条 clientRequestId 的幂等记录闭环。
+                            log.info("ai_stream_event type=confirm conversationId={} kind={} interruptId={}",
+                                    conversationId, event.get("kind"), event.get("interruptId"));
+                            String prompt = event.get("prompt") instanceof String value && StringUtils.hasText(value)
+                                    ? value
+                                    : "请确认是否继续办理";
+                            saveMessage(conversationId, userId, clientRequestId, "assistant", prompt,
+                                    confirmationMetadata(event));
+                            terminal.set(true);
+                            emitter.complete();
+                        } else if ("error".equals(type)) {
+                            log.warn("ai_stream_event type=error conversationId={} code={} message={}",
+                                    conversationId, event.get("code"), event.get("message"));
+                            terminal.set(true);
+                            emitter.complete();
+                        }
+                    });
+                    if (terminal.compareAndSet(false, true)) {
+                        sendError(emitter, "AI_STREAM_INCOMPLETE", "AI 流式响应意外结束");
                         emitter.complete();
                     }
-                });
-                if (terminal.compareAndSet(false, true)) {
-                    sendError(emitter, "AI_STREAM_INCOMPLETE", "AI 流式响应意外结束");
-                    emitter.complete();
-                }
                 } catch (Exception ex) {
                     log.warn("AI 流式聊天失败 conversationId={}: {}", conversationId, ex.getMessage());
                     if (terminal.compareAndSet(false, true)) {
@@ -392,6 +439,12 @@ public class aiController {
         return emitter;
     }
 
+    /**
+     * 获取会话锁
+     * @param userId 用户ID
+     * @param conversationId 会话ID
+     * @return 会话锁
+     */
     private ConversationExecutionLock.Handle acquireConversationLock(Long userId, String conversationId) {
         return conversationExecutionLock.tryAcquire(userId, conversationId).orElse(null);
     }

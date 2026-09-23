@@ -51,6 +51,24 @@ class AiToolCallLogTest {
                 AiToolCallLog.resolveTool("POST", "/api/internal/ai-tools/memories"));
         assertEquals("forget_preference",
                 AiToolCallLog.resolveTool("DELETE", "/api/internal/ai-tools/memories/mem-1"));
+        assertEquals("patient_clinical_context",
+                AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/patient-clinical-context"));
+    }
+
+    @Test
+    void clinicalContextResultAndIdentityValuesStayOutOfLogs() {
+        String secretBody = "{\"idCard\":\"110101199003078515\",\"phone\":\"13800138000\","
+                + "\"address\":\"北京市朝阳区某某路1号\",\"url\":\"https://bucket.cos.example.com/a.pdf?q-sign=abc\"}";
+
+        assertEquals("[clinical-context-redacted]", AiToolCallLog.resultForLog(
+                "/api/internal/ai-tools/patient-clinical-context", secretBody));
+
+        String redacted = AiToolCallLog.redactSensitive(secretBody);
+        assertTrue(!redacted.contains("110101199003078515"));
+        assertTrue(!redacted.contains("13800138000"));
+        assertTrue(!redacted.contains("某某路"));
+        assertTrue(!redacted.contains("q-sign"));
+        assertTrue(!redacted.contains("https://"));
     }
 
     @Test

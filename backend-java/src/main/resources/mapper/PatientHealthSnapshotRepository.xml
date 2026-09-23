@@ -8,6 +8,8 @@
         <result column="patient_id" property="patientId"/>
         <result column="height_cm" property="heightCm"/>
         <result column="weight_kg" property="weightKg"/>
+        <result column="waist_cm" property="waistCm"/>
+        <result column="whtr" property="whtr"/>
         <result column="systolic_mmhg" property="systolicMmhg"/>
         <result column="diastolic_mmhg" property="diastolicMmhg"/>
         <result column="glucose_mmol" property="glucoseMmol"/>
@@ -24,7 +26,7 @@
     </resultMap>
 
     <sql id="Base_Column_List">
-        id, patient_id, height_cm, weight_kg, systolic_mmhg, diastolic_mmhg,
+        id, patient_id, height_cm, weight_kg, waist_cm, whtr, systolic_mmhg, diastolic_mmhg,
         glucose_mmol, glucose_type, heart_rate_bpm, spo2_pct, respiratory_rate_bpm, temperature_c,
         measured_at, past_history, family_history, personal_history, create_time
     </sql>
@@ -46,11 +48,11 @@
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO patient_health_snapshot (
-            patient_id, height_cm, weight_kg, systolic_mmhg, diastolic_mmhg,
+            patient_id, height_cm, weight_kg, waist_cm, systolic_mmhg, diastolic_mmhg,
             glucose_mmol, glucose_type, heart_rate_bpm, spo2_pct, respiratory_rate_bpm, temperature_c, measured_at,
             past_history, family_history, personal_history
         ) VALUES (
-            #{patientId}, #{heightCm}, #{weightKg}, #{systolicMmhg}, #{diastolicMmhg},
+            #{patientId}, #{heightCm}, #{weightKg}, #{waistCm}, #{systolicMmhg}, #{diastolicMmhg},
             #{glucoseMmol}, #{glucoseType}, #{heartRateBpm}, #{spo2Pct}, #{respiratoryRateBpm}, #{temperatureC}, #{measuredAt},
             #{pastHistory}, #{familyHistory}, #{personalHistory}
         )

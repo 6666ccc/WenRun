@@ -18,7 +18,6 @@ dependencies = [
   "redis>=5.2.1",
   "langchain-openai",
   "langchain-chroma",
-  "langchain-text-splitters",
   "chromadb",
   "pypdf",
   "python-docx",
@@ -30,6 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ingest = ["docling", "transformers"]
 test = ["pytest", "pytest-asyncio", "ruff"]
 
 [build-system]

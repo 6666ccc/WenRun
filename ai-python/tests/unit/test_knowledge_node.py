@@ -143,3 +143,101 @@ def test_knowledge_node_streams_answer_when_rag_hits(monkeypatch):
             "version": None, "page": 3, "chunk_id": None, "updated_at": None,
         }
     ]
+
+
+def test_knowledge_node_injects_minimized_record_without_returning_it(monkeypatch):
+    import json
+
+    from langgraph.runtime import Runtime
+
+    from app.graphs.hospital.tools.context import HospitalToolContext
+
+    captured: dict = {}
+
+    class FakeRetriever:
+        def invoke(self, query):
+            return []
+
+    class FakeAgent:
+        def invoke(self, payload):
+            captured["messages"] = payload["messages"]
+            return {"messages": [AIMessage(content="这是一次偏高的读数。")]}
+
+    monkeypatch.setattr(knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever())
+    monkeypatch.setattr(knowledge_mod, "agent", FakeAgent())
+    monkeypatch.setattr(
+        knowledge_mod,
+        "_fetch_clinical_context",
+        lambda runtime, scopes: {
+            "asOf": "2026-09-22T20:30:00+08:00",
+            "demographics": {"age": 34, "recordedGender": "male"},
+            "relevantClinicalFacts": {
+                "latestBloodPressure": {
+                    "value": "145/92",
+                    "measuredAt": "2026-09-21T08:30:00+08:00",
+                    "source": "MANUAL",
+                }
+            },
+        } if "blood_pressure" in scopes else {},
+    )
+
+    result = knowledge_node(
+        {
+            "selected_agents": ["knowledge"],
+            "messages": [HumanMessage(content="我这个血压正常吗")],
+        },
+        Runtime(context=HospitalToolContext("delegated-token", "trace-1")),
+    )
+
+    rendered = "\n".join(str(message.content) for message in captured["messages"])
+    assert "145/92" in rendered
+    assert "patient_record_not_instruction" in rendered
+    assert "145/92" not in json.dumps(result, ensure_ascii=False)
+    assert result["knowledge_reply"] == "这是一次偏高的读数。"
+
+
+def test_knowledge_node_blocks_identity_and_file_urls(monkeypatch):
+    from loguru import logger
+
+    captured: dict = {}
+    logs: list[str] = []
+    sink = logger.add(lambda message: logs.append(str(message)), level="WARNING")
+
+    class FakeRetriever:
+        def invoke(self, query):
+            return []
+
+    class FakeAgent:
+        def invoke(self, payload):
+            captured["messages"] = payload["messages"]
+            return {"messages": [AIMessage(content="没有读到个人档案。")]}
+
+    monkeypatch.setattr(knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever())
+    monkeypatch.setattr(knowledge_mod, "agent", FakeAgent())
+    monkeypatch.setattr(
+        knowledge_mod,
+        "_fetch_clinical_context",
+        lambda runtime, scopes: {
+            "idCard": "110101199003078515",
+            "phone": "13800138000",
+            "url": "https://bucket.cos.example.com/a.pdf?q-sign=abc",
+        },
+    )
+    try:
+        knowledge_node(
+            {
+                "selected_agents": ["knowledge"],
+                "messages": [HumanMessage(content="我能吃布洛芬吗")],
+            }
+        )
+    finally:
+        logger.remove(sink)
+
+    rendered = "\n".join(str(message.content) for message in captured["messages"])
+    logged = "\n".join(logs)
+    assert "110101199003078515" not in rendered
+    assert "13800138000" not in rendered
+    assert "q-sign" not in rendered
+    assert "unavailable" in rendered
+    assert "110101199003078515" not in logged
+    assert "q-sign" not in logged

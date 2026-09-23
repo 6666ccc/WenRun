@@ -227,3 +227,23 @@ def test_transport_failure_is_not_a_business_rejection():
         )
 
     assert not isinstance(caught.value, JavaToolBusinessError)
+
+
+def test_clinical_context_rejects_identity_fields_and_unknown_scopes():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/internal/ai-tools/patient-clinical-context"
+        assert request.url.params["scopes"] == "demographics,blood_pressure"
+        return httpx.Response(200, json=_envelope({
+            "source": "patient_record",
+            "demographics": {"age": 34},
+            "idCard": "110101199003078515",
+        }))
+
+    with pytest.raises(JavaToolClientError, match="forbidden field"):
+        _client(handler).get_patient_clinical_context(
+            "delegated-token", "trace-123", ["demographics", "blood_pressure"]
+        )
+
+    client = _client(lambda request: httpx.Response(200, json=_envelope({})))
+    with pytest.raises(JavaToolClientError, match="not allowed"):
+        client.get_patient_clinical_context("delegated-token", "trace-123", ["id_card"])
