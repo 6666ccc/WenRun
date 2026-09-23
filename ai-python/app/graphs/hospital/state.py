@@ -1,9 +1,39 @@
 from typing import Literal
 
 from langgraph.graph import MessagesState
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from app.graphs.hospital.sensitive import cleaned_memory_text
 
 AgentName = Literal["knowledge", "chat", "tools"]
+
+
+class PatientSelfReport(BaseModel):
+    """患者自述。只能来自原话，不能升级成已验证临床事实。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    text: str = Field(min_length=1, max_length=500)
+    reported_at: str | None = None
+    source: Literal["user_statement"] = "user_statement"
+    verification: Literal["unverified"] = "unverified"
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_statement(cls, value: object) -> object:
+        if isinstance(value, str):
+            return {"text": cleaned_memory_text(value) or "已省略"}
+        if isinstance(value, dict):
+            raw = value.get("text", value.get("content", ""))
+            reported = value.get("reported_at", value.get("reportedAt"))
+            text = cleaned_memory_text(str(raw)) if raw is not None else None
+            return {
+                "text": text or "已省略",
+                "reported_at": reported if isinstance(reported, str) and reported.strip() else None,
+                "source": "user_statement",
+                "verification": "unverified",
+            }
+        return value
 
 
 class ConversationSummary(BaseModel):
@@ -11,12 +41,52 @@ class ConversationSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    patient_self_reports: list[str] = Field(default_factory=list, max_length=20)
+    patient_self_reports: list[PatientSelfReport] = Field(default_factory=list, max_length=20)
     preferences: list[str] = Field(default_factory=list, max_length=20)
     verified_business_facts: list[str] = Field(default_factory=list, max_length=20)
     pending_tasks: list[str] = Field(default_factory=list, max_length=20)
     superseded_items: list[str] = Field(default_factory=list, max_length=30)
     version: int = Field(default=1, ge=1)
+
+    @field_validator("patient_self_reports", mode="before")
+    @classmethod
+    def coerce_reports(cls, value: object) -> object:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        kept: list[dict] = []
+        for item in value:
+            try:
+                report = PatientSelfReport.model_validate(item)
+            except ValidationError:
+                continue
+            if report.text == "已省略":
+                continue
+            kept.append(report.model_dump())
+        return kept
+
+    @field_validator(
+        "preferences",
+        "verified_business_facts",
+        "pending_tasks",
+        "superseded_items",
+        mode="before",
+    )
+    @classmethod
+    def clean_lines(cls, value: object) -> object:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        cleaned: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            text = cleaned_memory_text(item)
+            if text is not None:
+                cleaned.append(text)
+        return cleaned
 
 """节点，主要还是意图判断，以及后续的节点选择"""
 

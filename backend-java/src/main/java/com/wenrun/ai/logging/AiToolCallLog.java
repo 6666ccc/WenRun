@@ -1,6 +1,7 @@
 package com.wenrun.ai.logging;
 
 import com.wenrun.ai.security.DelegatedToolPrincipal;
+import com.wenrun.ai.security.SensitiveText;
 import com.wenrun.config.RequestTrace;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
@@ -80,7 +81,28 @@ public final class AiToolCallLog {
         if ("DELETE".equals(verb) && parts.length == 2 && "memories".equals(parts[0])) {
             return "forget_preference";
         }
+        if ("GET".equals(verb) && parts.length == 1 && "patient-clinical-context".equals(parts[0])) {
+            return "patient_clinical_context";
+        }
         return verb + " " + suffix;
+    }
+
+    public static boolean suppressResult(String path) {
+        return path != null && path.contains("patient-clinical-context");
+    }
+
+    public static String resultForLog(String path, String decodedBody) {
+        if (suppressResult(path)) {
+            return "[clinical-context-redacted]";
+        }
+        return redactSensitive(decodedBody);
+    }
+
+    public static String redactSensitive(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return SensitiveText.redact(value);
     }
 
     public static String truncate(String value) {
@@ -104,7 +126,8 @@ public final class AiToolCallLog {
             if (!StringUtils.hasText(key) || isSensitive(key)) {
                 return;
             }
-            compact.put(key, values == null || values.length == 0 ? "" : String.join(",", values));
+            String joined = values == null || values.length == 0 ? "" : String.join(",", values);
+            compact.put(key, redactSensitive(joined));
         });
         return compact.toString();
     }
@@ -168,7 +191,13 @@ public final class AiToolCallLog {
         return normalized.contains("token")
                 || normalized.contains("authorization")
                 || normalized.contains("password")
-                || normalized.contains("secret");
+                || normalized.contains("secret")
+                || normalized.contains("idcard")
+                || normalized.contains("id_card")
+                || normalized.contains("phone")
+                || normalized.contains("mobile")
+                || normalized.contains("address")
+                || normalized.contains("url");
     }
 
     private static String normalizePath(String path) {

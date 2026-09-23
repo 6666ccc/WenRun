@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   METRIC_EDITORS,
   calcBmi,
+  calcWhtr,
   fillHealthForm,
   formatBloodPressure,
   formatGlucoseType,
@@ -29,10 +30,16 @@ test('calcBmi returns one decimal from cm and kg', () => {
   assert.equal(calcBmi('', 62.5), '')
 })
 
+test('calcWhtr returns three decimals from cm values', () => {
+  assert.equal(calcWhtr(170, 85), '0.500')
+  assert.equal(calcWhtr('', 85), '')
+})
+
 test('toHealthPayload blanks empty numbers and trims histories', () => {
   const payload = toHealthPayload({
     heightCm: '170.0',
     weightKg: '',
+    waistCm: '85.5',
     systolicMmhg: '118',
     diastolicMmhg: '',
     glucoseMmol: '',
@@ -45,6 +52,7 @@ test('toHealthPayload blanks empty numbers and trims histories', () => {
   })
   assert.equal(payload.heightCm, 170)
   assert.equal(payload.weightKg, null)
+  assert.equal(payload.waistCm, 85.5)
   assert.equal(payload.pastHistory, '无手术史')
   assert.equal(payload.measuredAt, '2026-09-19T08:30')
 })
@@ -73,12 +81,13 @@ test('fillHealthForm converts ISO measuredAt for datetime-local', () => {
   assert.equal(form.measuredAt, '2026-09-19T08:30')
 })
 
-test('metric editors cover eight recordable ids and not BMI', () => {
-  assert.deepEqual(Object.keys(METRIC_EDITORS), ['weight', 'height', 'bp', 'glucose', 'hr', 'spo2', 'rr', 'temp'])
+test('metric editors cover nine recordable ids and not derived metrics', () => {
+  assert.deepEqual(Object.keys(METRIC_EDITORS), ['weight', 'waist', 'height', 'bp', 'glucose', 'hr', 'spo2', 'rr', 'temp'])
   assert.equal(isMetricEditor('bp'), true)
   assert.equal(isMetricEditor('vitals'), false)
   assert.equal(isMetricEditor('body'), false)
   assert.equal(isMetricEditor('bmi'), false)
+  assert.equal(isMetricEditor('whtr'), false)
   assert.equal(metricEditor('unknown'), null)
 })
 
@@ -86,6 +95,7 @@ test('metric editor fields match the focused dialog spec', () => {
   const keys = (id) => metricEditor(id).fields.map((field) => field.key)
   assert.equal(metricEditor('weight').title, '记录体重')
   assert.deepEqual(keys('weight'), ['weightKg'])
+  assert.deepEqual(keys('waist'), ['waistCm'])
   assert.deepEqual(keys('height'), ['heightCm'])
   assert.deepEqual(keys('bp'), ['systolicMmhg', 'diastolicMmhg'])
   assert.deepEqual(keys('glucose'), ['glucoseMmol', 'glucoseType'])

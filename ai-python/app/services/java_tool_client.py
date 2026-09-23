@@ -17,6 +17,24 @@ class JavaToolBusinessError(JavaToolClientError):
     """Java 依据业务规则拒绝了本次请求，message 是可以直接转达给患者的中文文案。"""
 
 
+# Java PatientClinicalContextService.ALLOWED_SCOPES 的镜像。身份证件、电话、地址不在其中。
+CLINICAL_CONTEXT_SCOPES = frozenset({
+    "demographics",
+    "allergies",
+    "past_history",
+    "family_history",
+    "personal_history",
+    "anthropometrics",
+    "blood_pressure",
+    "blood_glucose",
+    "heart_rate",
+    "spo2",
+    "temperature",
+    "respiratory_rate",
+    "document_catalog",
+})
+
+
 @dataclass(frozen=True)
 class Department:
     id: int
@@ -320,6 +338,31 @@ class JavaToolClient:
             status=_optional_str(data, "status") or "active",
             version=_optional_int(data, "version"),
         )
+
+    def get_patient_clinical_context(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        scopes: list[str],
+    ) -> dict[str, Any]:
+        """按白名单范围读取临床摘录。调用方是知识节点，不是模型可选工具。"""
+
+        requested = [scope.strip() for scope in scopes if isinstance(scope, str) and scope.strip()]
+        if not requested or any(scope not in CLINICAL_CONTEXT_SCOPES for scope in requested):
+            raise JavaToolClientError("clinical context scopes are not allowed")
+        data = self._get(
+            "/api/internal/ai-tools/patient-clinical-context",
+            delegated_token,
+            request_id,
+            {"scopes": ",".join(requested)},
+        )
+        if not isinstance(data, dict):
+            raise JavaToolClientError("Java Tool API returned an invalid clinical context")
+        from app.graphs.hospital.sensitive import payload_is_sensitive
+
+        if payload_is_sensitive(data):
+            raise JavaToolClientError("clinical context contained a forbidden field")
+        return data
 
     def delete_memory(
         self, delegated_token: str, request_id: str | None, *, memory_id: str

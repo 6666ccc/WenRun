@@ -15,6 +15,9 @@ public class PatientHealthSnapshot {
     private Long patientId;
     private BigDecimal heightCm;
     private BigDecimal weightKg;
+    private BigDecimal waistCm;
+    /** 数据库生成列：waistCm / heightCm。 */
+    private BigDecimal whtr;
     private Integer systolicMmhg;
     private Integer diastolicMmhg;
     private BigDecimal glucoseMmol;

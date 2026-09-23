@@ -147,6 +147,10 @@ public class PatientHealthProfileServiceImpl implements PatientHealthProfileServ
             insertMetric(patientId, HealthMetricType.WEIGHT.getCode(),
                     current.getWeightKg(), null, null, current.getMeasuredAt());
         }
+        if (current.getWaistCm() != null && (created || !sameDecimal(previous.getWaistCm(), current.getWaistCm()))) {
+            insertMetric(patientId, HealthMetricType.WAIST.getCode(),
+                    current.getWaistCm(), null, null, current.getMeasuredAt());
+        }
         if (current.getSystolicMmhg() != null && current.getDiastolicMmhg() != null
                 && (created || !Objects.equals(previous.getSystolicMmhg(), current.getSystolicMmhg())
                 || !Objects.equals(previous.getDiastolicMmhg(), current.getDiastolicMmhg()))) {
@@ -235,6 +239,7 @@ public class PatientHealthProfileServiceImpl implements PatientHealthProfileServ
         }
         requireRange(dto.getHeightCm(), new BigDecimal("50.0"), new BigDecimal("250.0"), "身高应在 50–250 cm");
         requireRange(dto.getWeightKg(), new BigDecimal("10.0"), new BigDecimal("300.0"), "体重应在 10–300 kg");
+        requireRange(dto.getWaistCm(), new BigDecimal("40.0"), new BigDecimal("200.0"), "腰围应在 40–200 cm");
         requireRange(dto.getSystolicMmhg(), 60, 250, "收缩压应在 60–250 mmHg");
         requireRange(dto.getDiastolicMmhg(), 40, 180, "舒张压应在 40–180 mmHg");
         if (dto.getSystolicMmhg() != null && dto.getDiastolicMmhg() != null
@@ -263,6 +268,7 @@ public class PatientHealthProfileServiceImpl implements PatientHealthProfileServ
     private boolean hasContent(HealthProfileDTO dto) {
         return dto.getHeightCm() != null
                 || dto.getWeightKg() != null
+                || dto.getWaistCm() != null
                 || dto.getSystolicMmhg() != null
                 || dto.getDiastolicMmhg() != null
                 || dto.getGlucoseMmol() != null

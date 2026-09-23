@@ -14,6 +14,7 @@ from langchain_core.messages.utils import count_tokens_approximately
 from loguru import logger
 
 from app.core.config import get_settings
+from app.graphs.hospital.sensitive import payload_is_sensitive
 from app.graphs.hospital.state import ConversationSummary, State
 from app.observability.context_metrics import record_context
 
@@ -98,42 +99,110 @@ def _bounded_tail(messages: Iterable[BaseMessage], budget: int) -> list[BaseMess
     return kept
 
 
-def _active_memories(state: State) -> list[dict]:
-    latest = next((
+_MEMORY_TYPES: dict[ContextPurpose, frozenset[str]] = {
+    "route": frozenset(),
+    "chat": frozenset({"communication_preference", "accessibility_need"}),
+    "knowledge": frozenset({"communication_preference"}),
+    "tools": frozenset({
+        "communication_preference", "appointment_preference", "accessibility_need",
+    }),
+    "fast": frozenset({"communication_preference"}),
+}
+_APPOINTMENT_WORDS = ("挂号", "预约", "医生", "科室", "号源", "退号", "上午", "下午")
+_VISIT_ACCESS_WORDS = ("到院", "就诊", "行动", "协助", "轮椅", "看不清", "听不清")
+_CHAT_ACCESS_WORDS = ("看不清", "听不清", "大字", "语音", "读屏", "字太小")
+
+
+def _latest_user_text(state: State) -> str:
+    return next((
         str(getattr(message, "content", ""))
         for message in reversed(state.get("messages") or [])
         if getattr(message, "type", "") in {"human", "user"}
     ), "")
+
+
+def _memory_allowed(purpose: ContextPurpose, memory_type: str, content: str, latest: str) -> bool:
+    if memory_type not in _MEMORY_TYPES[purpose]:
+        return False
+    if purpose == "tools" and memory_type == "appointment_preference":
+        return any(word in latest for word in _APPOINTMENT_WORDS)
+    if purpose == "tools" and memory_type == "accessibility_need":
+        return any(word in latest for word in _VISIT_ACCESS_WORDS)
+    if purpose == "chat" and memory_type == "accessibility_need":
+        return any(word in content or word in latest for word in _CHAT_ACCESS_WORDS)
+    return True
+
+
+def _active_memories(state: State, purpose: ContextPurpose) -> list[dict]:
+    latest = _latest_user_text(state)
     ranked: list[tuple[int, dict]] = []
     for item in state.get("long_term_memories") or []:
         if not isinstance(item, dict) or item.get("status", "active") != "active":
             continue
-        if item.get("type") not in {
-            "communication_preference", "appointment_preference", "accessibility_need"
-        }:
-            continue
+        memory_type = item.get("type")
         content = item.get("content")
-        if isinstance(content, str) and content.strip():
-            score = 1
-            if item["type"] == "communication_preference":
-                score += 2
-            if item["type"] == "appointment_preference" and any(
-                word in latest for word in ("挂号", "预约", "医生", "科室", "上午", "下午")
-            ):
-                score += 4
-            if item["type"] == "accessibility_need" and any(
-                word in latest for word in ("到院", "就诊", "行动", "看不清", "协助")
-            ):
-                score += 4
-            ranked.append((score, {
-                "type": item["type"],
-                "content": content.strip(),
-                "source": "confirmed_patient_memory",
-                "trust": "preference_not_medical_fact",
-                "updatedAt": item.get("updateTime"),
-            }))
+        if not isinstance(memory_type, str) or not isinstance(content, str) or not content.strip():
+            continue
+        if not _memory_allowed(purpose, memory_type, content, latest):
+            continue
+        score = 1
+        if memory_type == "communication_preference":
+            score += 2
+        if memory_type == "appointment_preference":
+            score += 4
+        if memory_type == "accessibility_need" and any(word in latest for word in _VISIT_ACCESS_WORDS):
+            score += 4
+        ranked.append((score, {
+            "type": memory_type,
+            "content": content.strip(),
+            "source": "confirmed_patient_memory",
+            "trust": "preference_not_medical_fact",
+            "updatedAt": item.get("updateTime"),
+        }))
     ranked.sort(key=lambda item: item[0], reverse=True)
-    return [item for _, item in ranked[:5]]
+    limit = 5 if purpose == "tools" else 2
+    selected: list[dict] = []
+    communication_count = 0
+    for _, item in ranked:
+        if len(selected) >= limit:
+            break
+        if item["type"] == "communication_preference":
+            if communication_count >= 2:
+                continue
+            communication_count += 1
+        selected.append(item)
+    return selected
+
+
+def _project_summary(summary: ConversationSummary, purpose: ContextPurpose) -> dict | None:
+    """Keep each node to the summary fields it is allowed to see."""
+
+    if purpose == "route" and summary.pending_tasks:
+        return {
+            "source": "conversation_summary",
+            "trust": "conversation_summary_not_clinical_record",
+            "pending_tasks": summary.pending_tasks,
+        }
+    if purpose == "knowledge" and summary.patient_self_reports:
+        return {
+            "source": "conversation_summary",
+            "trust": "patient_statement_unverified",
+            "patient_self_reports": [
+                item.model_dump(exclude_none=True) for item in summary.patient_self_reports
+            ],
+        }
+    if purpose == "tools":
+        payload: dict = {}
+        if summary.pending_tasks:
+            payload["pending_tasks"] = summary.pending_tasks
+        if summary.verified_business_facts:
+            payload["verified_business_facts"] = summary.verified_business_facts
+        if not payload:
+            return None
+        payload["source"] = "conversation_summary"
+        payload["trust"] = "conversation_summary_not_clinical_record"
+        return payload
+    return None
 
 
 def task_focus_messages(
@@ -173,21 +242,31 @@ def build_context(
     purpose: ContextPurpose,
     task_goal: str | None = None,
     upstream_results: dict[str, str] | None = None,
+    extra_untrusted: list[tuple[str, object]] | None = None,
 ) -> list[BaseMessage]:
-    """Return context data only; callers keep policy prompts in a separate SystemMessage."""
+    """Return context data only; callers keep policy prompts in a separate SystemMessage.
+
+    ``purpose`` decides which summary fields and preference types are visible.
+    Clinical records are not read here. A caller may pass already-minimized data
+    for this turn through ``extra_untrusted``; that data is not written back to state.
+    """
 
     settings = get_settings()
     data_messages: list[BaseMessage] = []
     summary = coerce_summary(state.get("summary"))
-    memories = _active_memories(state)
+    memories = _active_memories(state, purpose)
     if memories:
         data_messages.append(untrusted_context_message("long_term_preferences", memories))
-    # Put the structured summary last so pending tasks and superseded facts win if
-    # the shared data allocation is too small for both summary and memories.
-    if summary is not None:
-        data_messages.append(
-            untrusted_context_message("conversation_summary", summary.model_dump())
-        )
+    projected = _project_summary(summary, purpose) if summary is not None else None
+    if projected is not None:
+        data_messages.append(untrusted_context_message("conversation_summary", projected))
+    # Extra data is last in the data section so a tight budget keeps the current
+    # turn's minimized record ahead of older preferences.
+    for label, payload in extra_untrusted or []:
+        if payload_is_sensitive(payload):
+            logger.warning("untrusted_context_blocked label={} reason=sensitive_content", label)
+            continue
+        data_messages.append(untrusted_context_message(label, payload))
 
     bounded_data = _bounded_tail(data_messages, settings.context_summary_tokens)
     recent = _bounded_tail(state.get("messages") or [], settings.context_recent_tokens)

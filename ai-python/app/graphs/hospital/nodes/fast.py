@@ -14,6 +14,7 @@ from langchain_core.messages import (
 from langgraph.runtime import Runtime
 from loguru import logger
 
+from app.graphs.hospital.clinical_need import ClinicalRequest, clinical_request, latest_user_text
 from app.graphs.hospital.context_builder import bounded_system_message, build_context
 from app.graphs.hospital.memory import reset_turn_fields
 from app.graphs.hospital.state import State
@@ -49,6 +50,7 @@ FAST_SYSTEM_PROMPT = """你是温润诊所患者端的快速助手。患者主�
 院务与实时业务（这两类都不是网页能回答的）：
 - 本院楼层、营业时间、就诊须知、院内规定：一句话说明快速模式查不了本院内部信息，请关闭快速模式再问一次。不要为此联网，不要编造。
 - 你没有医院实时业务数据，也没有查询这些数据的工具。患者问号源、排班、某位医生某天有没有号、本院有哪些科室、某科有哪些医生、我的预约时：一句话说明快速模式查不了这些实时信息，请关闭快速模式再问一次。绝对不要编造科室名、医生、日期、余号、费用。
+- 患者询问自己的血压、血糖、过敏、用药是否适合，或要求看检查报告时：不要检索，不要猜测个人记录。说明快速模式不能读取个人档案或打开报告，请关闭快速模式后再问。
 - 挂号、退号、缴费：即使关闭快速模式也不能代办，请患者到挂号或缴费页面自行办理。不要说「我已经帮你挂好号 / 查过排班」。
 
 出处规则：
@@ -105,7 +107,43 @@ def _run_tool_call(call: dict) -> str:
     return f"（没有名为 {name} 的工具，请直接回答或改用其他工具。）"
 
 
+def _fast_personal_reply(request: ClinicalRequest) -> str:
+    personal = request.scopes != ("document_catalog",) and bool(request.scopes)
+    if request.report_selection_required and personal:
+        return (
+            "这个问题需要结合您的个人健康记录，也涉及检查报告。"
+            "快速模式不会读取个人档案，也不会打开报告。"
+            "请关闭快速模式后再问；看报告时请先选定具体的一份。"
+        )
+    if request.report_selection_required:
+        return (
+            "快速模式不能打开检查报告。请关闭快速模式，并先选定具体的一份报告后再问。"
+        )
+    return (
+        "这个问题需要结合您的个人健康记录来看。快速模式不会读取个人档案，"
+        "请关闭快速模式后再问一次，我会只读取和这个问题有关的记录。"
+    )
+
+
+def _fast_result(final_reply: str) -> dict:
+    return {
+        **reset_turn_fields(),
+        "selected_agents": [],
+        "intent_route": {"stage": "fast_mode", "router_version": "cascade-v1"},
+        "router_fallback": False,
+        "router_response": None,
+        "final_reply": final_reply,
+        "rag_sources": [],
+        "messages": [AIMessage(content=final_reply)],
+    }
+
+
 def fast_node(state: State, runtime: Runtime[HospitalToolContext] | None = None) -> dict:
+    # 快速模式不读取个人档案。需要指标或报告时直接说明，不把档案交给模型。
+    request = clinical_request(None, latest_user_text(state))
+    if request.needs_personal_records:
+        return _fast_result(_fast_personal_reply(request))
+
     bound_model = model.bind_tools(FAST_TOOLS)
     now = runtime.context.now if runtime is not None else clinic_now()
     messages = [
@@ -138,13 +176,4 @@ def fast_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
     final_reply = text.strip() or EMPTY_REPLY_FALLBACK
     # 工具循环里的中间消息不写回 State：checkpoint 结构必须与正常模式保持一致。
     # 显式清空 selected_agents：快速图没有 begin_node，否则会串出上一轮正常模式的路由。
-    return {
-        **reset_turn_fields(),
-        "selected_agents": [],
-        "intent_route": {"stage": "fast_mode", "router_version": "cascade-v1"},
-        "router_fallback": False,
-        "router_response": None,
-        "final_reply": final_reply,
-        "rag_sources": [],
-        "messages": [AIMessage(content=final_reply)],
-    }
+    return _fast_result(final_reply)

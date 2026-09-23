@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { formatDate, formatDateTime, GENDER_MAP } from '../../utils'
 import { maskIdCard } from '../../features/archive/tabs'
-import { calcBmi, formatBloodPressure, formatGlucoseType } from '../../utils/healthProfile'
+import { calcBmi, calcWhtr, formatBloodPressure, formatGlucoseType } from '../../utils/healthProfile'
 import ArchiveHealthTrend from './ArchiveHealthTrend.vue'
 import UiIcon from '../UiIcon.vue'
 
@@ -15,6 +15,7 @@ const props = defineProps({
 const emit = defineEmits(['record', 'unavailable', 'open-tab'])
 
 const bmi = computed(() => calcBmi(props.health?.heightCm, props.health?.weightKg))
+const whtr = computed(() => props.health?.whtr ?? calcWhtr(props.health?.heightCm, props.health?.waistCm))
 const pressure = computed(() => formatBloodPressure(props.health?.systolicMmhg, props.health?.diastolicMmhg))
 const glucose = computed(() => {
   if (props.health?.glucoseMmol == null || props.health?.glucoseMmol === '') return ''
@@ -57,14 +58,13 @@ const basics = computed(() => [
           </div>
           <button type="button" aria-label="记录体重" @click="emit('record', 'weight')"><UiIcon name="plus" :size="16" /></button>
         </article>
-        <article class="metric-card metric-card--shell">
+        <article class="metric-card">
           <span class="metric-card__icon is-violet"><UiIcon name="ruler" :size="18" /></span>
           <div>
             <small>腰围</small>
-            <strong>-- <em>cm</em></strong>
-            <em class="metric-card__warn">数据库还未设计</em>
+            <strong>{{ health?.waistCm ?? '--' }} <em>cm</em></strong>
           </div>
-          <button type="button" aria-label="腰围未设计" @click="emit('unavailable', '腰围')"><UiIcon name="plus" :size="16" /></button>
+          <button type="button" aria-label="记录腰围" @click="emit('record', 'waist')"><UiIcon name="plus" :size="16" /></button>
         </article>
         <article class="metric-card">
           <span class="metric-card__icon is-amber"><UiIcon name="ruler" :size="18" /></span>
@@ -78,10 +78,9 @@ const basics = computed(() => [
           <small>BMI <UiIcon name="info" :size="13" /></small>
           <strong>{{ bmi || '--' }}</strong>
         </article>
-        <article class="metric-card metric-card--wide metric-card--shell">
+        <article class="metric-card metric-card--wide">
           <small>WHtR <UiIcon name="info" :size="13" /></small>
-          <strong>--</strong>
-          <em class="metric-card__warn">数据库还未设计</em>
+          <strong>{{ whtr || '--' }}</strong>
         </article>
       </div>
     </section>

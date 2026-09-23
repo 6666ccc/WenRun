@@ -148,6 +148,14 @@ CREATE TABLE IF NOT EXISTS patient_health_profile (
   patient_id          BIGINT         NOT NULL COMMENT '患者ID，对应 patient.id',
   height_cm           DECIMAL(5, 1)  DEFAULT NULL COMMENT '身高cm',
   weight_kg           DECIMAL(5, 1)  DEFAULT NULL COMMENT '体重kg',
+  waist_cm            DECIMAL(5, 1)  DEFAULT NULL COMMENT '腰围cm',
+  whtr                DECIMAL(5, 3)  GENERATED ALWAYS AS (
+                        CASE
+                          WHEN height_cm > 0 AND waist_cm IS NOT NULL
+                          THEN ROUND(waist_cm / height_cm, 3)
+                          ELSE NULL
+                        END
+                      ) STORED COMMENT '腰围身高比，由腰围/身高自动计算',
   systolic_mmhg       SMALLINT       DEFAULT NULL COMMENT '收缩压mmHg',
   diastolic_mmhg      SMALLINT       DEFAULT NULL COMMENT '舒张压mmHg',
   glucose_mmol        DECIMAL(4, 1)  DEFAULT NULL COMMENT '血糖mmol/L',
@@ -171,6 +179,14 @@ CREATE TABLE IF NOT EXISTS patient_health_snapshot (
   patient_id          BIGINT         NOT NULL COMMENT '患者ID，对应 patient.id',
   height_cm           DECIMAL(5, 1)  DEFAULT NULL COMMENT '身高cm',
   weight_kg           DECIMAL(5, 1)  DEFAULT NULL COMMENT '体重kg',
+  waist_cm            DECIMAL(5, 1)  DEFAULT NULL COMMENT '腰围cm',
+  whtr                DECIMAL(5, 3)  GENERATED ALWAYS AS (
+                        CASE
+                          WHEN height_cm > 0 AND waist_cm IS NOT NULL
+                          THEN ROUND(waist_cm / height_cm, 3)
+                          ELSE NULL
+                        END
+                      ) STORED COMMENT '腰围身高比，由腰围/身高自动计算',
   systolic_mmhg       SMALLINT       DEFAULT NULL COMMENT '收缩压mmHg',
   diastolic_mmhg      SMALLINT       DEFAULT NULL COMMENT '舒张压mmHg',
   glucose_mmol        DECIMAL(4, 1)  DEFAULT NULL COMMENT '血糖mmol/L',
@@ -189,7 +205,7 @@ CREATE TABLE IF NOT EXISTS patient_health_snapshot (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='患者健康档案历史快照';
 
 -- 健康指标纵向记录：一行 = 某患者在某时刻的一项指标。
--- 身高仍在 patient_health_profile.height_cm；BMI 不落库，由身高 + 体重历史动态计算。
+-- 身高、腰围当前值在 patient_health_profile；BMI 不落库，WHtR 由生成列自动计算。
 -- 趋势图必须按 measured_at 排序，不能按 created_at（支持补录历史数据）。
 CREATE TABLE IF NOT EXISTS health_metric_record (
   id                  BIGINT         NOT NULL AUTO_INCREMENT COMMENT '主键',

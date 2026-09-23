@@ -36,7 +36,8 @@ public class DelegationTokenService {
             "registrations:read",
             "registrations:write",
             "memories:read",
-            "memories:write");
+            "memories:write",
+            "clinical:read");
 
     private static final int MIN_SECRET_BYTES = 32;
     private final SecretKey secretKey;
