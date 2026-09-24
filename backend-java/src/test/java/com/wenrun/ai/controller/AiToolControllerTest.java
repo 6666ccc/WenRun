@@ -3,6 +3,8 @@ package com.wenrun.ai.controller;
 import com.wenrun.ai.security.DelegatedToolContext;
 import com.wenrun.ai.security.DelegatedToolPrincipal;
 import com.wenrun.ai.service.AiPatientMemoryService;
+import com.wenrun.ai.service.PatientClinicalContextService;
+import com.wenrun.ai.vo.PatientClinicalContextVO;
 import com.wenrun.ai.vo.AiMemoryWriteRequest;
 import com.wenrun.ai.vo.AiRegistrationCreateRequest;
 import com.wenrun.common.constant.AccountType;
@@ -44,9 +46,10 @@ class AiToolControllerTest {
     private final RegistrationService registrationService = mock(RegistrationService.class);
     private final AiPatientMemoryService memoryService = mock(AiPatientMemoryService.class);
     private final ChatMessageRepository chatMessageRepository = mock(ChatMessageRepository.class);
+    private final PatientClinicalContextService clinicalContextService = mock(PatientClinicalContextService.class);
     private final AiToolController controller =
             new AiToolController(deptService, scheduleService, staffService, registrationService,
-                    memoryService, chatMessageRepository);
+                    memoryService, chatMessageRepository, clinicalContextService);
 
     @AfterEach
     void clearContext() {
@@ -319,5 +322,27 @@ class AiToolControllerTest {
         verify(chatMessageRepository).selectRecentByConversationIdAndUserId(
                 "conversation-1", 7L, 10);
         verify(memoryService).createConfirmed(11L, body);
+    }
+
+    @Test
+    void clinicalContextUsesDelegatedPatientAndScope() {
+        PatientClinicalContextVO context = new PatientClinicalContextVO();
+        when(clinicalContextService.load(11L, "demographics,blood_pressure")).thenReturn(context);
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
+                Set.of("clinical:read"), "token-1"));
+
+        PatientClinicalContextVO loaded = controller.patientClinicalContext("demographics,blood_pressure").getData();
+
+        assertEquals(context, loaded);
+        verify(clinicalContextService).load(11L, "demographics,blood_pressure");
+    }
+
+    @Test
+    void clinicalContextRejectsMissingScope() {
+        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
+                Set.of("departments:read"), "token-1"));
+
+        assertThrows(BusinessException.class, () -> controller.patientClinicalContext("allergies"));
+        verifyNoInteractions(clinicalContextService);
     }
 }

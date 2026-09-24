@@ -9,13 +9,15 @@ from pydantic import ValidationError
 
 from app.graphs.hospital.context_builder import bounded_system_message, coerce_summary
 from app.graphs.hospital.memory import needs_summary, split_for_summary
-from app.graphs.hospital.state import ConversationSummary, State
+from app.graphs.hospital.state import ConversationSummary, PatientSelfReport, State
+from app.graphs.hospital.tools.context import clinic_now
 from app.models.chat import model
 from app.observability.context_metrics import record_summary
 
 SUMMARY_SYSTEM_PROMPT = """你是温润诊所患者端对话的历史压缩器，不对患者说话。
 只压缩已有内容，不补充医学知识，不新增诊断、药名或剂量。
 患者描述的症状、用药、过敏等只能进入 patient_self_reports，不能当作已验证事实。
+不要写入身份证号、手机号、住址、网址或对象存储签名链接，也不要把数据库里的健康档案抄进摘要。
 医院工具明确返回的业务结果才可进入 verified_business_facts。
 新内容推翻旧内容时，把旧项移入 superseded_items，不得同时当作当前事实。
 只输出 JSON，不要 Markdown。字段必须完整：patient_self_reports、preferences、verified_business_facts、pending_tasks、superseded_items、version。"""
@@ -62,12 +64,30 @@ def _merge_items(old: list[str], new: list[str], superseded: list[str]) -> list[
     return result[-20:]
 
 
+def _merge_reports(
+    old: list[PatientSelfReport],
+    new: list[PatientSelfReport],
+    now_iso: str,
+) -> list[PatientSelfReport]:
+    result = list(old)
+    seen = {item.text for item in result}
+    for item in new:
+        if item.text in seen:
+            continue
+        stamped = item if item.reported_at else item.model_copy(update={"reported_at": now_iso})
+        seen.add(stamped.text)
+        result.append(stamped)
+    return result[-20:]
+
+
 def merge_summary(existing_value: object, incoming: ConversationSummary) -> ConversationSummary:
     existing = coerce_summary(existing_value) or ConversationSummary()
     superseded = list(dict.fromkeys([*existing.superseded_items, *incoming.superseded_items]))
     return ConversationSummary(
-        patient_self_reports=_merge_items(
-            existing.patient_self_reports, incoming.patient_self_reports, superseded
+        patient_self_reports=_merge_reports(
+            existing.patient_self_reports,
+            incoming.patient_self_reports,
+            clinic_now().isoformat(),
         ),
         preferences=_merge_items(existing.preferences, incoming.preferences, superseded),
         verified_business_facts=_merge_items(

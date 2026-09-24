@@ -162,6 +162,13 @@ CREATE TABLE IF NOT EXISTS patient_health_profile (
   height_cm           DECIMAL(5, 1)  DEFAULT NULL COMMENT '身高cm',
   weight_kg           DECIMAL(5, 1)  DEFAULT NULL COMMENT '体重kg',
   waist_cm            DECIMAL(5, 1)  DEFAULT NULL COMMENT '腰围cm',
+  whtr                DECIMAL(5, 3)  GENERATED ALWAYS AS (
+                        CASE
+                          WHEN height_cm > 0 AND waist_cm IS NOT NULL
+                          THEN ROUND(waist_cm / height_cm, 3)
+                          ELSE NULL
+                        END
+                      ) STORED COMMENT '腰围身高比，由腰围/身高自动计算',
   systolic_mmhg       SMALLINT       DEFAULT NULL COMMENT '收缩压mmHg',
   diastolic_mmhg      SMALLINT       DEFAULT NULL COMMENT '舒张压mmHg',
   glucose_mmol        DECIMAL(4, 1)  DEFAULT NULL COMMENT '血糖mmol/L',
@@ -186,6 +193,13 @@ CREATE TABLE IF NOT EXISTS patient_health_snapshot (
   height_cm           DECIMAL(5, 1)  DEFAULT NULL COMMENT '身高cm',
   weight_kg           DECIMAL(5, 1)  DEFAULT NULL COMMENT '体重kg',
   waist_cm            DECIMAL(5, 1)  DEFAULT NULL COMMENT '腰围cm',
+  whtr                DECIMAL(5, 3)  GENERATED ALWAYS AS (
+                        CASE
+                          WHEN height_cm > 0 AND waist_cm IS NOT NULL
+                          THEN ROUND(waist_cm / height_cm, 3)
+                          ELSE NULL
+                        END
+                      ) STORED COMMENT '腰围身高比，由腰围/身高自动计算',
   systolic_mmhg       SMALLINT       DEFAULT NULL COMMENT '收缩压mmHg',
   diastolic_mmhg      SMALLINT       DEFAULT NULL COMMENT '舒张压mmHg',
   glucose_mmol        DECIMAL(4, 1)  DEFAULT NULL COMMENT '血糖mmol/L',

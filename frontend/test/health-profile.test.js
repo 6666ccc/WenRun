@@ -40,6 +40,7 @@ test('toHealthPayload blanks empty numbers and trims histories', () => {
   const payload = toHealthPayload({
     heightCm: '170.0',
     weightKg: '',
+    waistCm: '85.5',
     systolicMmhg: '118',
     diastolicMmhg: '',
     glucoseMmol: '',
@@ -52,6 +53,7 @@ test('toHealthPayload blanks empty numbers and trims histories', () => {
   })
   assert.equal(payload.heightCm, 170)
   assert.equal(payload.weightKg, null)
+  assert.equal(payload.waistCm, 85.5)
   assert.equal(payload.pastHistory, '无手术史')
   assert.equal(payload.measuredAt, '2026-09-19T08:30')
 })

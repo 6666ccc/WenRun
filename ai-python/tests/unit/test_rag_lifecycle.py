@@ -1,11 +1,33 @@
+import re
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
+import pytest
 from langchain_core.documents import Document
 
 from app.rag import ingest
 from app.rag.chroma import active_document_filter
+from app.rag.ingestion import IngestionService, NativeDocumentParser
 from app.rag.safety import prepare_rag_documents, sanitize_rag_text
+
+
+class _OfflineTokenizer:
+    _parts = re.compile(r"[A-Za-z0-9]+|[\u3400-\u9fff]|[^\s]")
+
+    def encode(self, text, **kwargs):
+        return self._parts.findall(text)
+
+    def decode(self, tokens, **kwargs):
+        return "".join(tokens)
+
+
+@pytest.fixture(autouse=True)
+def _inject_offline_ingestion_service(monkeypatch):
+    service = IngestionService(
+        parser=NativeDocumentParser(),
+        tokenizer=_OfflineTokenizer(),
+    )
+    monkeypatch.setattr(ingest, "_get_ingestion_service", lambda: service)
 
 
 def test_publish_is_idempotent_for_same_checksum(monkeypatch):
@@ -64,6 +86,39 @@ def test_new_version_supersedes_active_version_after_successful_write(monkeypatc
     assert metadata["status"] == "active"
     assert metadata["version"] == 2
     assert metadata["chunk_id"] == written["ids"][0]
+
+
+def test_publish_uses_structured_sections_instead_of_legacy_fixed_split(monkeypatch):
+    written = {}
+    monkeypatch.setattr(ingest, "_document_records", lambda document_id: [])
+    monkeypatch.setattr(ingest, "begin_publish", lambda *args, **kwargs: False)
+    monkeypatch.setattr(ingest, "complete_publish", lambda *args, **kwargs: None)
+
+    def fake_add(documents, ids=None):
+        written["documents"] = documents
+        return ids
+
+    monkeypatch.setattr(ingest, "add_hospital_documents", fake_add)
+
+    result = ingest.publish_document(
+        (
+            "# 门诊服务\n\n"
+            "## 挂号流程\n\n请携带身份证在自助机挂号。\n\n"
+            "## 退号规则\n\n就诊前可以原路退号。"
+        ).encode(),
+        "门诊指南.md",
+        document_id="guide-1",
+    )
+
+    assert result["chunk_count"] == 2
+    assert [
+        document.metadata["section_path"]
+        for document in written["documents"]
+    ] == ["门诊服务 > 挂号流程", "门诊服务 > 退号规则"]
+    assert all(
+        document.metadata["chunk_strategy"] == "guide_sections"
+        for document in written["documents"]
+    )
 
 
 def test_prepare_rag_documents_drops_expired_and_prompt_injection_chunks():

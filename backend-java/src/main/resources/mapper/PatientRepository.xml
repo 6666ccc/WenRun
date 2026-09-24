@@ -41,6 +41,12 @@
         ORDER BY id DESC
     </select>
 
+    <select id="selectClinicalSource" resultType="com.wenrun.ai.vo.PatientClinicalSource">
+        SELECT gender, birth_date, allergy_history, update_time
+        FROM patient
+        WHERE id = #{id}
+    </select>
+
     <select id="selectById" resultMap="BaseResultMap">
         SELECT
         <include refid="Base_Column_List"/>

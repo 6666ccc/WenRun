@@ -54,12 +54,17 @@ public class AiToolAccessFilter extends OncePerRequestFilter {
             long startedAt
     ) {
         String tool = AiToolCallLog.resolveTool(request.getMethod(), request.getRequestURI());
+        String result = AiToolCallLog.suppressResult(request.getRequestURI())
+                ? "[clinical-context-redacted]"
+                : AiToolCallLog.resultForLog(
+                        request.getRequestURI(),
+                        AiToolCallLog.decodeBody(
+                                response.getContentAsByteArray(), response.getCharacterEncoding()));
         String params = AiToolCallLog.params(
                 AiToolCallLog.pathSuffix(request.getRequestURI()),
                 AiToolCallLog.queryParams(request),
-                AiToolCallLog.decodeBody(request.getContentAsByteArray(), request.getCharacterEncoding()));
-        String result = AiToolCallLog.decodeBody(
-                response.getContentAsByteArray(), response.getCharacterEncoding());
+                AiToolCallLog.redactSensitive(AiToolCallLog.decodeBody(
+                        request.getContentAsByteArray(), request.getCharacterEncoding())));
         long durationMs = System.currentTimeMillis() - startedAt;
         String message = "ai_tool at={} requestId={} {} tool={} params={} result={} status={} durationMs={}";
         Object[] args = {

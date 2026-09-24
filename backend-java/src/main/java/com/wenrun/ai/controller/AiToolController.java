@@ -5,6 +5,8 @@ import com.wenrun.ai.security.DelegatedToolPrincipal;
 import com.wenrun.ai.vo.AiRegistrationCreateRequest;
 import com.wenrun.ai.vo.AiMemoryWriteRequest;
 import com.wenrun.ai.service.AiPatientMemoryService;
+import com.wenrun.ai.service.PatientClinicalContextService;
+import com.wenrun.ai.vo.PatientClinicalContextVO;
 import com.wenrun.common.Result;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.constant.AccountType;
@@ -55,6 +57,7 @@ public class AiToolController {
     private final RegistrationService registrationService;
     private final AiPatientMemoryService memoryService;
     private final ChatMessageRepository chatMessageRepository;
+    private final PatientClinicalContextService clinicalContextService;
 
     @GetMapping("/departments")
     public Result<List<Dept>> listDepartments(@RequestParam(required = false) Integer status) {
@@ -130,6 +133,16 @@ public class AiToolController {
         return Result.success();
     }
 
+    /**
+     * 知识节点按范围读取临床摘录。不是模型可自由调用的工具，Python 不能点名证件、电话或文件地址。
+     * 患者由委托令牌决定。
+     */
+    @GetMapping("/patient-clinical-context")
+    public Result<PatientClinicalContextVO> patientClinicalContext(@RequestParam String scopes) {
+        requireScope("clinical:read");
+        return Result.success(clinicalContextService.load(requireClinicalPatientId(), scopes));
+    }
+
     @GetMapping("/memories")
     public Result<List<AiPatientMemory>> listMyMemories() {
         requireScope("memories:read");
@@ -193,6 +206,14 @@ public class AiToolController {
         if (!AccountType.PATIENT.equals(principal.accountType())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "只有患者本人可以通过助手办理挂号");
         }
+        if (principal.patientId() == null) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "当前账号还没有绑定患者档案");
+        }
+        return principal.patientId();
+    }
+
+    private Long requireClinicalPatientId() {
+        DelegatedToolPrincipal principal = DelegatedToolContext.getRequired();
         if (principal.patientId() == null) {
             throw new BusinessException(ResultCode.FORBIDDEN, "当前账号还没有绑定患者档案");
         }

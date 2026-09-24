@@ -175,6 +175,19 @@ def test_fast_prompt_answers_weekday_from_clock():
     assert "几点了" in fast_mod.FAST_SYSTEM_PROMPT
 
 
+def test_fast_node_refuses_personal_records_without_calling_the_model(monkeypatch):
+    scripted = _ScriptedModel([[_text("不该调用模型")]])
+    monkeypatch.setattr(fast_mod, "model", scripted)
+
+    result = fast_mod.fast_node(
+        {"messages": [HumanMessage(content="我这个血压正常吗")], "conversation_id": "c1"}
+    )
+
+    assert "关闭快速模式" in result["final_reply"]
+    assert "个人档案" in result["final_reply"]
+    assert scripted.seen_messages == []
+
+
 def test_fast_node_uses_request_clock(monkeypatch):
     scripted = _ScriptedModel([[_text("今天是星期二。")]])
     monkeypatch.setattr(fast_mod, "model", scripted)
