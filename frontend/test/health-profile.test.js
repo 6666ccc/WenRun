@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   METRIC_EDITORS,
   calcBmi,
+  calcWhtr,
   fillHealthForm,
   formatBloodPressure,
   formatGlucoseType,
@@ -27,6 +28,12 @@ test('formatBloodPressure keeps incomplete pairs readable', () => {
 test('calcBmi returns one decimal from cm and kg', () => {
   assert.equal(calcBmi(170, 62.5), '21.6')
   assert.equal(calcBmi('', 62.5), '')
+})
+
+test('calcWhtr divides waist by height', () => {
+  assert.equal(calcWhtr(170, 85), '0.50')
+  assert.equal(calcWhtr(170, ''), '')
+  assert.equal(calcWhtr('', 85), '')
 })
 
 test('toHealthPayload blanks empty numbers and trims histories', () => {
@@ -73,12 +80,23 @@ test('fillHealthForm converts ISO measuredAt for datetime-local', () => {
   assert.equal(form.measuredAt, '2026-09-19T08:30')
 })
 
-test('metric editors cover eight recordable ids and not BMI', () => {
-  assert.deepEqual(Object.keys(METRIC_EDITORS), ['weight', 'height', 'bp', 'glucose', 'hr', 'spo2', 'rr', 'temp'])
+test('toHealthPayload maps waist', () => {
+  const payload = toHealthPayload({
+    waistCm: '86.5',
+    pastHistory: '',
+    familyHistory: '',
+    personalHistory: '',
+  })
+  assert.equal(payload.waistCm, 86.5)
+})
+
+test('metric editors cover recordable ids and not derived indexes', () => {
+  assert.deepEqual(Object.keys(METRIC_EDITORS), ['weight', 'height', 'waist', 'bp', 'glucose', 'hr', 'spo2', 'rr', 'temp'])
   assert.equal(isMetricEditor('bp'), true)
   assert.equal(isMetricEditor('vitals'), false)
   assert.equal(isMetricEditor('body'), false)
   assert.equal(isMetricEditor('bmi'), false)
+  assert.equal(isMetricEditor('whtr'), false)
   assert.equal(metricEditor('unknown'), null)
 })
 
@@ -87,6 +105,8 @@ test('metric editor fields match the focused dialog spec', () => {
   assert.equal(metricEditor('weight').title, '记录体重')
   assert.deepEqual(keys('weight'), ['weightKg'])
   assert.deepEqual(keys('height'), ['heightCm'])
+  assert.equal(metricEditor('waist').title, '记录腰围')
+  assert.deepEqual(keys('waist'), ['waistCm'])
   assert.deepEqual(keys('bp'), ['systolicMmhg', 'diastolicMmhg'])
   assert.deepEqual(keys('glucose'), ['glucoseMmol', 'glucoseType'])
   assert.deepEqual(keys('hr'), ['heartRateBpm'])

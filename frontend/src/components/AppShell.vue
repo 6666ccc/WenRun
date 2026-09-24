@@ -70,7 +70,6 @@ async function signOut() {
       <header class="app-shell__topbar">
         <div class="app-shell__topbar-inner">
           <nav aria-label="面包屑"><span class="app-shell__breadcrumb">患者服务</span><span class="app-shell__separator">/</span><strong>{{ pageLabel }}</strong></nav>
-          <span class="app-shell__emergency"><UiIcon name="alert" :size="16" />急症请拨打 120</span>
         </div>
       </header>
       <main id="main-content" class="app-shell__content" :class="{ 'app-shell__content--flush': !padded }" tabindex="-1">
@@ -143,7 +142,6 @@ async function signOut() {
 .app-shell__breadcrumb { color: var(--color-text-secondary); font-size: 14px; }
 .app-shell__separator { margin: 0 10px; color: var(--color-border-strong); }
 .app-shell__topbar strong { color: var(--color-text); font-size: 14px; font-weight: 700; }
-.app-shell__emergency { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid #efc9a1; border-radius: 999px; background: #fff8ef; color: #7c4a12; font-size: 13px; font-weight: 600; }
 .app-shell__content { width: min(1360px, 100%); flex: 1; margin: 0 auto; padding: 34px 40px 42px; }
 .app-shell__content--flush { width: 100%; max-width: none; padding: 0; }
 .app-shell__page { min-height: 100%; }

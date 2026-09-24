@@ -226,6 +226,35 @@ class PatientHealthProfileServiceImplTest {
     }
 
     @Test
+    void updateWritesWaistMetricWhenWaistChanges() {
+        ownPatient(1L, 11L);
+        loginPatient(11L);
+        when(profileMapper.selectByPatientId(1L)).thenReturn(completeProfile(), completeProfile());
+        HealthProfileDTO dto = validDto();
+        dto.setWaistCm(new BigDecimal("86.0"));
+
+        service.update(1L, dto);
+
+        ArgumentCaptor<HealthMetricRecord> captor = ArgumentCaptor.forClass(HealthMetricRecord.class);
+        verify(metricMapper, times(1)).insert(captor.capture());
+        assertEquals("WAIST", captor.getValue().getMetricType());
+        assertEquals(0, new BigDecimal("86.0").compareTo(captor.getValue().getPrimaryValue()));
+    }
+
+    @Test
+    void rejectsWaistOutsideRange() {
+        ownPatient(1L, 11L);
+        loginPatient(11L);
+        when(profileMapper.selectByPatientId(1L)).thenReturn(null);
+        HealthProfileDTO dto = validDto();
+        dto.setWaistCm(new BigDecimal("30"));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.create(1L, dto));
+        assertEquals("腰围应在 40–200 cm", error.getMessage());
+        verify(profileMapper, never()).insert(any());
+    }
+
+    @Test
     void updateWritesSpo2RespiratoryAndTemperatureMetrics() {
         ownPatient(1L, 11L);
         loginPatient(11L);

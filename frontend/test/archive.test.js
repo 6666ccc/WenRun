@@ -15,6 +15,7 @@ test('archiveTabFromQuery defaults unknown or empty values to health', () => {
   assert.equal(archiveTabFromQuery('nope'), 'health')
   assert.equal(archiveTabFromQuery('basic'), 'health')
   assert.equal(archiveTabFromQuery('history'), 'health')
+  assert.equal(archiveTabFromQuery('trend'), 'trend')
   assert.equal(archiveTabFromQuery('registrations'), 'registrations')
 })
 

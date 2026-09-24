@@ -15,6 +15,7 @@ public class PatientHealthSnapshot {
     private Long patientId;
     private BigDecimal heightCm;
     private BigDecimal weightKg;
+    private BigDecimal waistCm;
     private Integer systolicMmhg;
     private Integer diastolicMmhg;
     private BigDecimal glucoseMmol;

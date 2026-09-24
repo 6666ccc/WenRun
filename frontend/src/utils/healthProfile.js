@@ -24,6 +24,13 @@ export function calcBmi(heightCm, weightKg) {
   return bmi.toFixed(1)
 }
 
+export function calcWhtr(heightCm, waistCm) {
+  const height = Number(heightCm)
+  const waist = Number(waistCm)
+  if (!Number.isFinite(height) || !Number.isFinite(waist) || height <= 0 || waist <= 0) return ''
+  return (waist / height).toFixed(2)
+}
+
 export function toDatetimeLocal(value) {
   if (!value) return ''
   const date = new Date(value)
@@ -39,6 +46,7 @@ export function emptyHealthForm() {
   return {
     heightCm: '',
     weightKg: '',
+    waistCm: '',
     systolicMmhg: '',
     diastolicMmhg: '',
     glucoseMmol: '',
@@ -64,6 +72,7 @@ export function toHealthPayload(form) {
   return {
     heightCm: toOptionalNumber(form.heightCm),
     weightKg: toOptionalNumber(form.weightKg),
+    waistCm: toOptionalNumber(form.waistCm),
     systolicMmhg: toOptionalNumber(form.systolicMmhg),
     diastolicMmhg: toOptionalNumber(form.diastolicMmhg),
     glucoseMmol: toOptionalNumber(form.glucoseMmol),
@@ -83,6 +92,7 @@ export function fillHealthForm(data = {}) {
   return {
     heightCm: data.heightCm ?? '',
     weightKg: data.weightKg ?? '',
+    waistCm: data.waistCm ?? '',
     systolicMmhg: data.systolicMmhg ?? '',
     diastolicMmhg: data.diastolicMmhg ?? '',
     glucoseMmol: data.glucoseMmol ?? '',
@@ -106,6 +116,10 @@ export const METRIC_EDITORS = {
   height: {
     title: '记录身高',
     fields: [{ key: 'heightCm', label: '身高 cm', type: 'number', step: '0.1', min: 50, max: 250 }],
+  },
+  waist: {
+    title: '记录腰围',
+    fields: [{ key: 'waistCm', label: '腰围 cm', type: 'number', step: '0.1', min: 40, max: 200 }],
   },
   bp: {
     title: '记录血压',

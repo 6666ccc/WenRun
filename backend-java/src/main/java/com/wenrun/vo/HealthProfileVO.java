@@ -16,6 +16,7 @@ public class HealthProfileVO {
     private Boolean exists;
     private BigDecimal heightCm;
     private BigDecimal weightKg;
+    private BigDecimal waistCm;
     private Integer systolicMmhg;
     private Integer diastolicMmhg;
     private BigDecimal glucoseMmol;

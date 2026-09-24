@@ -148,6 +148,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.archive-panel header > div:first-child { position: relative; display: block; padding-left: 14px; }
+.archive-panel header > div:first-child::before { position: absolute; top: 0; left: 0; margin: 0; }
 .trend-controls {
   display: flex;
   align-items: center;
@@ -255,7 +257,11 @@ onUnmounted(() => {
   border: 0;
 }
 @media (max-width: 768px) {
-  .trend-controls { justify-content: flex-start; }
+  .archive-panel header { flex-direction: column; align-items: stretch; }
+  .trend-controls { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
+  .metric-select { width: 100%; }
+  .range-group { width: 100%; }
+  .range-btn { flex: 1; min-width: 0; padding: 8px 2px; white-space: nowrap; }
   .trend-summary { flex-wrap: wrap; }
   .trend-summary__time { width: 100%; margin-left: 0; }
   .trend-chart { height: 280px; }

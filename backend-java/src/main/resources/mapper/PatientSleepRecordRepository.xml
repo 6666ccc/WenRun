@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.PatientSleepRecordRepository">
+
+    <resultMap id="BaseResultMap" type="com.wenrun.entity.PatientSleepRecord">
+        <id column="id" property="id"/>
+        <result column="patient_id" property="patientId"/>
+        <result column="bedtime" property="bedtime"/>
+        <result column="wake_time" property="wakeTime"/>
+        <result column="duration_min" property="durationMin"/>
+        <result column="quality" property="quality"/>
+        <result column="source_type" property="sourceType"/>
+        <result column="created_by_user_id" property="createdByUserId"/>
+        <result column="remark" property="remark"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="is_deleted" property="isDeleted"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, patient_id, bedtime, wake_time, duration_min, quality,
+        source_type, created_by_user_id, remark, created_at, updated_at, is_deleted
+    </sql>
+
+    <select id="selectByIdAndPatientId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_sleep_record
+        WHERE id = #{id}
+          AND patient_id = #{patientId}
+          AND is_deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="selectRecent" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_sleep_record
+        WHERE patient_id = #{patientId}
+          AND is_deleted = 0
+        ORDER BY wake_time DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectSince" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_sleep_record
+        WHERE patient_id = #{patientId}
+          AND is_deleted = 0
+          AND wake_time &gt;= #{fromTime}
+        ORDER BY wake_time DESC, id DESC
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO patient_sleep_record (
+            patient_id, bedtime, wake_time, duration_min, quality,
+            source_type, created_by_user_id, remark, is_deleted
+        ) VALUES (
+            #{patientId}, #{bedtime}, #{wakeTime}, #{durationMin}, #{quality},
+            #{sourceType}, #{createdByUserId}, #{remark}, 0
+        )
+    </insert>
+
+    <update id="updateByIdAndPatientId">
+        UPDATE patient_sleep_record
+        SET bedtime = #{bedtime},
+            wake_time = #{wakeTime},
+            duration_min = #{durationMin},
+            quality = #{quality},
+            source_type = #{sourceType},
+            remark = #{remark}
+        WHERE id = #{id}
+          AND patient_id = #{patientId}
+          AND is_deleted = 0
+    </update>
+
+    <update id="softDeleteByIdAndPatientId">
+        UPDATE patient_sleep_record
+        SET is_deleted = 1
+        WHERE id = #{id}
+          AND patient_id = #{patientId}
+          AND is_deleted = 0
+    </update>
+</mapper>

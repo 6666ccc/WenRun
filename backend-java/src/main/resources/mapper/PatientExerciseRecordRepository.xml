@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wenrun.repository.PatientExerciseRecordRepository">
+
+    <resultMap id="BaseResultMap" type="com.wenrun.entity.PatientExerciseRecord">
+        <id column="id" property="id"/>
+        <result column="patient_id" property="patientId"/>
+        <result column="exercise_type" property="exerciseType"/>
+        <result column="duration_min" property="durationMin"/>
+        <result column="distance_km" property="distanceKm"/>
+        <result column="calories_kcal" property="caloriesKcal"/>
+        <result column="intensity" property="intensity"/>
+        <result column="source_type" property="sourceType"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="created_by_user_id" property="createdByUserId"/>
+        <result column="remark" property="remark"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="is_deleted" property="isDeleted"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, patient_id, exercise_type, duration_min, distance_km, calories_kcal, intensity,
+        source_type, started_at, created_by_user_id, remark, created_at, updated_at, is_deleted
+    </sql>
+
+    <select id="selectByIdAndPatientId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_exercise_record
+        WHERE id = #{id}
+          AND patient_id = #{patientId}
+          AND is_deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="selectRecent" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_exercise_record
+        WHERE patient_id = #{patientId}
+          AND is_deleted = 0
+        ORDER BY started_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectSince" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM patient_exercise_record
+        WHERE patient_id = #{patientId}
+          AND is_deleted = 0
+          AND started_at &gt;= #{fromTime}
+        ORDER BY started_at DESC, id DESC
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO patient_exercise_record (
+            patient_id, exercise_type, duration_min, distance_km, calories_kcal, intensity,
+            source_type, started_at, created_by_user_id, remark, is_deleted
+        ) VALUES (
+            #{patientId}, #{exerciseType}, #{durationMin}, #{distanceKm}, #{caloriesKcal}, #{intensity},
+            #{sourceType}, #{startedAt}, #{createdByUserId}, #{remark}, 0
+        )
+    </insert>
+
+    <update id="updateByIdAndPatientId">
+        UPDATE patient_exercise_record
+        SET exercise_type = #{exerciseType},
+            duration_min = #{durationMin},
+            distance_km = #{distanceKm},
+            calories_kcal = #{caloriesKcal},
+            intensity = #{intensity},
+            source_type = #{sourceType},
+            started_at = #{startedAt},
+            remark = #{remark}
+        WHERE id = #{id}
+          AND patient_id = #{patientId}
+          AND is_deleted = 0
+    </update>
+
+    <update id="softDeleteByIdAndPatientId">
+        UPDATE patient_exercise_record
+        SET is_deleted = 1
+        WHERE id = #{id}
+          AND patient_id = #{patientId}
+          AND is_deleted = 0
+    </update>
+</mapper>

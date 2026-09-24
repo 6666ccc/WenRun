@@ -1,4 +1,4 @@
-export const ARCHIVE_TABS = ['health', 'activity', 'documents', 'registrations']
+export const ARCHIVE_TABS = ['health', 'trend', 'activity', 'documents', 'registrations']
 export const ARCHIVE_DIALOGS = ['basic', 'history']
 
 export function archiveTabFromQuery(tab) {
