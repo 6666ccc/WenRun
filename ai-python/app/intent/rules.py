@@ -15,6 +15,8 @@ from app.graphs.hospital.state import AgentName
 
 @dataclass(frozen=True)
 class RuleMatch:
+    """某条明确规则命中的意图及紧急风险标记。"""
+
     selected_agents: list[AgentName]
     matched_rules: list[str]
     safety_flags: list[str]
@@ -110,6 +112,7 @@ _DEPARTMENT_RECOMMENDATION = re.compile(r"(?:该|要|应该|建议)?看(?:哪|�
 
 
 def detect_safety_flags(text: str) -> list[str]:
+    """找出需要走确定性紧急提醒的关键词信号。"""
     normalized = normalize_text(text)
     return [name for name, pattern in _URGENT_PATTERNS if pattern.search(normalized)]
 
@@ -130,7 +133,7 @@ def match_rules(text: str) -> RuleMatch | None:
             selected.append(agent)
         matched_rules.append(rule)
 
-    # 安全信号是正交维度：它强制保留医疗知识路径，但不吞掉同句中的挂号请求。
+    # 紧急信号强制保留知识节点；同一句里的业务需求仍会继续分类。
     if safety_flags:
         select("knowledge", "urgent_safety")
 

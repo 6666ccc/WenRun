@@ -1,3 +1,9 @@
+"""聊天接口收发的 JSON 格式，以及全图共用的模型实例。
+
+Field 的 alias 是 Java 发来的 JSON 字段名，例如 conversationId；Python 内部
+使用 conversation_id。Pydantic 会在路由函数运行前完成解析和字段校验。
+"""
+
 import os
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
+# 图中的各个 Agent 复用同一模型配置；这里只创建客户端，不代表已发起聊天。
 model = init_chat_model(
     model=os.environ["DASHSCOPE_CHAT_MODEL"],
     model_provider="openai",
@@ -25,6 +32,8 @@ class ApiModel(BaseModel):
 
 
 class UserContext(ApiModel):
+    """Java 在请求体中附带的身份提示；最终以委托 JWT 验证出的身份为准。"""
+
     user_id: int | None = Field(default=None, alias="userId")
     operator_user_id: int | None = Field(default=None, alias="operatorUserId")
     patient_id: int | None = Field(default=None, alias="patientId")
@@ -40,6 +49,8 @@ class RecoveryMessage(ApiModel):
 
 
 class LongTermMemory(ApiModel):
+    """Java 提供的、允许用于本轮回答的长期偏好记录。"""
+
     memory_id: str = Field(alias="memoryId", max_length=64)
     type: Literal[
         "communication_preference", "appointment_preference", "accessibility_need"
@@ -50,14 +61,15 @@ class LongTermMemory(ApiModel):
 
 
 class ChatRequest(ApiModel):
-    """患者端聊天请求。"""
+    """/stream 的请求体：用户消息、模式开关，以及可选的恢复资料。"""
 
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str = Field(alias="conversationId", min_length=1, max_length=64)
-    memory_enabled: bool = Field(default=True, alias="memoryEnabled")
-    fast_mode: bool = Field(default=False, alias="fastMode")
+    memory_enabled: bool = Field(default=True, alias="memoryEnabled")  # 是否尝试使用带检查点的图
+    fast_mode: bool = Field(default=False, alias="fastMode")  # 快速图只有公开搜索工具
     user_context: UserContext = Field(default_factory=UserContext, alias="userContext")
     recovery_messages: list[RecoveryMessage] = Field(
+        # 检查点丢失时，Java 保存的最近消息可供有限恢复；不是本轮新消息。
         default_factory=list, alias="recoveryMessages", max_length=24
     )
     long_term_memories: list[LongTermMemory] = Field(

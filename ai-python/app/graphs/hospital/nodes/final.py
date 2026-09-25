@@ -1,4 +1,8 @@
-"""汇总各业务节点的回复，生成唯一一条面向患者的最终回复。"""
+"""把知识、闲聊、院内业务节点的结果收成唯一一条患者可见回复。
+
+只有一个节点给出回复时直接透传；多个节点同时有结果时才请模型整理。
+模型失败时拼接原回复，避免丢失已得到的业务结果。
+"""
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from loguru import logger
@@ -42,6 +46,7 @@ def _join_replies(replies: list[tuple[str, str]]) -> str:
 
 
 def _summarize_replies(replies: list[tuple[str, str]]) -> str:
+    """让模型整理多段已有答案；系统提示要求它保留事实和来源。"""
     section_blocks: list[str] = []
     for label, reply in replies:
         section_blocks.append(f"【{label}】\n{reply}")
@@ -49,8 +54,7 @@ def _summarize_replies(replies: list[tuple[str, str]]) -> str:
     sections = "\n\n".join(section_blocks)
     chunks: list[str] = []
     for chunk in model.stream([
-        # Keeping the instruction as a system message preserves the previous
-        # agent configuration while allowing immediate SSE forwarding.
+        # 把汇总规则放在 SystemMessage，模型分片仍可立即转发到 SSE。
         SystemMessage(content=FINAL_SYSTEM_PROMPT),
         HumanMessage(
             content=(

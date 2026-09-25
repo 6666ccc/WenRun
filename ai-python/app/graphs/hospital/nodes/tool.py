@@ -1,4 +1,10 @@
-##该节点处理本院实时业务查询，需要挂载工具；委托令牌与当前时间通过运行时上下文注入。
+"""处理本院实时业务：查询科室/排班，以及经过确认的挂号等操作。
+
+意图路由先决定是否来到 tool_node。到达后，业务 Agent 再从可用工具中选择
+具体动作。只读 Agent 始终可用；带写工具的 Agent 仅在当前图支持 HITL 恢复时可用。
+工具调用携带本次请求的委托令牌，真正的数据查询或写入由 Java 接口完成。
+"""
+
 from datetime import datetime
 
 from langchain.agents import create_agent
@@ -117,11 +123,13 @@ def build_write_tool_system_prompt(now: datetime) -> str:
 
 @dynamic_prompt
 def hospital_tool_prompt(request: ModelRequest) -> str:
+    """为只读业务 Agent 注入本次北京时间和只读操作规则。"""
     return bounded_system_text(build_tool_system_prompt(request.runtime.context.now))
 
 
 @dynamic_prompt
 def hospital_write_tool_prompt(request: ModelRequest) -> str:
+    """为可写业务 Agent 注入本次时间和确认后写入的规则。"""
     return bounded_system_text(build_write_tool_system_prompt(request.runtime.context.now))
 
 
@@ -132,6 +140,7 @@ HOSPITAL_TOOLS = [
     list_my_registrations,
 ]
 
+# 这些工具会改变业务或偏好数据，因此在模型调用前必须具备确认后续跑的条件。
 HOSPITAL_WRITE_TOOLS = [
     create_registration,
     cancel_registration,
@@ -158,12 +167,14 @@ writable_agent = create_agent(
 
 
 def tool_node(state: State, runtime: Runtime[HospitalToolContext]) -> dict:
-    ##任务一：看起始节点是否把 tools 写进 selected_agents
+    """运行本院业务 Agent，把最终文字写入 State 供 final_node 汇总。"""
+
+    # 意图识别没有选中本院业务时，本节点不做事。
     selected = state.get("selected_agents") or []
     if "tools" not in selected:
         return {}
 
-    ##任务二：没有委托令牌就不要打扰模型，直接给出降级回复
+    # 没有 Java 委托令牌就无法调用院内接口，直接给出可预期的提示。
     context = runtime.context
     delegated_token = getattr(context, "delegated_token", "")
     if not isinstance(delegated_token, str) or not delegated_token.strip():
@@ -173,13 +184,14 @@ def tool_node(state: State, runtime: Runtime[HospitalToolContext]) -> dict:
         )
         return {"tools_reply": "业务查询服务暂不可用，请稍后重试。"}
 
-    ##任务三：运行时上下文只在本次请求内有效，直接透传给嵌套 Agent
+    # 运行时上下文只在本次请求内有效，直接透传给嵌套 Agent。
     # 多意图回合里只处理规划器分配的子目标；依赖知识助手时把它的结论一并带上，
     # 这样“该看哪科就挂哪科”能直接查号源，而不用再问患者一次科室。
     upstream: dict[str, str] = {}
     knowledge_reply = state.get("knowledge_reply")
     if depends_on(state, "tools", "knowledge") and isinstance(knowledge_reply, str):
         upstream["knowledge"] = knowledge_reply
+    # 这里控制模型“看得见哪些工具”；模型看不到写工具时就无法选择它们。
     selected = writable_agent if getattr(context, "writes_enabled", False) else agent
     result = selected.invoke(
         {

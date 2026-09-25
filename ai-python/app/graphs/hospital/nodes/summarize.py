@@ -1,4 +1,8 @@
-"""历史摘要节点：用受校验结构压缩旧消息并裁剪 checkpoint。"""
+"""会话太长时，压缩旧消息并从检查点中移除它们。
+
+摘要只保存受校验的结构化内容。患者自述仍标为未经验证；
+新信息覆盖旧项时，把旧项记录为已失效，避免下一轮继续当成当前事实。
+"""
 
 import re
 
@@ -24,6 +28,7 @@ SUMMARY_SYSTEM_PROMPT = """你是温润诊所患者端对话的历史压缩器�
 
 
 def _build_prompt(existing_summary: object, transcript: str) -> list:
+    """把已有摘要和待压缩的旧对话一起交给摘要模型。"""
     sections = []
     existing = coerce_summary(existing_summary)
     if existing is not None:
@@ -36,6 +41,7 @@ def _build_prompt(existing_summary: object, transcript: str) -> list:
 
 
 def _transcript(messages: list) -> str:
+    """把旧消息整理成带说话人的文字，供摘要模型阅读。"""
     lines = []
     for message in messages:
         speaker = "患者" if getattr(message, "type", "") == "human" else "助手"
@@ -46,10 +52,12 @@ def _transcript(messages: list) -> str:
 
 
 def _item_key(value: str) -> str:
+    """取条目的字段名前缀，用于判断新旧事实是否描述同一件事。"""
     return re.split(r"[:：=]", value, maxsplit=1)[0].strip().lower()
 
 
 def _merge_items(old: list[str], new: list[str], superseded: list[str]) -> list[str]:
+    """按字段名前缀合并新旧条目；值改变时把旧值移到已失效列表。"""
     result = list(old)
     positions = {_item_key(item): index for index, item in enumerate(result)}
     for item in new:
@@ -69,6 +77,7 @@ def _merge_reports(
     new: list[PatientSelfReport],
     now_iso: str,
 ) -> list[PatientSelfReport]:
+    """患者自述按原文去重，并给新记录补上收到的时间。"""
     result = list(old)
     seen = {item.text for item in result}
     for item in new:
@@ -81,6 +90,7 @@ def _merge_reports(
 
 
 def merge_summary(existing_value: object, incoming: ConversationSummary) -> ConversationSummary:
+    """合并模型新摘要与检查点旧摘要，同时保留来源和版本信息。"""
     existing = coerce_summary(existing_value) or ConversationSummary()
     superseded = list(dict.fromkeys([*existing.superseded_items, *incoming.superseded_items]))
     return ConversationSummary(
@@ -100,6 +110,7 @@ def merge_summary(existing_value: object, incoming: ConversationSummary) -> Conv
 
 
 def _parse_summary(content: object) -> ConversationSummary | None:
+    """校验模型给出的 JSON；格式不合格就保留原消息。"""
     if not isinstance(content, str) or not content.strip():
         return None
     text = content.strip()
@@ -112,6 +123,7 @@ def _parse_summary(content: object) -> ConversationSummary | None:
 
 
 def summarize_node(state: State) -> dict:
+    """达到长度阈值才压缩；失败时保留原消息，不影响本轮回答。"""
     if not needs_summary(state):
         return {}
     dropped, kept = split_for_summary(state)
@@ -136,6 +148,7 @@ def summarize_node(state: State) -> dict:
         count_tokens_approximately([SystemMessage(content=summary.model_dump_json()), *kept]),
     )
     record_summary(summary.version)
+    # RemoveMessage 只删已写入摘要的旧消息；未压缩的最近消息仍留在检查点。
     return {
         "summary": summary.model_dump(),
         "messages": [RemoveMessage(id=message.id) for message in dropped if getattr(message, "id", None)],

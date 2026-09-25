@@ -1,4 +1,8 @@
-"""Per-turn context metrics without patient text, tokens, or tool payloads."""
+"""记录每轮对话的耗时、上下文长度和工具名，供排查性能问题。
+
+这里只记录数量和类别，不记录患者原话、工具参数、令牌或完整会话号。
+thread_hash 是会话号的短哈希，用来关联日志而不直接暴露标识。
+"""
 
 import hashlib
 import json
@@ -17,6 +21,8 @@ CONTEXT_SCHEMA_VERSION = "context-v2"
 
 @dataclass
 class ContextTrace:
+    """单轮请求的统计暂存区；SSE 流结束时调用 finish() 汇总一次。"""
+
     request_id: str | None
     thread_hash: str
     mode: str
@@ -79,6 +85,7 @@ _COMPLETED = 0
 
 
 def _record_snapshot(payload: dict) -> None:
+    """把本轮统计合并到进程内计数器，供指标接口读取。"""
     global _COMPLETED
     with _METRICS_LOCK:
         _COMPLETED += 1
@@ -95,6 +102,7 @@ def _record_snapshot(payload: dict) -> None:
 
 
 def _p95(values: deque[int]) -> int | None:
+    """计算最近样本的第 95 百分位耗时。"""
     if not values:
         return None
     ordered = sorted(values)
@@ -125,6 +133,7 @@ def begin_context_trace(
     checkpoint_hit: bool,
     rehydrated: bool,
 ) -> ContextTrace:
+    """开始记录本轮对话，并绑定到当前异步请求。"""
     trace = ContextTrace(
         request_id=request_id,
         thread_hash=hashlib.sha256(thread_id.encode("utf-8")).hexdigest()[:16],
@@ -137,6 +146,7 @@ def begin_context_trace(
 
 
 def current_context_trace() -> ContextTrace | None:
+    """读取当前请求正在累计的统计对象。"""
     return _CURRENT_TRACE.get()
 
 
@@ -148,6 +158,7 @@ def record_context(
     memory_count: int,
     summary_version: int | None,
 ) -> None:
+    """记录送入模型的摘要、最近消息用量及实际选中的偏好条数。"""
     trace = current_context_trace()
     if trace is None:
         return
@@ -164,6 +175,7 @@ def record_context(
 
 
 def record_retrieval(*, count: int, tokens: int, rejected: int = 0) -> None:
+    """记录院内检索片段数量和长度，不记录片段正文。"""
     trace = current_context_trace()
     if trace is None:
         return
@@ -175,6 +187,7 @@ def record_retrieval(*, count: int, tokens: int, rejected: int = 0) -> None:
 
 
 def record_tool_names(names: set[str]) -> None:
+    """只记录被调用的工具名称，不记录参数或返回内容。"""
     trace = current_context_trace()
     if trace is not None:
         trace.node_names.add("tools")
@@ -182,6 +195,7 @@ def record_tool_names(names: set[str]) -> None:
 
 
 def record_summary(version: int) -> None:
+    """记下本轮生成的会话摘要版本号。"""
     trace = current_context_trace()
     if trace is not None:
         trace.node_names.add("summary")

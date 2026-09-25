@@ -1,4 +1,4 @@
-"""Convert internal chunks into the LangChain boundary type."""
+"""把内部 Chunk 转成向量库使用的 LangChain Document。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from .models import Chunk, DocumentType, ParsedDocument
 
 
 def build_embedding_text(chunk: Chunk, document: ParsedDocument) -> str:
-    """Add compact structural context to content before embedding."""
+    """在片段前补上文档名和章节，使相似度检索更容易找到来源。"""
 
     context = [f"文档：{Path(document.file_name).stem}"]
     if chunk.section_path:
@@ -20,6 +20,8 @@ def build_embedding_text(chunk: Chunk, document: ParsedDocument) -> str:
 
 
 class LangChainDocumentAdapter:
+    """保留页码、元素和版本等元数据，供引用展示和文档管理使用。"""
+
     def to_documents(
         self,
         chunks: list[Chunk],

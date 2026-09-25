@@ -1,4 +1,4 @@
-"""Conservative text cleanup that preserves document structure."""
+"""清理解析产生的多余空白和控制字符，保留原有医学内容与章节结构。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _EXCESS_BLANK_LINES = re.compile(r"\n{3,}")
 
 
 class DocumentCleaner:
-    """Normalize extraction artifacts without rewriting medical content."""
+    """逐个清理元素，并把上级标题记录为每段内容的章节路径。"""
 
     def clean(self, document: ParsedDocument) -> ParsedDocument:
         cleaned: list[ParsedElement] = []

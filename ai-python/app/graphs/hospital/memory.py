@@ -39,6 +39,7 @@ def recent_messages(
 
 
 def needs_summary(state: State) -> bool:
+    """消息数量或估算 token 数超过阈值时，提示摘要节点压缩历史。"""
     messages = list(state.get("messages") or [])
     settings = get_settings()
     return (
@@ -48,6 +49,7 @@ def needs_summary(state: State) -> bool:
 
 
 def split_for_summary(state: State) -> tuple[list[BaseMessage], list[BaseMessage]]:
+    """分出要压缩的旧消息与仍需逐字保留的最近消息。"""
     messages = list(state.get("messages") or [])
     kept = build_context({"messages": messages}, purpose="chat")[-SUMMARY_KEEP_MESSAGES:]
     keep_ids = {id(message) for message in kept}

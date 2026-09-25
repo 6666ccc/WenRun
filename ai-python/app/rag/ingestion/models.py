@@ -1,4 +1,4 @@
-"""Internal, provider-independent models used during ingestion."""
+"""文档预处理各阶段共用的数据形状，不绑定具体解析器或向量库。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from typing import Any
 
 
 class ElementType(StrEnum):
+    """解析后的内容类型，例如标题、段落或表格。"""
+
     TITLE = "title"
     HEADING = "heading"
     PARAGRAPH = "paragraph"
@@ -30,6 +32,8 @@ class DocumentType(StrEnum):
 
 @dataclass(slots=True)
 class ParsedElement:
+    """文档中的一个原始结构单元，保留页码和章节位置。"""
+
     element_id: str
     element_type: ElementType
     text: str
@@ -44,6 +48,8 @@ class ParsedElement:
 
 @dataclass(slots=True)
 class ParsedDocument:
+    """解析后的整份文档，由许多 ParsedElement 组成。"""
+
     document_id: str
     file_name: str
     elements: list[ParsedElement]
@@ -57,6 +63,8 @@ class ParsedDocument:
 
 @dataclass(slots=True)
 class Chunk:
+    """准备送去生成向量的一小段文字及其来源信息。"""
+
     text: str
     element_ids: tuple[str, ...]
     page_numbers: tuple[int, ...] = ()

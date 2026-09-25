@@ -1,3 +1,5 @@
+"""只向持有内部 API 密钥的调用方提供当前进程的脱敏统计。"""
+
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies.auth import verify_api_key

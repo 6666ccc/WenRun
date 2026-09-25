@@ -1,4 +1,8 @@
-"""Pure pending-confirmation selection used by chat resume and safety evaluation."""
+"""把患者的确认决定对应到正确的 HITL 中断点。
+
+聊天框中的极短“同意/取消”可以转换为决定；较长或含追问的文本保持普通消息。
+/resume 则带有确认卡片的 interruptId。旧卡片、无待确认项或多个中断无法辨别时拒绝续跑。
+"""
 
 import re
 from typing import Any, Literal
@@ -64,7 +68,7 @@ def resume_command(
     interrupt_id: str | None,
     pending: list[dict[str, Any]],
 ) -> tuple[Command | None, str | None, str | None]:
-    """Build LangGraph's interrupt-id map and reject ambiguous or stale resumes."""
+    """构造 LangGraph 续跑命令，并拒绝过期或指向不明的确认。"""
 
     usable = [item for item in pending if item.get("id")]
     if not usable:

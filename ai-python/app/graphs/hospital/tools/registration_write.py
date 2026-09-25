@@ -29,6 +29,7 @@ def _idempotency_key(context: HospitalToolContext, tool_call_id: str) -> str:
 
 
 def _slot_text(detail: dict[str, Any]) -> str:
+    """把 Java 返回的日期、时段、科室和医生拼成患者可核对的说明。"""
     parts = [
         detail.get(key)
         for key in ("workDate", "timePeriod", "deptName", "staffName")
@@ -69,6 +70,7 @@ def create_registration(schedule_id: int, runtime: ToolRuntime[HospitalToolConte
         "remainingCount": schedule.remaining_count,
         "registerFee": schedule.register_fee,
     }
+    # interrupt 会保存当前位置并返回确认卡片；获批续跑后才执行真正的挂号请求。
     decision = interrupt(
         {
             "kind": "registration_create",
@@ -130,6 +132,7 @@ def cancel_registration(registration_id: int, runtime: ToolRuntime[HospitalToolC
         "timePeriod": target.time_period,
         "regFee": target.reg_fee,
     }
+    # 先让患者核对 Java 查回的挂号单，再决定是否调用退号接口。
     decision = interrupt(
         {
             "kind": "registration_cancel",

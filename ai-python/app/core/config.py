@@ -1,3 +1,5 @@
+"""从环境变量和 .env 读取服务配置，集中给各模块使用。"""
+
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field
@@ -5,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """配置项及默认值；Field 的别名是部署时使用的环境变量名。"""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -81,4 +85,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """在本进程内复用配置对象，避免每次请求都重新解析环境变量。"""
     return Settings()

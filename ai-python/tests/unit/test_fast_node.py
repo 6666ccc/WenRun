@@ -175,8 +175,8 @@ def test_fast_prompt_answers_weekday_from_clock():
     assert "几点了" in fast_mod.FAST_SYSTEM_PROMPT
 
 
-def test_fast_node_refuses_personal_records_without_calling_the_model(monkeypatch):
-    scripted = _ScriptedModel([[_text("不该调用模型")]])
+def test_fast_node_never_mounts_clinical_tool_for_personal_question(monkeypatch):
+    scripted = _ScriptedModel([[_text("请关闭快速模式后查询本人记录。")]])
     monkeypatch.setattr(fast_mod, "model", scripted)
 
     result = fast_mod.fast_node(
@@ -184,8 +184,7 @@ def test_fast_node_refuses_personal_records_without_calling_the_model(monkeypatc
     )
 
     assert "关闭快速模式" in result["final_reply"]
-    assert "个人档案" in result["final_reply"]
-    assert scripted.seen_messages == []
+    assert [tool.name for tool in scripted.bound_tools] == ["web_search"]
 
 
 def test_fast_node_uses_request_clock(monkeypatch):

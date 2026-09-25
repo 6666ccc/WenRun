@@ -1,4 +1,8 @@
-"""Explicit, confirmed long-term preference memory tools."""
+"""保存或删除患者长期偏好的写工具。
+
+只有患者明确要求“记住/忘掉”才调用，且两种操作都先用 interrupt()
+展示确认卡片；批准后才调用 Java 持久化。临床事实不写成偏好记忆。
+"""
 
 from typing import Annotated, Literal
 
@@ -26,6 +30,7 @@ def remember_preference(
 
     context = runtime.context
     detail = {"type": memory_type, "content": content}
+    # 图先暂停并把卡片送到前端；/resume 批准后才继续执行下方 Java 写入。
     decision = interrupt({
         "kind": "memory_create",
         "prompt": f"请确认是否长期记住这项偏好：{content}",
@@ -64,6 +69,7 @@ def forget_preference(
     target = next((item for item in memories if item.memory_id == memory_id), None)
     if target is None:
         return "没有找到这项仍在生效的偏好。"
+    # 用 Java 查回来的原文展示卡片，避免确认内容只依赖模型生成的 ID。
     decision = interrupt({
         "kind": "memory_delete",
         "prompt": f"请确认是否忘掉这项偏好：{target.content}",

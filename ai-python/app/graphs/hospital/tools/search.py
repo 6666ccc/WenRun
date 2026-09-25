@@ -1,3 +1,5 @@
+"""公开网页搜索工具，供知识节点和快速模式查询院外资料。"""
+
 import os
 
 from langchain.tools import tool
@@ -5,6 +7,7 @@ from tavily import TavilyClient
 
 
 def format_search_results(results: list[dict]) -> str:
+    """把标题、链接和摘要整理成模型可引用的文本。"""
     blocks: list[str] = []
     for index, item in enumerate(results, start=1):
         title = str(item.get("title") or "未命名来源").strip()
@@ -15,6 +18,7 @@ def format_search_results(results: list[dict]) -> str:
 
 
 def search_web(query: str, max_results: int = 5) -> list[dict]:
+    """调用 Tavily；未配置密钥时返回空结果，让上层给出明确提示。"""
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not api_key:
         return []

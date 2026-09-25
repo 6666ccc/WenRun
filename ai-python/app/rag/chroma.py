@@ -1,3 +1,9 @@
+"""Chroma 向量库的连接、文档状态和院内资料检索配置。
+
+向量库把每段文档变成可按语义查找的索引。查询时先在 Chroma 层筛选
+有效且未过期的版本，取回后还会由 rag/safety.py 再检查一次。
+"""
+
 import os
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -23,6 +29,7 @@ _COLLECTION_METADATA = {"hnsw:space": "cosine"}
 
 
 def persist_directory() -> str:
+    """确定 Chroma 索引在磁盘上的位置；相对路径以 ai-python 为基准。"""
     configured = os.getenv("CHROMA_PERSIST_DIR", "").strip()
     if configured:
         path = Path(configured).expanduser()
@@ -34,6 +41,7 @@ def persist_directory() -> str:
 
 @lru_cache
 def get_chroma_client() -> chromadb.ClientAPI:
+    """复用持久化索引客户端，避免每次检索都重新打开数据库。"""
     path = persist_directory()
     Path(path).mkdir(parents=True, exist_ok=True)
     return chromadb.PersistentClient(
@@ -47,6 +55,7 @@ def get_store(
     collection_name: str,
     embeddings: Embeddings,
 ) -> Chroma:
+    """把 Chroma 客户端、集合名和向量模型组合成可读写的文档存储器。"""
     return Chroma(
         client=client,
         collection_name=collection_name,
@@ -58,6 +67,7 @@ def get_store(
 
 @lru_cache
 def get_embeddings() -> OpenAIEmbeddings:
+    """创建把文本转成向量的客户端；缺少必要配置时明确报错。"""
     if not all((embedding_model, embedding_apikey, embedding_url)):
         raise RuntimeError(
             "缺少 EMBEDDING_MODEL、DASHSCOPE_API_KEY 或 DASHSCOPE_BASE_URL"
@@ -73,6 +83,7 @@ def get_embeddings() -> OpenAIEmbeddings:
 
 
 def ensure_collection(client: chromadb.ClientAPI, collection_name: str) -> None:
+    """首次使用时创建院内资料集合；已存在时直接复用。"""
     client.get_or_create_collection(
         name=collection_name,
         metadata=_COLLECTION_METADATA,
@@ -80,6 +91,7 @@ def ensure_collection(client: chromadb.ClientAPI, collection_name: str) -> None:
 
 
 def _unix_seconds(value: object) -> int:
+    """把生效/到期时间变成 Chroma 可以比较的数字秒数。"""
     if value is None or value == "":
         return 0
     if isinstance(value, bool):
@@ -93,6 +105,7 @@ def _unix_seconds(value: object) -> int:
 
 
 def sanitize_chroma_metadata(metadata: dict) -> dict[str, str | int | float | bool]:
+    """把元数据转换为 Chroma 支持的简单类型，并补上可比较的时间戳。"""
     cleaned: dict[str, str | int | float | bool] = {}
     for key, value in metadata.items():
         if value is None:
@@ -109,10 +122,10 @@ def sanitize_chroma_metadata(metadata: dict) -> dict[str, str | int | float | bo
 
 
 def active_document_filter(now: datetime | None = None) -> dict:
-    """Chroma-side lifecycle filter; safety.py repeats the check after retrieval.
+    """只检索状态有效、已生效且未过期的版本。
 
-    Chroma 1.5 `$lte`/`$gt` only accept numbers, so range checks use epoch seconds
-    written by ``sanitize_chroma_metadata``. Missing expiry is stored as 0.
+Chroma 的范围比较使用数字时间戳；无过期日用 0 表示。
+rag/safety.py 在取回文档后还会复查，防止旧索引混入结果。
     """
 
     current = int((now or datetime.now(UTC)).astimezone(UTC).timestamp())
@@ -131,6 +144,7 @@ def active_document_filter(now: datetime | None = None) -> dict:
 def document_filter(
     document_id: str, *, version: int | None = None, checksum: str | None = None
 ) -> dict:
+    """构造按文档、版本或校验和定位向量片段的查询条件。"""
     conditions: list[dict] = [{"document_id": {"$eq": document_id}}]
     if version is not None:
         conditions.append({"version": {"$eq": version}})
@@ -142,13 +156,14 @@ def document_filter(
 
 
 def _hospital_collection():
+    """取得院内资料集合，供状态更新和删除等管理操作使用。"""
     client = get_chroma_client()
     ensure_collection(client, hospital_collection)
     return client.get_collection(hospital_collection)
 
 
 def list_document_records(document_id: str) -> list[dict]:
-    """Read one representative metadata record for every indexed version."""
+    """从索引里按版本各取一条元数据，供文档管理接口展示。"""
 
     collection = _hospital_collection()
     records: dict[int, dict] = {}
@@ -183,6 +198,7 @@ def set_document_status(
     version: int | None = None,
     updated_at: str | None = None,
 ) -> None:
+    """更新某个文档版本所有片段的状态，使检索过滤立即生效。"""
     collection = _hospital_collection()
     result = collection.get(
         where=document_filter(document_id, version=version),
@@ -202,12 +218,14 @@ def set_document_status(
 
 
 def delete_document_points(document_id: str, *, version: int | None = None) -> None:
+    """删除某份文档或指定版本的全部向量片段。"""
     _hospital_collection().delete(
         where=document_filter(document_id, version=version)
     )
 
 
 def get_hospital_retriever():
+    """创建院内检索器：最多取 5 段相似且目前有效的资料。"""
     client = get_chroma_client()
     embeddings = get_embeddings()
     ensure_collection(client, hospital_collection)

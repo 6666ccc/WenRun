@@ -1,4 +1,8 @@
-"""Orchestrates document preprocessing without writing to a vector store."""
+"""文档入库前的预处理流水线，本文件本身不写向量库。
+
+顺序是：按格式解析 → 清理提取瑕疵 → 判断文档类型 → 按结构切块 →
+转成 LangChain Document。调用方 rag/ingest.py 再负责生成向量和发布版本。
+"""
 
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ ParserResolver = Callable[[DocumentSource, str | None], DocumentParser]
 
 
 def _file_name(source: DocumentSource, file_name: str | None) -> str:
+    """从上传参数或路径提取供日志使用的文件名。"""
     if file_name:
         return Path(file_name).name
     if isinstance(source, (str, Path)):
@@ -41,12 +46,10 @@ def _raise_logged(
     *log_args: object,
     cause: Exception,
 ) -> NoReturn:
-    """Log a traceback whose exception and frames cannot expose document text."""
+    """统一报错并避免在日志堆栈里泄露上传文档的正文。"""
 
-    # Loguru's diagnostic traceback can render frame locals.  Reusing a parser's
-    # traceback could therefore expose source text even when our message is safe.
-    # Start a new traceback at this boundary and retain the original error type as
-    # a structured field instead.
+    # Loguru 的异常堆栈可能打印局部变量，直接沿用解析器异常会泄露文档正文。
+    # 在这里重新抛出安全异常，只在结构化日志里保留原异常的类型。
     del cause
     safe_error = error_class(public_message)
     try:
@@ -57,7 +60,7 @@ def _raise_logged(
 
 
 class IngestionService:
-    """Run the preprocessing pipeline and return embedding-ready documents."""
+    """运行所有预处理步骤，返回可用于生成向量的文档片段。"""
 
     def __init__(
         self,
@@ -86,6 +89,7 @@ class IngestionService:
         file_name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> list[Document]:
+        """处理一个文件；每一步出错都转换成对应阶段的可识别异常。"""
         started_at = perf_counter()
         safe_name = _file_name(source, file_name)
         selected_parser = self.parser

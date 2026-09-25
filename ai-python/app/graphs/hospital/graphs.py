@@ -1,3 +1,9 @@
+"""把对话节点连成两张图：普通图处理意图和医院业务，快速图直接答复。
+
+普通图：识别意图 →（多意图时规划）→ 知识/闲聊/工具 → 汇总 → 历史摘要。
+快速图：快速回答 → 历史摘要。图可以带检查点运行，也可以无状态运行。
+"""
+
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -21,6 +27,7 @@ REPLY_NODES = frozenset(NODE_BY_AGENT.values())
 
 
 def _nodes_for(agents: list[str]) -> list[str]:
+    """把意图标签映射到图中的实际节点名。"""
     return [NODE_BY_AGENT[agent] for agent in agents if agent in NODE_BY_AGENT]
 
 
@@ -52,6 +59,7 @@ def _after_knowledge(state: State) -> str:
 
 
 def _workflow() -> StateGraph:
+    """声明普通对话的节点与执行顺序，尚未连接检查点。"""
     workflow = StateGraph(State, context_schema=HospitalToolContext)
     workflow.add_node("begin_node", begin_node)
     workflow.add_node("plan_node", plan_node)
@@ -81,7 +89,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
 
 
 def _fast_workflow() -> StateGraph:
-    """快速模式：单个全能节点直接作答，只保留摘要压缩。"""
+    """快速模式只运行快速回答和摘要，不进入医院业务工具节点。"""
 
     workflow = StateGraph(State, context_schema=HospitalToolContext)
     workflow.add_node("fast_node", fast_node)

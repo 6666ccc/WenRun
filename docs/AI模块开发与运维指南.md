@@ -212,7 +212,7 @@ START → begin_node ─┬→ knowledge_node ─┐
 2. LLM 将最新请求识别为 `knowledge`、`chat`、`tools` 的一个或多个标签，也可以显式返回 `out_of_scope`。输出经 Pydantic 校验；结构异常时修复一次，仍失败则输出确定性澄清，不再让闲聊模型猜测。
 3. 路由把阶段、分数、命中规则、升级原因、安全信号和模型版本写入 `State.intent_route` 与日志。`GET /v1/metrics/intent-routing` 可在携带内部 API Key 时查看当前进程计数。
 4. 急症正则是独立安全维度，会强制保留 `knowledge`；`knowledge_node` 对命中的安全信号直接给出确定性急救提示，不依赖 Chroma、网页或另一轮模型。
-5. `knowledge_node` 在普通 `knowledge` 请求中优先检索院内 Chroma。命中时只允许依据院内片段回答；未命中时调用带 Tavily 工具的联网 Agent。
+5. `knowledge_node` 在普通 `knowledge` 请求中优先检索院内 Chroma。命中时用院内片段回答，并只允许模型按需调用本人临床摘录 Tool；未命中时调用带 Tavily 与本人临床摘录 Tool 的 Agent。模型决定是否需要本人记录和所需字段，通用知识问题不应读档案。
 6. `chat_node` 处理问候、感谢和非医疗闲聊；`tool_node` 处理本院实时业务和受控写工具。
 7. `final_node` 收集回复。只有一个回复时原样输出；多个回复才调用模型合并，失败时确定性拼接。
 8. `fastMode=true` 时整张图被替换为 `START → fast_node → summarize_node → END`。它不运行级联路由，没有院内 RAG，也查不了号源排班。
@@ -225,6 +225,7 @@ START → begin_node ─┬→ knowledge_node ─┐
 - `memoryEnabled` 已生效。为 `true` 且 `AI_REDIS_URL` 可用时，图使用 Redis checkpointer；实际 key 是 `user:{verifiedUserId}:conversation:{conversationId}`，不能仅用前端传入的会话 ID。超过消息数或 token 阈值后写入结构化摘要并裁剪旧消息。
 - checkpoint miss 时，Java 会提供 MySQL 中有限、已归属校验的历史窗口用于重建上下文；Redis 故障或用户关闭记忆时退化为当前轮上下文，MySQL 消息仍是历史事实源。
 - 长期记忆只允许患者显式确认的沟通、预约和无障碍偏好。Python 通过受限 Tool 访问 Java，症状、诊断、药物、剂量、过敏等医疗事实会被 Java 拒绝写入。
+- 本人临床摘录通过 `get_my_clinical_context` 按需读取。Java 依据委托令牌确定患者并校验字段白名单；模型不能指定 `patientId`，单轮最多读取六种字段，摘录不写入 checkpoint。快速模式没有此 Tool。
 - 委托令牌不进入 State，只通过 Runtime Context（`HospitalToolContext`）传递，不会写入 checkpoint。
 - 删除会话时，Java 会调用 `DELETE /v1/chat/memory/{conversationId}` 级联清理 checkpoint。
 - 同一会话有 Redis 分布式锁；并发请求不会同时修改 checkpoint，锁不可用时保守返回 busy，而不是无锁执行。

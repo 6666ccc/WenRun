@@ -17,6 +17,7 @@ PERIOD_ENDS = {"上午": time(12, 0), "下午": time(18, 0), "晚上": time(21, 
 
 
 def clinic_today(now) -> date:
+    """按诊所所在时区计算“今天”，避免服务器在其他时区导致日期偏差。"""
     return now.astimezone(CLINIC_TZ).date() if now.tzinfo else now.date()
 
 
@@ -52,6 +53,7 @@ def slot_is_expired(work_date: str | None, time_period: str | None, now) -> bool
 
 
 def _format_schedule(item: Schedule) -> str:
+    """格式化排班供业务 Agent 读取，保留内部 ID 供后续挂号工具使用。"""
     parts = [part for part in (item.work_date, item.time_period, item.dept_name, item.staff_name) if part]
     prefix = f"排班id={item.id} " if item.id is not None else ""
     line = "- " + prefix + " ".join(parts)

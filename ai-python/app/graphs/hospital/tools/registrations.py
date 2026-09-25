@@ -15,6 +15,7 @@ STATUS_TEXT = {1: "已挂号", 2: "已就诊", 3: "已退号"}
 
 
 def _format_registration(item: Registration) -> str:
+    """格式化本人挂号记录，保留内部 ID 供后续退号工具使用。"""
     parts = [part for part in (item.work_date, item.time_period, item.dept_name, item.staff_name) if part]
     prefix = f"挂号单id={item.id} " if item.id is not None else ""
     line = "- " + prefix + " ".join(parts)

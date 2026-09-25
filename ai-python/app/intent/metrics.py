@@ -18,6 +18,7 @@ _out_of_scope_count = 0
 
 
 def record_route(metadata: dict, *, fallback: bool, out_of_scope: bool) -> None:
+    """累计这次意图路由采用的层级、降级和范围外情况。"""
     global _fallback_count, _out_of_scope_count
 
     stage = metadata.get("stage")
@@ -36,6 +37,7 @@ def record_route(metadata: dict, *, fallback: bool, out_of_scope: bool) -> None:
 
 
 def route_metrics_snapshot() -> dict:
+    """返回当前进程的汇总计数，不包含患者原句。"""
     with _lock:
         stage_counts = dict(_stage_counts)
         total = sum(_stage_counts.values())

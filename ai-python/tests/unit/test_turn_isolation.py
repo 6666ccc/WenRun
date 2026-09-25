@@ -10,7 +10,7 @@ os.environ.setdefault(
 import json
 
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.graphs.hospital import graphs
@@ -55,8 +55,11 @@ class _StreamingStubModel:
     def __init__(self, reply):
         self.reply = reply
 
+    def bind_tools(self, tools):
+        return self
+
     def stream(self, messages):
-        yield AIMessage(content=self.reply)
+        yield AIMessageChunk(content=self.reply)
 
 
 def _stub_nodes(monkeypatch, intents):

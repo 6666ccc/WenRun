@@ -1,4 +1,7 @@
-"""Deterministic layout/keyword classification for hospital documents."""
+"""根据标题、关键词和版式判断资料是问答、流程、政策还是目录等。
+
+这里采用固定规则，不调用大模型；分类结果决定后续采用哪种切块方式。
+"""
 
 from __future__ import annotations
 
@@ -9,13 +12,15 @@ from .models import DocumentType, ElementType, ParsedDocument
 
 
 class DocumentClassifier(ABC):
+    """文档分类器的统一接口。"""
+
     @abstractmethod
     def classify(self, document: ParsedDocument) -> DocumentType:
         raise NotImplementedError
 
 
 class RuleBasedDocumentClassifier(DocumentClassifier):
-    """Classify by explicit textual and structural signals, without model calls."""
+    """统计明确的文本和结构信号，分数最高的类型获选。"""
 
     _faq = re.compile(r"常见问题|问答|FAQ|(?:^|\n)\s*(?:Q|问)\s*[:：]", re.IGNORECASE)
     _procedure = re.compile(r"办理流程|就诊流程|操作步骤|申请流程|第[一二三四五六七八九十]+步|步骤\s*\d+")

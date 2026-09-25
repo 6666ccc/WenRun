@@ -1,4 +1,8 @@
-"""CPU 友好的多标签意图分类器。"""
+"""用随代码保存的示例语句训练一个轻量的意图分类器。
+
+它可以同时选中多个标签，例如“问症状并查号源”会走 knowledge + tools。
+分数低、与训练样本差异大或两个标签难区分时，不强行决策，而是交给大模型。
+"""
 
 from __future__ import annotations
 
@@ -17,6 +21,8 @@ from app.intent.rules import normalize_text
 
 @dataclass(frozen=True)
 class LightweightPrediction:
+    """一次轻量分类的候选标签和接受/升级判断。"""
+
     selected_agents: list[AgentName]
     scores: dict[str, float]
     accepted: bool
@@ -80,6 +86,7 @@ class LightweightIntentClassifier:
         self.ood_similarity_threshold = ood_similarity_threshold
 
     def predict(self, text: str) -> LightweightPrediction:
+        """给每个意图打分；只有把握足够高时才接受本层结果。"""
         from sklearn.metrics.pairwise import cosine_similarity
 
         normalized = normalize_text(text)
@@ -116,6 +123,7 @@ class LightweightIntentClassifier:
 
 
 def _load_training_data(path: Path) -> tuple[list[str], list[list[str]]]:
+    """读取一行一个样本的 JSONL 训练集，并检查标签是否属于既定三类。"""
     texts: list[str] = []
     labels: list[list[str]] = []
     with path.open(encoding="utf-8") as handle:

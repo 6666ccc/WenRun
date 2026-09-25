@@ -1,7 +1,8 @@
-"""Optional MySQL authority for RAG lifecycle metadata.
+"""可选的 MySQL 文档版本登记表。
 
-Chroma remains a rebuildable index. Production should configure this registry with
-a database user restricted to ``ai_knowledge_documents``.
+这里记录哪份文档的哪个版本正在处理、有效、被替代或已删除。
+Chroma 保存用于检索的向量片段；它可以重建，登记表则保存权威版本状态。
+生产环境使用的数据库账号应只访问 ai_knowledge_documents 表。
 """
 
 from collections.abc import Iterator
@@ -15,6 +16,7 @@ from app.core.config import get_settings
 
 
 def enabled() -> bool:
+    """是否配置了独立的 MySQL 版本登记表。"""
     return bool(get_settings().rag_metadata_mysql_host)
 
 
@@ -31,6 +33,7 @@ def _mysql_datetime(value: str | None) -> datetime | None:
 
 @contextmanager
 def _connection() -> Iterator[pymysql.Connection | None]:
+    """把一组版本状态更新放在事务里；出错时回滚。"""
     settings = get_settings()
     if not settings.rag_metadata_mysql_host:
         yield None
@@ -56,6 +59,7 @@ def _connection() -> Iterator[pymysql.Connection | None]:
 
 
 def begin_publish(metadata: dict, *, file_size: int) -> bool:
+    """登记新版本为处理中；返回值说明是否启用了 MySQL 登记表。"""
     with _connection() as connection:
         if connection is None:
             return False
@@ -86,7 +90,7 @@ def begin_publish(metadata: dict, *, file_size: int) -> bool:
 
 
 def list_document_records(document_id: str) -> list[dict]:
-    """Return lifecycle revisions from the authoritative metadata registry."""
+    """读取一份文档的所有版本记录，供发布去重和管理接口使用。"""
 
     with _connection() as connection:
         if connection is None:
@@ -112,6 +116,7 @@ def list_document_records(document_id: str) -> list[dict]:
 
 
 def complete_publish(document_id: str, version: int, chunk_count: int) -> None:
+    """新版本完成后设为有效，并把旧的有效版本标记为被替代。"""
     with _connection() as connection:
         if connection is None:
             return
@@ -132,6 +137,7 @@ def complete_publish(document_id: str, version: int, chunk_count: int) -> None:
 
 
 def mark_publish_failed(document_id: str, version: int, message: str) -> None:
+    """记录发布失败，方便后续定位和修复索引状态。"""
     with _connection() as connection:
         if connection is None:
             return
@@ -148,6 +154,7 @@ def mark_publish_failed(document_id: str, version: int, message: str) -> None:
 def mark_document_status(
     document_id: str, status: str, *, sync_status: str = "synced"
 ) -> None:
+    """统一更新某份文档的登记状态及索引同步标记。"""
     with _connection() as connection:
         if connection is None:
             return
@@ -162,7 +169,7 @@ def mark_document_status(
 
 
 def restore_document_statuses(document_id: str, records: list[dict]) -> None:
-    """Restore per-version authority state after a failed index mutation."""
+    """索引操作失败后，按之前读到的记录恢复各版本状态。"""
 
     with _connection() as connection:
         if connection is None:
@@ -186,6 +193,7 @@ def restore_document_statuses(document_id: str, records: list[dict]) -> None:
 
 
 def registry_status() -> dict:
+    """报告当前是否启用 MySQL 登记表，供运维了解版本状态来源。"""
     return {
         "enabled": enabled(),
         "checkedAt": datetime.now(UTC).isoformat(),

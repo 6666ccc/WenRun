@@ -1,3 +1,10 @@
+"""聊天接口的两道入口检查。
+
+X-Api-Key 确认请求来自允许访问的内部调用方；X-Delegated-Token 是 Java
+为本次调用签发的短期 JWT，Python 验证后才把其中的用户和患者身份交给业务代码。
+请求体里的 userContext 只是待核对的数据，不能代替已验证的令牌身份。
+"""
+
 import base64
 import binascii
 from dataclasses import dataclass
@@ -34,11 +41,13 @@ def verify_api_key(
     x_api_key: str | None = Header(None, alias="X-Api-Key"),
     settings: Settings = Depends(get_settings),
 ) -> None:
+    """检查内部 API 密钥；失败时 FastAPI 不会进入聊天路由函数。"""
     if not x_api_key or x_api_key != settings.internal_api_key:
         raise HTTPException(status_code=401, detail="invalid internal api key")
 
 
 def _delegation_key(encoded_secret: str) -> bytes:
+    """把配置中的 Base64 密钥还原为 JWT 验签所需的字节，并检查长度。"""
     if not encoded_secret:
         raise RuntimeError("AI_DELEGATION_SIGNING_SECRET is not configured")
     try:
@@ -51,6 +60,7 @@ def _delegation_key(encoded_secret: str) -> bytes:
 
 
 def _optional_int_claim(claims: dict[str, Any], name: str) -> int | None:
+    """读取允许缺省的正整数身份字段；格式不对时视为无效令牌。"""
     value = claims.get(name)
     if value is None:
         return None
@@ -64,6 +74,7 @@ def _optional_int_claim(claims: dict[str, Any], name: str) -> int | None:
 
 
 def _identity_from_claims(claims: dict[str, Any]) -> DelegationIdentity:
+    """只提取业务真正需要的身份字段，不让下游自行解释原始 JWT。"""
     try:
         user_id = int(claims.get("sub"))
     except (TypeError, ValueError) as exc:
@@ -94,15 +105,16 @@ def verify_delegation_token(
     x_delegated_token: str | None = Header(None, alias="X-Delegated-Token"),
     settings: Settings = Depends(get_settings),
 ) -> DelegationContext:
-    """Validate the short-lived JWT delegated by the Java gateway."""
+    """验证 Java 传来的委托 JWT，再返回本次请求可用的已验证身份。"""
     if not x_delegated_token:
         raise HTTPException(status_code=401, detail="missing delegated token")
 
     try:
+        # 验证签名、签发者和过期时间；成功解码才可信任 claims 中的身份。
         claims = jwt.decode(
             x_delegated_token,
             _delegation_key(settings.delegation_signing_secret),
-            # JJWT selects HS256/384/512 according to the configured HMAC key length.
+            # Java 的 JJWT 会按 HMAC 密钥长度选择 HS256/384/512，验签需接受对应算法。
             algorithms=["HS256", "HS384", "HS512"],
             issuer="wenrun-java",
             options={"require": ["exp", "sub"]},

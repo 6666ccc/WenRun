@@ -1,3 +1,10 @@
+"""LangGraph 节点之间共享的数据格式。
+
+节点读写同一份 State，好比接力时传递的记录本。它保存本轮消息、路由结果、
+各节点回复和可压缩的历史摘要；委托 JWT 放在请求级 HospitalToolContext 中，
+不会写进这个可能被检查点保存的状态。
+"""
+
 from typing import Literal
 
 from langgraph.graph import MessagesState
@@ -88,10 +95,9 @@ class ConversationSummary(BaseModel):
                 cleaned.append(text)
         return cleaned
 
-"""节点，主要还是意图判断，以及后续的节点选择"""
-
-
 class State(MessagesState):
+    """一次对话在图中流转时使用的公共记录本。"""
+
     conversation_id: str  # 前端会话 ID；checkpointer key 还必须拼入已验证 user ID
     patient_id: int | None  # 患者id
     selected_agents: list[AgentName]  # begin 节点从 IntentDecision 写入，可多选

@@ -1,7 +1,7 @@
-"""Structured preprocessing for hospital knowledge-base documents.
+"""院内资料上传时使用的结构化预处理包。
 
-This package is not wired into the current upload route yet.  It has no vector
-store or embedding side effects and importing it does not import Docling.
+上传入口 rag/ingest.py 会调用 IngestionService，完成解析、清理、分类和切块。
+本包只返回待生成向量的文档片段，不直接写向量库；导入时也不会加载 Docling。
 """
 
 from .adapter import LangChainDocumentAdapter, build_embedding_text

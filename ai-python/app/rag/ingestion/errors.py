@@ -1,17 +1,17 @@
-"""Public errors raised by the document preprocessing pipeline."""
+"""把文档预处理失败按阶段区分，方便上传接口提示和日志定位。"""
 
 
 class DocumentParseError(RuntimeError):
-    """A source document could not be converted into the internal model."""
+    """文件无法解析为内部文档结构。"""
 
 
 class DocumentCleaningError(RuntimeError):
-    """Parsed elements could not be normalized safely."""
+    """解析出的内容无法安全清理。"""
 
 
 class DocumentClassificationError(RuntimeError):
-    """A cleaned document could not be assigned a document type."""
+    """清理后的文档无法归类。"""
 
 
 class ChunkingError(RuntimeError):
-    """A classified document could not be split into embedding chunks."""
+    """已分类的文档无法切成可生成向量的片段。"""

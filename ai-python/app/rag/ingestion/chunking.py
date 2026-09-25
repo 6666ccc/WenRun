@@ -1,4 +1,8 @@
-"""Token-aware, structure-preserving chunk strategies and routing."""
+"""按文档结构和模型长度限制，把资料切成适合检索的小段。
+
+“token”是模型读取文字时使用的计量单位；每段不能太长。相邻段保留少量
+重叠文字，避免关键信息刚好被切断。问答、流程、目录等文档采用不同切法。
+"""
 
 from __future__ import annotations
 
@@ -13,13 +17,15 @@ from .models import Chunk, DocumentType, ElementType, ParsedDocument, ParsedElem
 
 
 class Tokenizer(Protocol):
+    """切块器只需要编码和解码能力，不依赖某个固定分词库。"""
+
     def encode(self, text: str, **kwargs: Any) -> Sequence[Any]: ...
 
     def decode(self, tokens: Sequence[Any], **kwargs: Any) -> str: ...
 
 
 class HuggingFaceTokenizer:
-    """Lazy adapter; model files are only touched when tokenization is requested."""
+    """首次需要计算 token 时才加载分词模型，减少服务启动开销。"""
 
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
@@ -41,6 +47,8 @@ class HuggingFaceTokenizer:
 
 @dataclass(slots=True)
 class _Unit:
+    """切块前的临时文本单元，保留原元素、页码和章节位置。"""
+
     text: str
     element_ids: tuple[str, ...]
     page_numbers: tuple[int, ...]
@@ -48,6 +56,8 @@ class _Unit:
 
 
 class ChunkingStrategy(ABC):
+    """不同文档类型共用的长度控制和相邻片段重叠逻辑。"""
+
     name = "abstract"
 
     def __init__(self, tokenizer: Tokenizer, config: IngestionConfig) -> None:
@@ -71,6 +81,7 @@ class ChunkingStrategy(ABC):
             return self.tokenizer.decode(tokens).strip()
 
     def _window(self, unit: _Unit) -> list[Chunk]:
+        """单个单元太长时，按 token 长度滑动切成多段。"""
         tokens = self._encode(unit.text)
         if not tokens:
             return []
@@ -105,6 +116,7 @@ class ChunkingStrategy(ABC):
         *,
         respect_section_boundaries: bool = True,
     ) -> list[Chunk]:
+        """尽量把相邻短单元合并，达到长度上限或章节边界就输出一段。"""
         chunks: list[Chunk] = []
         current_text = ""
         current_ids: tuple[str, ...] = ()
@@ -174,6 +186,7 @@ class ChunkingStrategy(ABC):
 
 
 def _unit(elements: Sequence[ParsedElement], text: str | None = None) -> _Unit:
+    """把一组原始元素合成待切块单元，并保留来源位置。"""
     rendered = text if text is not None else "\n".join(element.text for element in elements)
     return _Unit(
         text=rendered.strip(),
@@ -188,6 +201,7 @@ def _unit(elements: Sequence[ParsedElement], text: str | None = None) -> _Unit:
 
 
 def _element_units(document: ParsedDocument) -> list[_Unit]:
+    """把每个文档元素分别作为一个待切块单元。"""
     return [_unit([element]) for element in document.elements if element.text.strip()]
 
 
@@ -247,7 +261,7 @@ def _section_units(document: ParsedDocument) -> list[_Unit]:
 
 
 class HybridChunkingStrategy(ChunkingStrategy):
-    """Default structural/token hybrid; it is intentionally not semantic chunking."""
+    """普通文档默认按章节和长度切块，不调用模型做语义切分。"""
 
     name = "hybrid"
 
@@ -256,6 +270,8 @@ class HybridChunkingStrategy(ChunkingStrategy):
 
 
 class FAQChunkingStrategy(ChunkingStrategy):
+    """尽量把一个问题与其答案留在同一检索片段。"""
+
     name = "faq_pair"
     _question = re.compile(r"^\s*(?:Q|问)\s*[:：]|[？?]\s*$", re.IGNORECASE)
 
@@ -280,6 +296,8 @@ class FAQChunkingStrategy(ChunkingStrategy):
 
 
 class ProcedureChunkingStrategy(ChunkingStrategy):
+    """按流程章节切段，尽量让步骤留在相邻的检索结果中。"""
+
     name = "procedure_steps"
 
     def split(self, document: ParsedDocument) -> list[Chunk]:
@@ -287,18 +305,26 @@ class ProcedureChunkingStrategy(ChunkingStrategy):
 
 
 class PolicyChunkingStrategy(ProcedureChunkingStrategy):
+    """院内制度沿用按章节切段的方式。"""
+
     name = "policy_sections"
 
 
 class HospitalGuideChunkingStrategy(ProcedureChunkingStrategy):
+    """就诊指南沿用按章节切段的方式。"""
+
     name = "guide_sections"
 
 
 class MedicalPaperChunkingStrategy(ProcedureChunkingStrategy):
+    """医学论文沿用按章节切段的方式。"""
+
     name = "paper_sections"
 
 
 class DirectoryChunkingStrategy(ChunkingStrategy):
+    """目录文档优先让表格独立成段，方便查到完整条目。"""
+
     name = "directory_entries"
 
     def split(self, document: ParsedDocument) -> list[Chunk]:
@@ -318,6 +344,8 @@ class DirectoryChunkingStrategy(ChunkingStrategy):
 
 
 class ChunkingRouter:
+    """根据文档分类结果选择相应的切块策略。"""
+
     def __init__(self, tokenizer: Tokenizer, config: IngestionConfig) -> None:
         self._strategies: dict[DocumentType, ChunkingStrategy] = {
             DocumentType.FAQ: FAQChunkingStrategy(tokenizer, config),

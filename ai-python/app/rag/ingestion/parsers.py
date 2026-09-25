@@ -1,4 +1,8 @@
-"""Document parsers that produce the provider-independent internal model."""
+"""把 PDF、Word 和纯文本转换成统一的标题、段落、表格等元素。
+
+后续清理和切块只认识 ParsedDocument，不需要分别理解每种文件格式。
+Docling 可用时优先用于 PDF/Word；否则使用内置解析器。
+"""
 
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
 
 
 def _source_bytes(source: DocumentSource) -> bytes:
+    """无论上传的是文件路径、字节还是文件流，都统一读成字节。"""
     if isinstance(source, (bytes, bytearray)):
         return bytes(source)
     if isinstance(source, (str, Path)):
@@ -35,6 +40,7 @@ def _source_bytes(source: DocumentSource) -> bytes:
 
 
 def _source_name(source: DocumentSource, file_name: str | None) -> str:
+    """取得安全的文件名；字节流没有名字时要求调用方显式提供。"""
     if file_name:
         return Path(file_name).name
     if isinstance(source, (str, Path)):
@@ -43,6 +49,7 @@ def _source_name(source: DocumentSource, file_name: str | None) -> str:
 
 
 def _decode_text(data: bytes) -> str:
+    """文本文件先按 UTF-8 解码，失败时兼容常见中文 GB18030 编码。"""
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -50,7 +57,7 @@ def _decode_text(data: bytes) -> str:
 
 
 class DocumentParser(ABC):
-    """Boundary between source-format libraries and the ingestion pipeline."""
+    """所有文件解析器都必须提供同样的 parse 接口。"""
 
     name = "abstract"
 
@@ -67,7 +74,7 @@ class DocumentParser(ABC):
 
 
 class NativeDocumentParser(DocumentParser):
-    """Offline parser for the formats already supported by the application."""
+    """使用本项目已有依赖解析支持的文件格式。"""
 
     name = "native"
 
@@ -228,7 +235,7 @@ class NativeDocumentParser(DocumentParser):
 
 
 class DoclingParser(DocumentParser):
-    """Optional high-fidelity parser. Importing this module never imports Docling."""
+    """可选的高保真解析器；只有真正使用时才导入较重的 Docling。"""
 
     name = "docling"
 
@@ -240,7 +247,7 @@ class DoclingParser(DocumentParser):
         file_name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ParsedDocument:
-        # Deliberately local: app.main/app.rag.ingest must not load Docling or torch.
+        # 只有实际解析时才导入，服务启动和普通聊天不需要加载 Docling/torch。
         from docling.document_converter import DocumentConverter
 
         name = _source_name(source, file_name)
@@ -310,7 +317,7 @@ class DoclingParser(DocumentParser):
 
 
 def default_parser_for(source: DocumentSource, file_name: str | None = None) -> DocumentParser:
-    """Prefer Docling for office/PDF files when the optional extra is installed."""
+    """按文件格式和可用依赖选择解析器。"""
 
     name = _source_name(source, file_name)
     suffix = Path(name).suffix.lower()

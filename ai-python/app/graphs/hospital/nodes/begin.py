@@ -1,4 +1,8 @@
-"""医院对话图的起始节点：只做意图多选，不直接回答患者。"""
+"""普通图的第一站：判断这句话需要哪些助手处理，不直接回答患者。
+
+输出的 selected_agents 可以同时包含 knowledge（医学知识）、chat（闲聊）和
+tools（本院业务）。先尝试明确规则和本地轻量模型；拿不准时再结合历史请大模型判断。
+"""
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from loguru import logger
@@ -115,6 +119,7 @@ def _normalize_agents(decision: IntentDecision | None) -> list[AgentName]:
 
 
 def _latest_user_text(state: State) -> str:
+    """本地规则只看最新一句患者消息，不把旧问题当成本轮意图。"""
     messages = state.get("messages") or []
     latest = next(
         (message for message in reversed(messages) if isinstance(message, HumanMessage)),
@@ -199,7 +204,7 @@ def pending_followup(state: State) -> bool:
 
 
 def begin_node(state: State) -> dict:
-    """执行规则→轻量模型→LLM 的级联分类，并写入图 State。"""
+    """执行规则→轻量模型→大模型的分类，并把选中的助手写入共享 State。"""
 
     messages = build_context(state, purpose="route")
     user_text = _latest_user_text(state)
@@ -280,6 +285,7 @@ def begin_node(state: State) -> dict:
         fallback=router_fallback,
         out_of_scope=out_of_scope,
     )
+    # 本轮重新分类后清掉上一轮的回复，避免后续汇总混入旧答案。
     return {
         **reset_turn_fields(),
         "selected_agents": selected_agents,

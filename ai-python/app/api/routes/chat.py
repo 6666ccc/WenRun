@@ -1,3 +1,10 @@
+"""Java 调用 Python 的聊天入口。
+
+``/stream`` 接收一条新消息，运行对话图，并用 SSE（一条条推送的 JSON 事件）
+返回状态、正文、引用或确认卡片。``/resume`` 接收确认卡片的批准/拒绝，
+从检查点继续原来暂停的图。文件后半部分是院内知识文档和会话记忆的管理接口。
+"""
+
 import asyncio
 import json
 from collections.abc import AsyncIterator
@@ -42,34 +49,66 @@ router = APIRouter(
     tags=["Chat"],
     dependencies=[Depends(verify_api_key)],
 )
+# 本路由下的接口先检查内部 API 密钥；聊天接口还单独验证委托 JWT。
 
 
-def _response_from_state(conversation_id: str, result: dict[str, Any]) -> ChatResponse:
-    reply = result.get("final_reply")
-    if not isinstance(reply, str) or not reply.strip():
-        logger.error("chat_graph_missing_final_reply conversation_id={}", conversation_id)
-        raise HTTPException(status_code=500, detail="AI 对话未生成有效回复")
+@router.post("/stream")
+async def chat_stream(
+    request: ChatRequest,
+    delegation: DelegationContext = Depends(verify_delegation_token),
+) -> StreamingResponse:
+    """处理新消息；FastAPI 已把 JSON 解析成 request，并验证令牌得到 delegation。"""
 
-    selected_agents: list[str] = []
-    for agent_name in result.get("selected_agents") or []:
-        if isinstance(agent_name, str):
-            selected_agents.append(agent_name)
+    _assert_request_identity(request, delegation)
+    # 图由 Python 根据请求模式选择，并不是 Java 传来一个 graph_instance 对象。
+    graph_instance = _graph_for(request.memory_enabled, request.fast_mode)
+    # 这个布尔值只决定是否向业务 Agent 提供写工具，不替代意图识别。
+    writes_enabled = _writes_enabled(graph_instance, request.fast_mode)
+    config = _graph_config(request.conversation_id, delegation)
+    # 同一用户的同一会话可能已有历史，也可能正停在 HITL 确认卡片上。
+    has_checkpointer = getattr(graph_instance, "checkpointer", None) is not None
+    snapshot = await _checkpoint_snapshot(graph_instance, config)
+    checkpoint_hit = _checkpoint_has_messages(snapshot)
+    if has_checkpointer:
+        pending = _confirmations_from_snapshot(snapshot)
+        if pending:
+            # 挂起期间的新消息由专门分支处理，避免把原本暂停的图当作新一轮运行。
+            return _pending_turn_response(
+                request, delegation, graph_instance, config, snapshot, pending
+            )
 
-    sources: list[dict[str, Any]] = []
-    for source in result.get("rag_sources") or []:
-        if isinstance(source, dict):
-            sources.append(source)
-
-    return ChatResponse(
-        reply=reply.strip(),
-        conversation_id=conversation_id,
-        selected_agents=selected_agents,
-        sources=sources,
+    graph_input = _initial_state(request, delegation)
+    rehydrated = False
+    if has_checkpointer and not checkpoint_hit and request.recovery_messages:
+        # Redis 中没有可用历史时，才用 Java 保存的有限消息补齐上下文。
+        graph_input = _recovery_state(request, delegation)
+        rehydrated = True
+        logger.info(
+            "chat_checkpoint_rehydrated conversation_id={} message_count={}",
+            request.conversation_id,
+            len(request.recovery_messages),
+        )
+    return _event_stream(
+        _chat_events(
+            graph_instance=graph_instance,
+            graph_input=graph_input,
+            context=_runtime_context(
+                request.conversation_id, delegation, writes_enabled=writes_enabled
+            ),
+            config=config,
+            conversation_id=request.conversation_id,
+            fast_mode=request.fast_mode,
+            request_id=current_request_id(),
+            thread_id=config["configurable"]["thread_id"],
+            checkpoint_hit=checkpoint_hit,
+            rehydrated=rehydrated,
+        )
     )
 
-
-def _assert_request_identity(request: ChatRequest | ChatResumeRequest, delegation: DelegationContext) -> None:
-    """浏览器身份字段只能与 JWT 一致，不能覆盖已验证身份。"""
+def _assert_request_identity(
+    request: ChatRequest | ChatResumeRequest, delegation: DelegationContext
+) -> None:
+    """核对请求体声明的身份与已验证 JWT 的身份；不匹配就拒绝。"""
 
     supplied = request.user_context
     identity = delegation.identity
@@ -81,19 +120,111 @@ def _assert_request_identity(request: ChatRequest | ChatResumeRequest, delegatio
     if operator_id is not None and operator_id != identity.user_id:
         raise HTTPException(status_code=403, detail="delegated user identity mismatch")
     if supplied.patient_id is not None and supplied.patient_id != identity.patient_id:
-        raise HTTPException(status_code=403, detail="delegated patient identity mismatch")
+        raise HTTPException(
+            status_code=403, detail="delegated patient identity mismatch"
+        )
 
+def _graph_for(memory_enabled: bool, fast_mode: bool):
+    """选择普通/快速图；希望保留历史时优先用带检查点的图。"""
 
-def _initial_state(request: ChatRequest, delegation: DelegationContext) -> dict[str, Any]:
+    if memory_enabled:
+        memory_graph = get_fast_memory_graph() if fast_mode else get_memory_graph()
+        if memory_graph is not None:
+            return memory_graph
+    return fast_graph if fast_mode else graph
+
+def _writes_enabled(graph_instance: Any, fast_mode: bool) -> bool:
+    """仅普通模式且图可保存中断进度时，才向 Agent 提供写工具。
+
+    快速图当前不会运行医院业务工具节点；这里仍明确标记其写能力关闭。
+    普通无检查点图也必须关闭写工具，否则 HITL 暂停后无法从 /resume 继续。
+    """
+
+    if fast_mode:
+        return False
+    return getattr(graph_instance, "checkpointer", None) is not None
+
+def _graph_config(
+    conversation_id: str | ChatRequest,
+    delegation: DelegationContext,
+) -> dict[str, Any]:
+    """生成 LangGraph 配置，thread_id 把已验证用户和会话绑在一起。"""
+
+    if isinstance(conversation_id, ChatRequest):
+        conversation_id = conversation_id.conversation_id
+    return {
+        "configurable": {
+            "thread_id": thread_id_for(delegation.identity.user_id, conversation_id)
+        }
+    }
+
+async def _checkpoint_snapshot(
+    graph_instance: Any, config: dict[str, Any]
+) -> Any | None:
+    """读取该会话的 checkpoint 快照；无记忆图直接返回空。"""
+
+    if getattr(graph_instance, "checkpointer", None) is None:
+        return None
+    return await graph_instance.aget_state(config)
+
+def _checkpoint_has_messages(snapshot: Any | None) -> bool:
+    """判断这份 checkpoint 里是否已经有可恢复的对话消息。"""
+
+    values = getattr(snapshot, "values", None)
+    return isinstance(values, dict) and bool(values.get("messages"))
+
+def _confirmations_from_snapshot(snapshot: Any | None) -> list[dict[str, Any]]:
+    """从状态快照里抽出待确认卡片需要的中断编号、类型、提示和详情。"""
+
+    found: list[dict[str, Any]] = []
+    for pending in getattr(snapshot, "interrupts", ()) or ():
+        value = getattr(pending, "value", None)
+        interrupt_id = getattr(pending, "id", None)
+        if not interrupt_id or not isinstance(value, dict) or not value.get("kind"):
+            continue
+        found.append(
+            {
+                "id": interrupt_id,
+                "kind": value.get("kind"),
+                "prompt": value.get("prompt"),
+                "detail": value.get("detail") or {},
+            }
+        )
+    return found
+
+def _initial_state(
+    request: ChatRequest, delegation: DelegationContext
+) -> dict[str, Any]:
+    """构造本轮图输入：只带当前用户消息、会话号和已验证患者身份。"""
+
     return {
         "messages": [HumanMessage(content=request.message)],
         "conversation_id": request.conversation_id,
         "patient_id": delegation.identity.patient_id,
         "long_term_memories": [
             item.model_dump(by_alias=True) for item in request.long_term_memories
-        ] if request.memory_enabled else [],
+        ]
+        if request.memory_enabled
+        else [],
     }
 
+def _recovery_state(
+    request: ChatRequest, delegation: DelegationContext
+) -> dict[str, Any]:
+    """checkpoint 为空时，用 Java 提供的有限历史补上本轮消息后再开跑。"""
+
+    return {
+        "messages": build_rehydrated_messages(
+            request.recovery_messages, request.message
+        ),
+        "conversation_id": request.conversation_id,
+        "patient_id": delegation.identity.patient_id,
+        "long_term_memories": [
+            item.model_dump(by_alias=True) for item in request.long_term_memories
+        ]
+        if request.memory_enabled
+        else [],
+    }
 
 def _runtime_context(
     conversation_id: str,
@@ -112,171 +243,202 @@ def _runtime_context(
         writes_enabled=writes_enabled,
     )
 
+def _event_stream(events: AsyncIterator[str]) -> StreamingResponse:
+    """把事件迭代器包成不被代理缓冲的 SSE 响应。"""
 
-def _graph_for(memory_enabled: bool, fast_mode: bool):
-    if memory_enabled:
-        memory_graph = get_fast_memory_graph() if fast_mode else get_memory_graph()
-        if memory_graph is not None:
-            return memory_graph
-    return fast_graph if fast_mode else graph
+    return StreamingResponse(
+        events,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
-
-def _graph_config(
-    conversation_id: str | ChatRequest,
-    delegation: DelegationContext,
-) -> dict[str, Any]:
-    if isinstance(conversation_id, ChatRequest):
-        conversation_id = conversation_id.conversation_id
-    return {
-        "configurable": {
-            "thread_id": thread_id_for(delegation.identity.user_id, conversation_id)
-        }
-    }
-
-
-def _writes_enabled(graph_instance: Any, fast_mode: bool) -> bool:
-    """写工具靠 interrupt 暂停等确认，没有 checkpointer 就无法恢复，只能关掉。"""
-
-    if fast_mode:
-        return False
-    return getattr(graph_instance, "checkpointer", None) is not None
-
-
-async def _pending_confirmations(
-    graph_instance: Any, config: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """读出本轮被挂起的确认请求。中断不在 astream 的 data 里，只能从状态快照拿。"""
-
-    if getattr(graph_instance, "checkpointer", None) is None:
-        return []
-    snapshot = await graph_instance.aget_state(config)
-    return _confirmations_from_snapshot(snapshot)
-
-
-def _confirmations_from_snapshot(snapshot: Any | None) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    for pending in getattr(snapshot, "interrupts", ()) or ():
-        value = getattr(pending, "value", None)
-        interrupt_id = getattr(pending, "id", None)
-        if not interrupt_id or not isinstance(value, dict) or not value.get("kind"):
-            continue
-        found.append({
-            "id": interrupt_id,
-            "kind": value.get("kind"),
-            "prompt": value.get("prompt"),
-            "detail": value.get("detail") or {},
-        })
-    return found
-
-
-async def _checkpoint_snapshot(graph_instance: Any, config: dict[str, Any]) -> Any | None:
-    if getattr(graph_instance, "checkpointer", None) is None:
-        return None
-    return await graph_instance.aget_state(config)
-
-
-def _checkpoint_has_messages(snapshot: Any | None) -> bool:
-    values = getattr(snapshot, "values", None)
-    return isinstance(values, dict) and bool(values.get("messages"))
-
-
-def _recovery_state(request: ChatRequest, delegation: DelegationContext) -> dict[str, Any]:
-    """Use authoritative history only for an empty checkpoint, then append this turn."""
-
-    return {
-        "messages": build_rehydrated_messages(request.recovery_messages, request.message),
-        "conversation_id": request.conversation_id,
-        "patient_id": delegation.identity.patient_id,
-        "long_term_memories": [
-            item.model_dump(by_alias=True) for item in request.long_term_memories
-        ] if request.memory_enabled else [],
-    }
-
-
-async def _sse_error(code: str, message: str) -> AsyncIterator[str]:
-    yield _sse({"type": "error", "code": code, "message": message})
-
-
-async def _confirmation_stream(
-    conversation_id: str, pending: list[dict[str, Any]]
+async def _chat_events(
+    *,
+    graph_instance: Any,
+    graph_input: Any,
+    context: HospitalToolContext,
+    config: dict[str, Any],
+    conversation_id: str,
+    fast_mode: bool,
+    request_id: str | None,
+    thread_id: str,
+    checkpoint_hit: bool,
+    rehydrated: bool,
+    resume_pending: list[dict[str, Any]] | None = None,
 ) -> AsyncIterator[str]:
-    confirmation = pending[0]
-    yield _sse({
-        "type": "confirm",
-        "conversationId": conversation_id,
-        "kind": confirmation.get("kind"),
-        "prompt": confirmation.get("prompt"),
-        "detail": confirmation.get("detail") or {},
-        "interruptId": confirmation.get("id"),
-    })
+    """/stream 与 /resume 共用的 SSE 事件流。
 
-
-def _text_from_message_chunk(message_chunk: object) -> str:
-    """从 LangChain 字符串或内容块消息片段中提取文本。"""
-
-    content = getattr(message_chunk, "content", "")
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return ""
-
-    text_parts: list[str] = []
-    for block in content:
-        value = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
-        if isinstance(value, str):
-            text_parts.append(value)
-    return "".join(text_parts)
-
-
-def _is_streamable_message(message_chunk: object) -> bool:
-    if not isinstance(message_chunk, (AIMessage, AIMessageChunk)):
-        return False
-    return not any((
-        getattr(message_chunk, "tool_calls", None),
-        getattr(message_chunk, "tool_call_chunks", None),
-        getattr(message_chunk, "invalid_tool_calls", None),
-    )) and bool(_text_from_message_chunk(message_chunk).strip())
-
-
-# 单意图时直接对患者输出正文的根图节点。tool_node 的回复由嵌套 Agent 生成，
-# 只在子图命名空间里产生分片，因此不在此列。
-_SOLE_AGENT_STREAM_NODES = {
-    "chat": "chat_node",
-    "knowledge": "knowledge_node",
-}
-
-
-def _stream_visible_nodes(selected_agents: list[str], fast_mode: bool = False) -> set[str]:
-    """选择对患者可见的图节点输出。
-
-    起始节点也可能产生 LLM 消息，但这些是路由 JSON，绝不能发送到浏览器。
-    当多个回复节点同时启用时，只有 final_node 执行最终汇总，因此它是唯一安全的流式输出节点。
+    图内部会产生模型分片、状态快照等事件；这里只把患者能看到的内容转成
+    status、token、citation、confirm、done 或 error，再逐条推给 Java/浏览器。
+    resume_pending 非空表示这是确认卡片挂起期间的旁路回答：正文流完后不发 done，
+    而是重新发出 confirm，让卡片继续留在患者面前。
     """
 
-    # 快速模式没有路由与汇总，fast_node 直接产出面向患者的正文。
-    if fast_mode:
-        return {"fast_node"}
+    started_at = perf_counter()
+    trace = begin_context_trace(
+        request_id=request_id,
+        thread_id=thread_id,
+        mode="fast" if fast_mode else "normal",
+        checkpoint_hit=checkpoint_hit,
+        rehydrated=rehydrated,
+    )
+    first_token_at: float | None = None
+    yield _sse({"type": "status", "content": "正在分析您的问题…"})
+    graph_state: dict[str, Any] = {}
+    streamed_reply = False
+    selected_agents: list[str] = []
+    retrieval_status_sent = False
+    final_status_sent = False
+    plan_status_sent = False
+    try:
+        # 图在后台持续运行；每来一个片段，就更新最终状态或向客户端推送正文。
+        async for part in _stream_graph(graph_instance, graph_input, context, config):
+            _merge_stream_state(graph_state, part)
+            incoming_agents = graph_state.get("selected_agents") or []
+            selected_agents = [
+                agent for agent in incoming_agents if isinstance(agent, str)
+            ]
 
-    # 只有一个回复节点被选中时，final_node 只做透传、不再调用模型，
-    # 该节点自身的输出就是最终正文，可以直接流式转发。
-    if len(selected_agents) == 1:
-        node = _SOLE_AGENT_STREAM_NODES.get(selected_agents[0])
-        if node is not None:
-            return {node}
-    return {"final_node"}
+            if not fast_mode and len(selected_agents) >= 2 and not plan_status_sent:
+                # 多意图回合会先经过 plan_node 拆子目标，给患者一个明确的等待提示。
+                plan_status_sent = True
+                yield _sse({"type": "status", "content": "正在拆解您的请求…"})
 
+            if (
+                not fast_mode
+                and "knowledge" in selected_agents
+                and not retrieval_status_sent
+            ):
+                retrieval_status_sent = True
+                yield _sse({"type": "status", "content": "正在检索相关资料…"})
 
-def _merge_stream_state(state: dict[str, Any], part: dict[str, Any]) -> None:
-    """从根图的 v2 values 事件中保留最新图状态。"""
+            if part.get("type") != "messages":
+                continue
+            if part.get("ns"):
+                # 嵌套 Agent（网页检索、业务工具）的模型分片属于实现细节，
+                # 只转发根图节点自己产生的消息。
+                continue
+            data = part.get("data")
+            if not isinstance(data, (list, tuple)) or len(data) != 2:
+                continue
+            message_chunk, metadata = data
+            if not isinstance(metadata, dict):
+                continue
+            node_name = metadata.get("langgraph_node")
+            visible_nodes = _stream_visible_nodes(selected_agents, fast_mode)
+            if node_name not in visible_nodes or not _is_streamable_message(
+                message_chunk
+            ):
+                continue
+            content = _text_from_message_chunk(message_chunk)
+            if (
+                not fast_mode
+                and "knowledge" in selected_agents
+                and not final_status_sent
+            ):
+                final_status_sent = True
+                yield _sse({"type": "status", "content": "正在整理答案…"})
+            if first_token_at is None:
+                first_token_at = perf_counter()
+                trace.first_token_ms = round((first_token_at - started_at) * 1000)
+                logger.info(
+                    "chat_stream_first_token conversation_id={} elapsed_ms={}",
+                    conversation_id,
+                    round((first_token_at - started_at) * 1000),
+                )
+            streamed_reply = True
+            yield _sse({"type": "token", "content": content})
 
-    # 嵌套 Agent 有自己的 values 流。只有根图的 values 包含此 API 所需的
-    # final_reply、selected_agents 和 rag_sources。
-    if part.get("ns") or part.get("type") != "values":
+        # 写工具挂起时根图不会产出 final_reply，必须在取回复之前先判断有没有待确认项。
+        pending = await _pending_confirmations(graph_instance, config)
+        if pending:
+            confirmation = pending[0]
+            logger.info(
+                "chat_stream_awaiting_confirmation conversation_id={} kind={} interrupt_id={} pending_count={}",
+                conversation_id,
+                confirmation.get("kind"),
+                confirmation.get("id"),
+                len(pending),
+            )
+            yield _sse(
+                {
+                    "type": "confirm",
+                    "conversationId": conversation_id,
+                    "kind": confirmation.get("kind"),
+                    "prompt": confirmation.get("prompt"),
+                    "detail": confirmation.get("detail") or {},
+                    "interruptId": confirmation.get("id"),
+                }
+            )
+            trace.finish()
+            return
+
+        response = _response_from_state(conversation_id, graph_state)
+    except HTTPException as exc:
+        yield _sse(
+            {
+                "type": "error",
+                "code": "AI_CHAT_FAILED",
+                "message": str(exc.detail),
+            }
+        )
+        trace.finish(error_code="AI_CHAT_FAILED")
         return
-    data = part.get("data")
-    if isinstance(data, dict):
-        state.update(data)
+    except asyncio.CancelledError:
+        logger.info("chat_stream_cancelled conversation_id={}", conversation_id)
+        trace.finish(error_code="AI_STREAM_CANCELLED")
+        raise
+    except Exception:  # noqa: BLE001 - stream boundary maps provider failures to SSE
+        logger.exception("chat_stream_failed conversation_id={}", conversation_id)
+        yield _sse(
+            {
+                "type": "error",
+                "code": "AI_CHAT_FAILED",
+                "message": "AI 对话处理失败，请稍后再试",
+            }
+        )
+        trace.finish(error_code="AI_CHAT_FAILED")
+        return
 
+    for source in response.sources:
+        yield _sse({"type": "citation", "sources": [source]})
+    if not streamed_reply:
+        # 如果服务提供方不提供令牌片段，则发送一个完整令牌以保持协议一致，
+        # 避免返回空答案。
+        yield _sse({"type": "token", "content": response.reply})
+    if resume_pending:
+        # 旁路回答结束后把原来的确认卡片重新交还给患者；done 会让前端结束本轮，不能发。
+        logger.info(
+            "chat_stream_side_reply_reissued_confirmation conversation_id={} interrupt_id={}",
+            conversation_id,
+            resume_pending[0].get("id"),
+        )
+        async for event in _confirmation_stream(conversation_id, resume_pending):
+            yield event
+        trace.finish()
+        return
+    yield _sse(
+        {
+            "type": "done",
+            **response.model_dump(by_alias=True),
+        }
+    )
+    logger.info(
+        "chat_stream_completed conversation_id={} elapsed_ms={} first_token_ms={}",
+        conversation_id,
+        round((perf_counter() - started_at) * 1000),
+        round((first_token_at - started_at) * 1000)
+        if first_token_at is not None
+        else None,
+    )
+    trace.finish()
+
+def _sse(event: dict[str, Any]) -> str:
+    """编码一条兼容浏览器的服务器发送事件，同时保留中文文本。"""
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 async def _stream_graph(
     graph_instance: Any,
@@ -297,18 +459,314 @@ async def _stream_graph(
         if isinstance(part, dict):
             yield part
 
+def _merge_stream_state(state: dict[str, Any], part: dict[str, Any]) -> None:
+    """从根图的 v2 values 事件中保留最新图状态。"""
 
-def _sse(event: dict[str, Any]) -> str:
-    """编码一条兼容浏览器的服务器发送事件，同时保留中文文本。"""
-    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    # 嵌套 Agent 有自己的 values 流。只有根图的 values 包含此 API 所需的
+    # final_reply、selected_agents 和 rag_sources。
+    if part.get("ns") or part.get("type") != "values":
+        return
+    data = part.get("data")
+    if isinstance(data, dict):
+        state.update(data)
 
+# 单意图时直接对患者输出正文的根图节点。tool_node 的回复由嵌套 Agent 生成，
+# 只在子图命名空间里产生分片，因此不在此列。
+_SOLE_AGENT_STREAM_NODES = {
+    "chat": "chat_node",
+    "knowledge": "knowledge_node",
+}
+
+def _stream_visible_nodes(
+    selected_agents: list[str], fast_mode: bool = False
+) -> set[str]:
+    """选择对患者可见的图节点输出。
+
+    起始节点也可能产生 LLM 消息，但这些是路由 JSON，绝不能发送到浏览器。
+    当多个回复节点同时启用时，只有 final_node 执行最终汇总，因此它是唯一安全的流式输出节点。
+    """
+
+    # 快速模式没有路由与汇总，fast_node 直接产出面向患者的正文。
+    if fast_mode:
+        return {"fast_node"}
+
+    # 只有一个回复节点被选中时，final_node 只做透传、不再调用模型，
+    # 该节点自身的输出就是最终正文，可以直接流式转发。
+    if len(selected_agents) == 1:
+        node = _SOLE_AGENT_STREAM_NODES.get(selected_agents[0])
+        if node is not None:
+            return {node}
+    return {"final_node"}
+
+def _is_streamable_message(message_chunk: object) -> bool:
+    """只放行带正文的助手分片，工具调用和空消息不发给患者。"""
+
+    if not isinstance(message_chunk, (AIMessage, AIMessageChunk)):
+        return False
+    return not any(
+        (
+            getattr(message_chunk, "tool_calls", None),
+            getattr(message_chunk, "tool_call_chunks", None),
+            getattr(message_chunk, "invalid_tool_calls", None),
+        )
+    ) and bool(_text_from_message_chunk(message_chunk).strip())
+
+def _text_from_message_chunk(message_chunk: object) -> str:
+    """从 LangChain 字符串或内容块消息片段中提取文本。"""
+
+    content = getattr(message_chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+
+    text_parts: list[str] = []
+    for block in content:
+        value = (
+            block.get("text")
+            if isinstance(block, dict)
+            else getattr(block, "text", None)
+        )
+        if isinstance(value, str):
+            text_parts.append(value)
+    return "".join(text_parts)
+
+async def _pending_confirmations(
+    graph_instance: Any, config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """读出本轮被挂起的确认请求。中断不在 astream 的 data 里，只能从状态快照拿。"""
+
+    if getattr(graph_instance, "checkpointer", None) is None:
+        return []
+    snapshot = await graph_instance.aget_state(config)
+    return _confirmations_from_snapshot(snapshot)
+
+def _response_from_state(conversation_id: str, result: dict[str, Any]) -> ChatResponse:
+    """把图状态里的最终回复、所选 Agent 和资料来源收成接口响应。"""
+    reply = result.get("final_reply")
+    if not isinstance(reply, str) or not reply.strip():
+        logger.error(
+            "chat_graph_missing_final_reply conversation_id={}", conversation_id
+        )
+        raise HTTPException(status_code=500, detail="AI 对话未生成有效回复")
+
+    selected_agents: list[str] = []
+    for agent_name in result.get("selected_agents") or []:
+        if isinstance(agent_name, str):
+            selected_agents.append(agent_name)
+
+    sources: list[dict[str, Any]] = []
+    for source in result.get("rag_sources") or []:
+        if isinstance(source, dict):
+            sources.append(source)
+
+    return ChatResponse(
+        reply=reply.strip(),
+        conversation_id=conversation_id,
+        selected_agents=selected_agents,
+        sources=sources,
+    )
+
+async def _confirmation_stream(
+    conversation_id: str, pending: list[dict[str, Any]]
+) -> AsyncIterator[str]:
+    """把第一条挂起确认编成 confirm 事件，让前端继续显示确认卡片。"""
+
+    confirmation = pending[0]
+    yield _sse(
+        {
+            "type": "confirm",
+            "conversationId": conversation_id,
+            "kind": confirmation.get("kind"),
+            "prompt": confirmation.get("prompt"),
+            "detail": confirmation.get("detail") or {},
+            "interruptId": confirmation.get("id"),
+        }
+    )
+
+def _pending_turn_response(
+    request: ChatRequest,
+    delegation: DelegationContext,
+    graph_instance: Any,
+    config: dict[str, Any],
+    snapshot: Any | None,
+    pending: list[dict[str, Any]],
+) -> StreamingResponse:
+    """确认卡片挂起时收到新消息：短句确认/否决直接续跑，其余先旁路回答再交还卡片。"""
+
+    thread_id = config["configurable"]["thread_id"]
+    # /stream 也接受聊天框里的明确“同意/取消”；卡片按钮则走 /resume。
+    decision = decision_from_text(request.message)
+    if decision is not None:
+        command, error_code, error_message = _resume_command(decision, None, pending)
+        if command is None:
+            logger.info(
+                "chat_stream_text_decision_unresolved conversation_id={} pending_count={} code={}",
+                request.conversation_id,
+                len(pending),
+                error_code,
+            )
+            trace = begin_context_trace(
+                request_id=current_request_id(),
+                thread_id=thread_id,
+                mode="normal",
+                checkpoint_hit=True,
+                rehydrated=False,
+            )
+            trace.node_names.add("resume_validation")
+            trace.finish(error_code=error_code or "AI_RESUME_CONFLICT")
+            return _event_stream(
+                _sse_error(
+                    error_code or "AI_RESUME_CONFLICT",
+                    error_message or "请重新发起挂号",
+                )
+            )
+        logger.info(
+            "chat_stream_text_decision conversation_id={} decision={} interrupt_id={}",
+            request.conversation_id,
+            decision,
+            pending[0].get("id"),
+        )
+        return _event_stream(
+            _chat_events(
+                graph_instance=graph_instance,
+                graph_input=command,
+                context=_runtime_context(
+                    request.conversation_id, delegation, writes_enabled=True
+                ),
+                config=config,
+                conversation_id=request.conversation_id,
+                fast_mode=False,
+                request_id=current_request_id(),
+                thread_id=thread_id,
+                checkpoint_hit=True,
+                rehydrated=False,
+            )
+        )
+
+    logger.info(
+        "chat_stream_side_reply_while_pending conversation_id={} pending_count={} ids={}",
+        request.conversation_id,
+        len(pending),
+        [item.get("id") for item in pending],
+    )
+    # 只读上下文、禁用写工具：旁路回答不能再触发第二张卡片，也不能碰挂起的 thread。
+    return _event_stream(
+        _chat_events(
+            graph_instance=graph,
+            graph_input=_side_reply_state(request, delegation, snapshot),
+            context=_runtime_context(
+                request.conversation_id, delegation, writes_enabled=False
+            ),
+            config=config,
+            conversation_id=request.conversation_id,
+            fast_mode=False,
+            request_id=current_request_id(),
+            thread_id=thread_id,
+            checkpoint_hit=True,
+            rehydrated=False,
+            resume_pending=pending,
+        )
+    )
+
+_SIDE_REPLY_STATE_FIELDS = ("summary", "patient_id")
+
+def _side_reply_state(
+    request: ChatRequest, delegation: DelegationContext, snapshot: Any | None
+) -> dict[str, Any]:
+    """卡片挂起期间的旁路回答输入：沿用 checkpoint 里的历史与摘要，但不写回 thread。
+
+    被 interrupt 的 superstep 还没提交，这时 update_state 不安全；旁路回答只跑无
+    checkpointer 的图，消息以 Java 侧持久化的会话记录为准。
+    """
+
+    values = getattr(snapshot, "values", None)
+    values = values if isinstance(values, dict) else {}
+    history = [
+        message
+        for message in (values.get("messages") or [])
+        if isinstance(message, (HumanMessage, AIMessage))
+    ]
+    state = _initial_state(request, delegation)
+    state["messages"] = [*history, *state["messages"]]
+    for field in _SIDE_REPLY_STATE_FIELDS:
+        if values.get(field) is not None:
+            state.setdefault(field, values[field])
+    return state
+
+async def _sse_error(code: str, message: str) -> AsyncIterator[str]:
+    """产出一条错误 SSE，供无法继续跑图时直接返回给前端。"""
+
+    yield _sse({"type": "error", "code": code, "message": message})
+
+@router.post("/resume")
+async def chat_resume(
+    request: ChatResumeRequest,
+    delegation: DelegationContext = Depends(verify_delegation_token),
+) -> StreamingResponse:
+    """患者点确认卡片后，按会话号和中断编号续跑原来暂停的那一轮。"""
+
+    _assert_request_identity(request, delegation)
+    # 恢复必须落在带 checkpointer 的正常图上：快速模式没有写工具，无记忆图无从恢复。
+    graph_instance = _graph_for(memory_enabled=True, fast_mode=False)
+    if getattr(graph_instance, "checkpointer", None) is None:
+        raise HTTPException(status_code=409, detail="会话已过期，请重新发起办理")
+
+    config = _graph_config(request.conversation_id, delegation)
+    pending = await _pending_confirmations(graph_instance, config)
+    logger.info(
+        "chat_resume_pending conversation_id={} pending_count={} ids={} kinds={} interrupt_id={}",
+        request.conversation_id,
+        len(pending),
+        [item.get("id") for item in pending],
+        [item.get("kind") for item in pending],
+        request.interrupt_id,
+    )
+    command, error_code, error_message = _resume_command(
+        request.decision, request.interrupt_id, pending
+    )
+    # 只续跑仍存在且匹配的中断；旧卡片或错误编号不能触发新的写操作。
+    if command is None:
+        trace = begin_context_trace(
+            request_id=current_request_id(),
+            thread_id=config["configurable"]["thread_id"],
+            mode="normal",
+            checkpoint_hit=bool(pending),
+            rehydrated=False,
+        )
+        trace.node_names.add("resume_validation")
+        trace.finish(error_code=error_code or "AI_RESUME_STALE")
+        return _event_stream(
+            _sse_error(
+                error_code or "AI_RESUME_STALE", error_message or "请重新发起挂号"
+            )
+        )
+
+    return _event_stream(
+        _chat_events(
+            graph_instance=graph_instance,
+            graph_input=command,
+            context=_runtime_context(
+                request.conversation_id, delegation, writes_enabled=True
+            ),
+            config=config,
+            conversation_id=request.conversation_id,
+            fast_mode=False,
+            request_id=current_request_id(),
+            thread_id=config["configurable"]["thread_id"],
+            checkpoint_hit=True,
+            rehydrated=False,
+        )
+    )
 
 @router.post("/documents", status_code=status.HTTP_201_CREATED)
 async def upload_knowledge_document(
     file: UploadFile = File(..., description="用于构建知识库的 PDF、Word 或文本文件"),
     document_id: str | None = Query(default=None, alias="documentId", max_length=64),
     uploaded_by: int = Query(default=0, alias="uploadedBy", ge=0),
-    effective_from: str | None = Query(default=None, alias="effectiveFrom", max_length=40),
+    effective_from: str | None = Query(
+        default=None, alias="effectiveFrom", max_length=40
+    ),
     expires_at: str | None = Query(default=None, alias="expiresAt", max_length=40),
     force_rebuild: bool = Query(default=False, alias="forceRebuild"),
 ) -> dict[str, Any]:
@@ -334,42 +792,52 @@ async def upload_knowledge_document(
             "expires_at": expires_at,
             "force_rebuild": force_rebuild,
         }
+        # 解析、切块、生成向量可能较耗时，放在线程池避免阻塞聊天请求。
         return await run_in_threadpool(ingest_file, content, filename, **lifecycle)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("knowledge_document_ingest_failed filename={}", filename)
-        raise HTTPException(status_code=500, detail="文档写入知识库失败，请稍后再试") from exc
-
+        raise HTTPException(
+            status_code=500, detail="文档写入知识库失败，请稍后再试"
+        ) from exc
 
 @router.get("/documents/{document_id}")
 async def inspect_knowledge_document(document_id: str) -> dict[str, Any]:
+    """查询一份知识文档的各版本；不存在则返回 404。"""
+
     versions = await run_in_threadpool(get_document_versions, document_id)
     if not versions:
         raise HTTPException(status_code=404, detail="知识文档不存在")
     return {"documentId": document_id, "versions": versions}
 
-
 @router.post("/documents/{document_id}/deactivate")
 async def deactivate_knowledge_document(document_id: str) -> dict[str, Any]:
+    """停用一份知识文档，使其不再参与检索。"""
+
     try:
         count = await run_in_threadpool(deactivate_document, document_id)
     except Exception as exc:
-        logger.exception("knowledge_document_deactivate_failed document_id={}", document_id)
+        logger.exception(
+            "knowledge_document_deactivate_failed document_id={}", document_id
+        )
         raise HTTPException(status_code=500, detail="知识文档停用失败") from exc
     if count == 0:
         raise HTTPException(status_code=404, detail="没有可停用的知识文档")
     return {"documentId": document_id, "status": "inactive", "versions": count}
-
 
 @router.post("/documents/{document_id}/rebuild", status_code=status.HTTP_201_CREATED)
 async def rebuild_knowledge_document(
     document_id: str,
     file: UploadFile = File(...),
     uploaded_by: int = Query(default=0, alias="uploadedBy", ge=0),
-    effective_from: str | None = Query(default=None, alias="effectiveFrom", max_length=40),
+    effective_from: str | None = Query(
+        default=None, alias="effectiveFrom", max_length=40
+    ),
     expires_at: str | None = Query(default=None, alias="expiresAt", max_length=40),
 ) -> dict[str, Any]:
+    """用新文件重建指定知识文档，并强制替换已有版本。"""
+
     filename = Path(file.filename or "").name
     try:
         content = await file.read()
@@ -391,19 +859,21 @@ async def rebuild_knowledge_document(
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("knowledge_document_rebuild_failed document_id={}", document_id)
+        logger.exception(
+            "knowledge_document_rebuild_failed document_id={}", document_id
+        )
         raise HTTPException(status_code=500, detail="知识文档重建失败") from exc
-
 
 @router.delete("/documents/{document_id}")
 async def delete_knowledge_document(document_id: str) -> dict[str, Any]:
+    """从知识库删除一份文档的全部版本。"""
+
     try:
         count = await run_in_threadpool(delete_document, document_id)
     except Exception as exc:
         logger.exception("knowledge_document_delete_failed document_id={}", document_id)
         raise HTTPException(status_code=500, detail="知识文档删除失败") from exc
     return {"documentId": document_id, "deletedVersions": count}
-
 
 @router.delete("/memory/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation_memory(
@@ -419,377 +889,8 @@ async def delete_conversation_memory(
         # Java 已完成归属校验；userId 只用于构造隔离的 LangGraph thread key。
         await checkpointer.adelete_thread(thread_id_for(user_id, conversation_id))
     except Exception:  # noqa: BLE001 - saver backends expose heterogeneous errors
-        logger.exception("conversation_memory_delete_failed conversation_id={}", conversation_id)
+        logger.exception(
+            "conversation_memory_delete_failed conversation_id={}", conversation_id
+        )
         raise HTTPException(status_code=500, detail="会话记忆清理失败") from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-async def _chat_events(
-    *,
-    graph_instance: Any,
-    graph_input: Any,
-    context: HospitalToolContext,
-    config: dict[str, Any],
-    conversation_id: str,
-    fast_mode: bool,
-    request_id: str | None,
-    thread_id: str,
-    checkpoint_hit: bool,
-    rehydrated: bool,
-    resume_pending: list[dict[str, Any]] | None = None,
-) -> AsyncIterator[str]:
-    """/stream 与 /resume 共用的 SSE 事件流。
-
-    resume_pending 非空表示这是确认卡片挂起期间的旁路回答：正文流完后不发 done，
-    而是重新发出 confirm，让卡片继续留在患者面前。
-    """
-
-    started_at = perf_counter()
-    trace = begin_context_trace(
-        request_id=request_id,
-        thread_id=thread_id,
-        mode="fast" if fast_mode else "normal",
-        checkpoint_hit=checkpoint_hit,
-        rehydrated=rehydrated,
-    )
-    first_token_at: float | None = None
-    yield _sse({"type": "status", "content": "正在分析您的问题…"})
-    graph_state: dict[str, Any] = {}
-    streamed_reply = False
-    selected_agents: list[str] = []
-    retrieval_status_sent = False
-    final_status_sent = False
-    plan_status_sent = False
-    try:
-        async for part in _stream_graph(graph_instance, graph_input, context, config):
-            _merge_stream_state(graph_state, part)
-            incoming_agents = graph_state.get("selected_agents") or []
-            selected_agents = [
-                agent for agent in incoming_agents if isinstance(agent, str)
-            ]
-
-            if not fast_mode and len(selected_agents) >= 2 and not plan_status_sent:
-                # 多意图回合会先经过 plan_node 拆子目标，给患者一个明确的等待提示。
-                plan_status_sent = True
-                yield _sse({"type": "status", "content": "正在拆解您的请求…"})
-
-            if not fast_mode and "knowledge" in selected_agents and not retrieval_status_sent:
-                retrieval_status_sent = True
-                yield _sse({"type": "status", "content": "正在检索相关资料…"})
-
-            if part.get("type") != "messages":
-                continue
-            if part.get("ns"):
-                # 嵌套 Agent（网页检索、业务工具）的模型分片属于实现细节，
-                # 只转发根图节点自己产生的消息。
-                continue
-            data = part.get("data")
-            if not isinstance(data, (list, tuple)) or len(data) != 2:
-                continue
-            message_chunk, metadata = data
-            if not isinstance(metadata, dict):
-                continue
-            node_name = metadata.get("langgraph_node")
-            visible_nodes = _stream_visible_nodes(selected_agents, fast_mode)
-            if node_name not in visible_nodes or not _is_streamable_message(message_chunk):
-                continue
-            content = _text_from_message_chunk(message_chunk)
-            if not fast_mode and "knowledge" in selected_agents and not final_status_sent:
-                final_status_sent = True
-                yield _sse({"type": "status", "content": "正在整理答案…"})
-            if first_token_at is None:
-                first_token_at = perf_counter()
-                trace.first_token_ms = round((first_token_at - started_at) * 1000)
-                logger.info(
-                    "chat_stream_first_token conversation_id={} elapsed_ms={}",
-                    conversation_id,
-                    round((first_token_at - started_at) * 1000),
-                )
-            streamed_reply = True
-            yield _sse({"type": "token", "content": content})
-
-        # 写工具挂起时根图不会产出 final_reply，必须在取回复之前先判断有没有待确认项。
-        pending = await _pending_confirmations(graph_instance, config)
-        if pending:
-            confirmation = pending[0]
-            logger.info(
-                "chat_stream_awaiting_confirmation conversation_id={} kind={} interrupt_id={} pending_count={}",
-                conversation_id,
-                confirmation.get("kind"),
-                confirmation.get("id"),
-                len(pending),
-            )
-            yield _sse({
-                "type": "confirm",
-                "conversationId": conversation_id,
-                "kind": confirmation.get("kind"),
-                "prompt": confirmation.get("prompt"),
-                "detail": confirmation.get("detail") or {},
-                "interruptId": confirmation.get("id"),
-            })
-            trace.finish()
-            return
-
-        response = _response_from_state(conversation_id, graph_state)
-    except HTTPException as exc:
-        yield _sse({
-            "type": "error",
-            "code": "AI_CHAT_FAILED",
-            "message": str(exc.detail),
-        })
-        trace.finish(error_code="AI_CHAT_FAILED")
-        return
-    except asyncio.CancelledError:
-        logger.info("chat_stream_cancelled conversation_id={}", conversation_id)
-        trace.finish(error_code="AI_STREAM_CANCELLED")
-        raise
-    except Exception:  # noqa: BLE001 - stream boundary maps provider failures to SSE
-        logger.exception("chat_stream_failed conversation_id={}", conversation_id)
-        yield _sse({
-            "type": "error",
-            "code": "AI_CHAT_FAILED",
-            "message": "AI 对话处理失败，请稍后再试",
-        })
-        trace.finish(error_code="AI_CHAT_FAILED")
-        return
-
-    for source in response.sources:
-        yield _sse({"type": "citation", "sources": [source]})
-    if not streamed_reply:
-        # 如果服务提供方不提供令牌片段，则发送一个完整令牌以保持协议一致，
-        # 避免返回空答案。
-        yield _sse({"type": "token", "content": response.reply})
-    if resume_pending:
-        # 旁路回答结束后把原来的确认卡片重新交还给患者；done 会让前端结束本轮，不能发。
-        logger.info(
-            "chat_stream_side_reply_reissued_confirmation conversation_id={} interrupt_id={}",
-            conversation_id,
-            resume_pending[0].get("id"),
-        )
-        async for event in _confirmation_stream(conversation_id, resume_pending):
-            yield event
-        trace.finish()
-        return
-    yield _sse({
-        "type": "done",
-        **response.model_dump(by_alias=True),
-    })
-    logger.info(
-        "chat_stream_completed conversation_id={} elapsed_ms={} first_token_ms={}",
-        conversation_id,
-        round((perf_counter() - started_at) * 1000),
-        round((first_token_at - started_at) * 1000) if first_token_at is not None else None,
-    )
-    trace.finish()
-
-
-def _event_stream(events: AsyncIterator[str]) -> StreamingResponse:
-    return StreamingResponse(
-        events,
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-_SIDE_REPLY_STATE_FIELDS = ("summary", "patient_id")
-
-
-def _side_reply_state(
-    request: ChatRequest, delegation: DelegationContext, snapshot: Any | None
-) -> dict[str, Any]:
-    """卡片挂起期间的旁路回答输入：沿用 checkpoint 里的历史与摘要，但不写回 thread。
-
-    被 interrupt 的 superstep 还没提交，这时 update_state 不安全；旁路回答只跑无
-    checkpointer 的图，消息以 Java 侧持久化的会话记录为准。
-    """
-
-    values = getattr(snapshot, "values", None)
-    values = values if isinstance(values, dict) else {}
-    history = [
-        message for message in (values.get("messages") or [])
-        if isinstance(message, (HumanMessage, AIMessage))
-    ]
-    state = _initial_state(request, delegation)
-    state["messages"] = [*history, *state["messages"]]
-    for field in _SIDE_REPLY_STATE_FIELDS:
-        if values.get(field) is not None:
-            state.setdefault(field, values[field])
-    return state
-
-
-def _pending_turn_response(
-    request: ChatRequest,
-    delegation: DelegationContext,
-    graph_instance: Any,
-    config: dict[str, Any],
-    snapshot: Any | None,
-    pending: list[dict[str, Any]],
-) -> StreamingResponse:
-    """确认卡片挂起时收到新消息：短句确认/否决直接续跑，其余先旁路回答再交还卡片。"""
-
-    thread_id = config["configurable"]["thread_id"]
-    decision = decision_from_text(request.message)
-    if decision is not None:
-        command, error_code, error_message = _resume_command(decision, None, pending)
-        if command is None:
-            logger.info(
-                "chat_stream_text_decision_unresolved conversation_id={} pending_count={} code={}",
-                request.conversation_id,
-                len(pending),
-                error_code,
-            )
-            trace = begin_context_trace(
-                request_id=current_request_id(),
-                thread_id=thread_id,
-                mode="normal",
-                checkpoint_hit=True,
-                rehydrated=False,
-            )
-            trace.node_names.add("resume_validation")
-            trace.finish(error_code=error_code or "AI_RESUME_CONFLICT")
-            return _event_stream(
-                _sse_error(error_code or "AI_RESUME_CONFLICT", error_message or "请重新发起挂号")
-            )
-        logger.info(
-            "chat_stream_text_decision conversation_id={} decision={} interrupt_id={}",
-            request.conversation_id,
-            decision,
-            pending[0].get("id"),
-        )
-        return _event_stream(_chat_events(
-            graph_instance=graph_instance,
-            graph_input=command,
-            context=_runtime_context(request.conversation_id, delegation, writes_enabled=True),
-            config=config,
-            conversation_id=request.conversation_id,
-            fast_mode=False,
-            request_id=current_request_id(),
-            thread_id=thread_id,
-            checkpoint_hit=True,
-            rehydrated=False,
-        ))
-
-    logger.info(
-        "chat_stream_side_reply_while_pending conversation_id={} pending_count={} ids={}",
-        request.conversation_id,
-        len(pending),
-        [item.get("id") for item in pending],
-    )
-    # 只读上下文、禁用写工具：旁路回答不能再触发第二张卡片，也不能碰挂起的 thread。
-    return _event_stream(_chat_events(
-        graph_instance=graph,
-        graph_input=_side_reply_state(request, delegation, snapshot),
-        context=_runtime_context(request.conversation_id, delegation, writes_enabled=False),
-        config=config,
-        conversation_id=request.conversation_id,
-        fast_mode=False,
-        request_id=current_request_id(),
-        thread_id=thread_id,
-        checkpoint_hit=True,
-        rehydrated=False,
-        resume_pending=pending,
-    ))
-
-
-@router.post("/stream")
-async def chat_stream(
-    request: ChatRequest,
-    delegation: DelegationContext = Depends(verify_delegation_token),
-) -> StreamingResponse:
-    """运行对话图，并通过 SSE 暴露增量模型输出。"""
-
-    _assert_request_identity(request, delegation)
-    graph_instance = _graph_for(request.memory_enabled, request.fast_mode)
-    writes_enabled = _writes_enabled(graph_instance, request.fast_mode)
-    config = _graph_config(request.conversation_id, delegation)
-    has_checkpointer = getattr(graph_instance, "checkpointer", None) is not None
-    snapshot = await _checkpoint_snapshot(graph_instance, config)
-    checkpoint_hit = _checkpoint_has_messages(snapshot)
-    if has_checkpointer:
-        pending = _confirmations_from_snapshot(snapshot)
-        if pending:
-            return _pending_turn_response(
-                request, delegation, graph_instance, config, snapshot, pending
-            )
-
-    graph_input = _initial_state(request, delegation)
-    rehydrated = False
-    if has_checkpointer and not checkpoint_hit and request.recovery_messages:
-        graph_input = _recovery_state(request, delegation)
-        rehydrated = True
-        logger.info(
-            "chat_checkpoint_rehydrated conversation_id={} message_count={}",
-            request.conversation_id,
-            len(request.recovery_messages),
-        )
-    return _event_stream(_chat_events(
-        graph_instance=graph_instance,
-        graph_input=graph_input,
-        context=_runtime_context(
-            request.conversation_id, delegation, writes_enabled=writes_enabled
-        ),
-        config=config,
-        conversation_id=request.conversation_id,
-        fast_mode=request.fast_mode,
-        request_id=current_request_id(),
-        thread_id=config["configurable"]["thread_id"],
-        checkpoint_hit=checkpoint_hit,
-        rehydrated=rehydrated,
-    ))
-
-
-@router.post("/resume")
-async def chat_resume(
-    request: ChatResumeRequest,
-    delegation: DelegationContext = Depends(verify_delegation_token),
-) -> StreamingResponse:
-    """患者在确认卡片上作出选择后，续跑同一个 thread 上被挂起的那一轮。"""
-
-    _assert_request_identity(request, delegation)
-    # 恢复必须落在带 checkpointer 的正常图上：快速模式没有写工具，无记忆图无从恢复。
-    graph_instance = _graph_for(memory_enabled=True, fast_mode=False)
-    if getattr(graph_instance, "checkpointer", None) is None:
-        raise HTTPException(status_code=409, detail="会话已过期，请重新发起办理")
-
-    config = _graph_config(request.conversation_id, delegation)
-    pending = await _pending_confirmations(graph_instance, config)
-    logger.info(
-        "chat_resume_pending conversation_id={} pending_count={} ids={} kinds={} interrupt_id={}",
-        request.conversation_id,
-        len(pending),
-        [item.get("id") for item in pending],
-        [item.get("kind") for item in pending],
-        request.interrupt_id,
-    )
-    command, error_code, error_message = _resume_command(
-        request.decision, request.interrupt_id, pending
-    )
-    if command is None:
-        trace = begin_context_trace(
-            request_id=current_request_id(),
-            thread_id=config["configurable"]["thread_id"],
-            mode="normal",
-            checkpoint_hit=bool(pending),
-            rehydrated=False,
-        )
-        trace.node_names.add("resume_validation")
-        trace.finish(error_code=error_code or "AI_RESUME_STALE")
-        return _event_stream(_sse_error(error_code or "AI_RESUME_STALE", error_message or "请重新发起挂号"))
-
-    return _event_stream(_chat_events(
-        graph_instance=graph_instance,
-        graph_input=command,
-        context=_runtime_context(
-            request.conversation_id, delegation, writes_enabled=True
-        ),
-        config=config,
-        conversation_id=request.conversation_id,
-        fast_mode=False,
-        request_id=current_request_id(),
-        thread_id=config["configurable"]["thread_id"],
-        checkpoint_hit=True,
-        rehydrated=False,
-    ))

@@ -1,4 +1,5 @@
-##该节点主要是简单聊天，不需要专业知识，不需要工具，只需要根据患者的问题，给出回复即可。
+"""日常交流节点：在意图路由选中 chat 时回答无需院内实时数据的话题。"""
+
 from datetime import datetime
 
 from langgraph.runtime import Runtime
@@ -57,6 +58,7 @@ def build_chat_system_prompt(now: datetime) -> str:
 
 
 def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None) -> dict:
+    """只处理闲聊部分；回复暂存为 chat_reply，交给 final_node 统一输出。"""
     ##任务一：看起始节点是否把 chat 写进 selected_agents
     selected = state.get("selected_agents") or []
     if "chat" not in selected:
@@ -67,8 +69,7 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
         return {"chat_reply": router_response.strip()}
 
     ##任务二：调用闲聊 agent，把回复写入 chat_reply 供汇总节点使用
-    # ``invoke`` waits for the whole model answer. ``stream`` lets LangGraph's
-    # messages stream forward each model chunk immediately to the SSE route.
+    # stream 会把模型分片逐个送到 SSE；invoke 则要等整段答案结束才能返回。
     chunks: list[str] = []
     now = runtime.context.now if runtime is not None else clinic_now()
     try:

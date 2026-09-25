@@ -1,4 +1,9 @@
-"""Python 到 Java 内部 Tool API 的受控客户端。"""
+"""Python 调用 Java 内部医院业务接口的统一出口。
+
+Python 负责理解问题和选择工具，Java 负责科室、号源、挂号、偏好等权威数据。
+每次调用都把 Java 签发的委托 JWT 放入 Authorization 请求头；Java 再校验
+用户权限和业务规则。这里把 Java 的 JSON 响应转换为 Python 可用的数据对象。
+"""
 
 from dataclasses import dataclass
 from datetime import date
@@ -37,6 +42,8 @@ CLINICAL_CONTEXT_SCOPES = frozenset({
 
 @dataclass(frozen=True)
 class Department:
+    """Java 返回的科室资料。"""
+
     id: int
     name: str
     code: str | None = None
@@ -44,6 +51,8 @@ class Department:
 
 @dataclass(frozen=True)
 class Staff:
+    """Java 返回的医生或其他工作人员资料。"""
+
     id: int
     name: str
     title: str | None = None
@@ -52,6 +61,8 @@ class Staff:
 
 @dataclass(frozen=True)
 class Schedule:
+    """一个可查询的出诊排班及剩余号源。"""
+
     id: int
     dept_name: str | None = None
     staff_name: str | None = None
@@ -64,6 +75,8 @@ class Schedule:
 
 @dataclass(frozen=True)
 class Registration:
+    """患者已有的一笔挂号记录。"""
+
     id: int
     reg_no: str | None = None
     dept_name: str | None = None
@@ -76,6 +89,8 @@ class Registration:
 
 @dataclass(frozen=True)
 class PatientMemory:
+    """Java 持久化的患者偏好记录。"""
+
     memory_id: str
     type: str
     content: str
@@ -84,6 +99,7 @@ class PatientMemory:
 
 
 def _required_int(item: dict[str, Any], key: str) -> int:
+    """关键 ID 缺失或类型不对时拒绝使用该响应，避免误指向别的记录。"""
     value = item.get(key)
     if not isinstance(value, int):
         raise JavaToolClientError(f"Java Tool API returned an invalid {key}")
@@ -91,11 +107,13 @@ def _required_int(item: dict[str, Any], key: str) -> int:
 
 
 def _optional_int(item: dict[str, Any], key: str) -> int | None:
+    """读取 Java 响应中可缺省的整数；缺失时保留空值。"""
     value = item.get(key)
     return value if isinstance(value, int) else None
 
 
 def _optional_str(item: dict[str, Any], key: str) -> str | None:
+    """把可缺省的字段转为非空文字，布尔值不当成文字使用。"""
     value = item.get(key)
     if value is None or isinstance(value, bool):
         return None
@@ -104,6 +122,7 @@ def _optional_str(item: dict[str, Any], key: str) -> str | None:
 
 
 def _to_schedule(item: dict[str, Any]) -> Schedule:
+    """把 Java 的驼峰 JSON 排班数据转换成 Python 的 Schedule 对象。"""
     return Schedule(
         id=_required_int(item, "id"),
         dept_name=_optional_str(item, "deptName"),
@@ -393,6 +412,7 @@ class JavaToolClient:
         request_id: str | None,
         params: dict[str, Any] | None = None,
     ) -> Any:
+        """发起带委托身份的 GET 请求，统一处理网络错误和返回格式。"""
         headers = self._headers(delegated_token, request_id)
         query = {key: value for key, value in (params or {}).items() if value is not None}
         try:
@@ -413,6 +433,7 @@ class JavaToolClient:
         request_id: str | None,
         payload: dict[str, Any],
     ) -> Any:
+        """发起业务写入请求；具体能否成功仍由 Java 决定。"""
         headers = self._headers(delegated_token, request_id)
         try:
             with httpx.Client(
@@ -439,6 +460,7 @@ class JavaToolClient:
         return self._unwrap(response)
 
     def _headers(self, delegated_token: str, request_id: str | None) -> dict[str, str]:
+        """回调 Java 时复用本次委托令牌和追踪号。"""
         if not delegated_token.strip():
             raise JavaToolClientError("delegated token is missing")
         headers = {"Authorization": f"Bearer {delegated_token}"}

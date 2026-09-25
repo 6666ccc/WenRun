@@ -1,3 +1,5 @@
+"""启动 Python HTTP 服务：注册接口、连接会话检查点、给每个请求记录追踪号。"""
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 from time import perf_counter
@@ -6,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from loguru import logger
 
+# 部分下游模块导入时就会创建模型，必须先把本项目的环境变量读进来。
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from app.api.routes import chat, health, metrics
@@ -22,6 +25,7 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    """服务启动时建立可恢复的会话图；关闭时释放检查点连接。"""
     async with memory_lifespan():
         yield
 
@@ -35,6 +39,7 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_trace(request: Request, call_next):
+        # 同一个请求号贯穿 Python 日志，并原样回给调用方，方便跨 Java/Python 查问题。
         request_id = new_request_id(request.headers.get("X-Request-Id"))
         token = set_request_id(request_id)
         started_at = perf_counter()
@@ -45,6 +50,7 @@ def create_app() -> FastAPI:
             response.headers["X-Request-Id"] = request_id
             return response
         finally:
+            # 即使接口报错，也记录耗时并清理当前请求的上下文，避免串到下一个请求。
             duration_ms = int((perf_counter() - started_at) * 1000)
             logger.info(
                 "http_request request_id={} method={} path={} status={} duration_ms={}",

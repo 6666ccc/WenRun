@@ -1,4 +1,8 @@
-"""规则与轻量模型组成的本地级联路由。"""
+"""在调用大模型识别意图前，先尝试本地的两层判断。
+
+明确语句由规则直接分类；其他语句交给轻量分类器。两者都拿不准时，
+返回“需要大模型”，由 begin_node 结合对话历史继续判断。
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,8 @@ LocalRouteStage = Literal["rules", "lightweight_model", "llm_required"]
 
 @dataclass(frozen=True)
 class LocalRouteResult:
+    """本地判断的标签、可信度和升级原因，供 begin_node 决定下一步。"""
+
     accepted: bool
     selected_agents: list[AgentName] = field(default_factory=list)
     stage: LocalRouteStage = "llm_required"

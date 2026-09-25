@@ -139,7 +139,7 @@ flowchart TD
 
 ## 5. knowledge_node 知识路径
 
-知识节点先走确定性安全判断，再查院内 RAG；只有院内资料未命中时才允许联网兜底。
+知识节点先走确定性安全判断，再查院内 RAG；只有院内资料未命中时才允许联网兜底。两条回答路径都允许模型按需调用本人临床摘录 Tool；Tool 只接受字段范围，患者身份由 Java 委托令牌确定。
 
 ```mermaid
 flowchart TD
@@ -153,9 +153,13 @@ flowchart TD
     F -->|否| H["Chroma Retriever"]
     H --> I["过滤无效、不安全<br/>或过期资料"]
     I --> J{"院内资料命中"}
-    J -->|是| K["基础模型流式回答<br/>只能依据院内资料"]
+    J -->|是| K["模型流式回答<br/>医学依据限于院内资料"]
+    K -->|确需本人记录| X["get_my_clinical_context<br/>按范围读取 Java 摘录"]
+    X --> K
     K --> L["knowledge_reply<br/>+ rag_sources"]
-    J -->|否| M["Web Agent 整理短检索词"]
+    J -->|否| M["Agent 判断是否需要本人记录<br/>并整理短检索词"]
+    M -->|确需本人记录| Y["get_my_clinical_context"]
+    Y --> M
     M --> N["调用 web_search"]
     N --> O["只依据网页片段回答<br/>附真实标题和链接"]
     O --> P["knowledge_reply<br/>rag_sources 为空"]

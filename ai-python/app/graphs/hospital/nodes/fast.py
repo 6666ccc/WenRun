@@ -1,4 +1,6 @@
-"""快速模式：单个全能 Agent 直接作答，跳过意图路由与汇总。
+"""快速模式：单个节点直接作答，跳过普通图的意图路由与业务节点。
+
+这里只能使用公开网页搜索，不能查询本院实时数据，也没有挂号/退号写工具。
 
 工具循环写在本节点内部而不是用嵌套 create_agent：只有根图节点产生的模型分片
 才会被 SSE 路由转发，嵌套子图的分片会被命名空间过滤掉，那样快速模式就没有流式了。
@@ -14,7 +16,6 @@ from langchain_core.messages import (
 from langgraph.runtime import Runtime
 from loguru import logger
 
-from app.graphs.hospital.clinical_need import ClinicalRequest, clinical_request, latest_user_text
 from app.graphs.hospital.context_builder import bounded_system_message, build_context
 from app.graphs.hospital.memory import reset_turn_fields
 from app.graphs.hospital.state import State
@@ -26,7 +27,7 @@ from app.graphs.hospital.tools.context import (
 from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
 
-FAST_TOOLS = [web_search]
+FAST_TOOLS = [web_search]  # 与普通医院业务 Agent 的工具名单独立
 MAX_TOOL_ITERATIONS = 3
 EMPTY_REPLY_FALLBACK = "抱歉，我这次没能给出有效回答，请换个说法再问一次。"
 
@@ -66,6 +67,8 @@ FAST_SYSTEM_PROMPT = """你是温润诊所患者端的快速助手。患者主�
 - 「今天星期几」→ 按系统当前时间直接回答，不联网。
 - 「几点了」→ 按系统当前时间直接回答，不联网。
 - 「感冒吃什么药」→ 调用 web_search，按片段作答并列出参考来源。
+- 「我的胸有点闷，帮我查一下正常血压是多少」→ 这是通用标准问题，不是查询本人已存血压；只检索通用资料，同时关注症状描述。
+- 「俺上次的血压是多少」→ 快速模式不能读取本人档案，请关闭快速模式后再问；不要联网猜测。
 - 「儿科在几楼」→ 说明快速模式查不了本院内部信息，请关闭快速模式再问。不联网，不编造楼层。
 - 「明天下午张医生还有号吗」→ 说明快速模式查不了实时号源，请关闭快速模式再问，或到挂号页面查看。
 - 「帮我挂明天内科」→ 说明不能代为挂号，请到挂号页面办理。
@@ -107,25 +110,8 @@ def _run_tool_call(call: dict) -> str:
     return f"（没有名为 {name} 的工具，请直接回答或改用其他工具。）"
 
 
-def _fast_personal_reply(request: ClinicalRequest) -> str:
-    personal = request.scopes != ("document_catalog",) and bool(request.scopes)
-    if request.report_selection_required and personal:
-        return (
-            "这个问题需要结合您的个人健康记录，也涉及检查报告。"
-            "快速模式不会读取个人档案，也不会打开报告。"
-            "请关闭快速模式后再问；看报告时请先选定具体的一份。"
-        )
-    if request.report_selection_required:
-        return (
-            "快速模式不能打开检查报告。请关闭快速模式，并先选定具体的一份报告后再问。"
-        )
-    return (
-        "这个问题需要结合您的个人健康记录来看。快速模式不会读取个人档案，"
-        "请关闭快速模式后再问一次，我会只读取和这个问题有关的记录。"
-    )
-
-
 def _fast_result(final_reply: str) -> dict:
+    """把快速模式正文写回图状态，并清掉上一轮普通图的路由结果。"""
     return {
         **reset_turn_fields(),
         "selected_agents": [],
@@ -139,11 +125,8 @@ def _fast_result(final_reply: str) -> dict:
 
 
 def fast_node(state: State, runtime: Runtime[HospitalToolContext] | None = None) -> dict:
-    # 快速模式不读取个人档案。需要指标或报告时直接说明，不把档案交给模型。
-    request = clinical_request(None, latest_user_text(state))
-    if request.needs_personal_records:
-        return _fast_result(_fast_personal_reply(request))
-
+    """让快速助手在有限次公开检索后给出正文，并写回图状态。"""
+    # 快速模式根本不挂载个人档案工具，由模型根据问题语义说明能力边界。
     bound_model = model.bind_tools(FAST_TOOLS)
     now = runtime.context.now if runtime is not None else clinic_now()
     messages = [

@@ -1,5 +1,6 @@
 """医院图使用的 LangChain Tool。HTTP 适配器在 app.services，不放在本包。"""
 
+from app.graphs.hospital.tools.clinical_context import get_my_clinical_context
 from app.graphs.hospital.tools.context import HospitalToolContext
 from app.graphs.hospital.tools.departments import list_departments
 from app.graphs.hospital.tools.knowledge_base import (
@@ -21,6 +22,7 @@ __all__ = [
     "cancel_registration",
     "create_registration",
     "forget_preference",
+    "get_my_clinical_context",
     "list_departments",
     "list_doctors",
     "list_my_registrations",

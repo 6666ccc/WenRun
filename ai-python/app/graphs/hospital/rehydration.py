@@ -1,4 +1,4 @@
-"""Build a bounded LangGraph input after an operational checkpoint miss."""
+"""检查点没有历史时，用 Java 保存的最近消息有限度地补回上下文。"""
 
 from collections.abc import Sequence
 from typing import Protocol
@@ -10,6 +10,8 @@ MAX_RECOVERY_TOKENS = 4_000
 
 
 class RecoveryMessageLike(Protocol):
+    """恢复消息只需提供角色、内容和可选 ID，无需依赖具体模型类。"""
+
     id: int | None
     role: str
     content: str
@@ -23,7 +25,7 @@ def build_rehydrated_messages(
     *,
     max_tokens: int = MAX_RECOVERY_TOKENS,
 ) -> list[BaseMessage]:
-    """Deduplicate and keep the newest authoritative messages inside a token budget."""
+    """去重并优先保留较新的消息，最后附上本轮用户消息。"""
 
     current = HumanMessage(content=current_message)
     unique: list[RecoveryMessageLike] = []

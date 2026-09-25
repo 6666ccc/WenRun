@@ -1,4 +1,9 @@
-"""文档发布生命周期：结构化预处理 → Chroma，并同步 registry。"""
+"""院内知识文档的发布与版本管理入口。
+
+上传文件先解析、清理、分类、切成小段，再生成向量存入 Chroma 供相似度检索。
+同一文档可以有多个版本；新版本成功发布后旧版本才失效。可选的 MySQL registry
+记录权威版本状态，Chroma 则是可重建的检索索引。
+"""
 
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -44,12 +49,14 @@ SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
 
 
 def _document_records(document_id: str) -> list[dict]:
+    """优先从 MySQL 版本登记表读取；未启用时从 Chroma 元数据读取。"""
     if registry_enabled():
         return list_registry_document_records(document_id)
     return list_chroma_document_records(document_id)
 
 
 def _normalize_timestamp(value: str | None, *, field: str) -> str | None:
+    """把上传参数中的时间统一转成 UTC，供版本生效/过期判断使用。"""
     if value is None:
         return None
     try:
@@ -63,6 +70,7 @@ def _normalize_timestamp(value: str | None, *, field: str) -> str | None:
 
 # 步骤一：读取上传文件的二进制内容，并检查扩展名。
 def _read_file(file: bytes | bytearray | BinaryIO, filename: str) -> bytes:
+    """检查上传格式并统一读取为字节，再交给预处理器解析。"""
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
         supported = ", ".join(sorted(SUPPORTED_SUFFIXES))
@@ -83,7 +91,7 @@ def _read_file(file: bytes | bytearray | BinaryIO, filename: str) -> bytes:
 
 @lru_cache
 def _get_ingestion_service() -> IngestionService:
-    """Construct the new preprocessor lazily so app imports load no ML runtime."""
+    """首次真正上传时才创建预处理器，避免聊天服务导入时加载分词模型。"""
 
     return IngestionService()
 
@@ -93,6 +101,7 @@ def add_hospital_documents(
     documents: list[Document],
     ids: list[str] | None = None,
 ) -> list[str]:
+    """把清理过元数据的文档片段写进院内向量集合。"""
     if not documents:
         raise ValueError("没有可写入的文档片段")
 
@@ -116,6 +125,7 @@ def ingest_file(
     filename: str,
     **lifecycle: object,
 ) -> dict:
+    """上传接口的简短入口，实际发布与版本处理交给 publish_document。"""
     return publish_document(file, filename, **lifecycle)
 
 
@@ -129,7 +139,7 @@ def publish_document(
     expires_at: str | None = None,
     force_rebuild: bool = False,
 ) -> dict:
-    """Publish one version, idempotently by checksum, then supersede older versions."""
+    """发布一个文档版本；内容未变化时复用已有版本，成功后替换旧版本。"""
 
     data = _read_file(file, filename)
     checksum = sha256(data).hexdigest()
@@ -153,6 +163,7 @@ def publish_document(
             raise ValueError("expiresAt 必须晚于 effectiveFrom")
     existing = _document_records(logical_id)
     if not force_rebuild:
+        # 文件内容的 SHA-256 相同就不重复生成向量，也不增加版本号。
         duplicate = next(
             (
                 item
@@ -213,6 +224,7 @@ def publish_document(
     written_ids: list[str] = []
     registry_started = False
     try:
+        # 先登记“处理中”，再写向量；全部完成后才把旧版本标记为被替代。
         registry_started = begin_publish(metadata, file_size=len(data))
         written_ids = add_hospital_documents(chunks, ids=chunk_ids)
         for record in existing:
@@ -223,8 +235,7 @@ def publish_document(
                 changed.append((old_version, old_status))
         complete_publish(logical_id, version, len(written_ids))
     except Exception as exc:
-        # Compensate partial publication: remove the new points and restore any
-        # older versions changed before the failure.
+        # 发布中途失败时撤销新向量、恢复旧版本状态，避免半成品进入检索。
         if written_ids:
             delete_document_points(logical_id, version=version)
         for old_version, old_status in changed:
@@ -233,8 +244,7 @@ def publish_document(
             try:
                 mark_publish_failed(logical_id, version, type(exc).__name__)
             except Exception as registry_exc:  # noqa: BLE001 - preserve original failure
-                # The failed registry write is itself reconciliation work; preserve
-                # the original publication failure for the caller.
+                # 连“发布失败”标记都写不进去时，仍向调用方保留最初的发布异常。
                 logger.warning(
                     "rag_registry_failure_marker_failed document_id={} version={} error={}",
                     logical_id,
@@ -255,10 +265,12 @@ def publish_document(
 
 
 def get_document_versions(document_id: str) -> list[dict]:
+    """列出一份文档的所有已登记版本及状态。"""
     return _document_records(document_id)
 
 
 def deactivate_document(document_id: str) -> int:
+    """停用当前有效版本，让后续检索不再使用它们。"""
     records = _document_records(document_id)
     active = [item for item in records if item.get("status") == "active"]
     changed: list[int] = []
@@ -271,8 +283,7 @@ def deactivate_document(document_id: str) -> int:
         if active:
             mark_document_status(document_id, "inactive")
     except Exception:
-        # Keep the vector index usable when either a partial Chroma update or
-        # the authoritative registry update fails.
+        # 部分 Chroma 更新或权威登记表更新失败时，恢复旧状态以保持索引可用。
         for version in changed:
             set_document_status(document_id, "active", version=version)
         raise
@@ -280,7 +291,7 @@ def deactivate_document(document_id: str) -> int:
 
 
 def delete_document(document_id: str) -> int:
-    """Delete all vector points, restoring statuses if Chroma deletion fails."""
+    """删除所有版本的检索向量；失败时尽量恢复原状态以免误检索。"""
 
     records = _document_records(document_id)
     if not records:
@@ -307,7 +318,7 @@ def delete_document(document_id: str) -> int:
         if registry_marked_deleting:
             try:
                 if points_deleted:
-                    # The index is already gone: stay fail-closed and queue repair.
+                    # 向量已删除时先保持停用，并标记需要后续修复，避免误显示为有效。
                     mark_document_status(
                         document_id, "inactive", sync_status="reconcile_required"
                     )

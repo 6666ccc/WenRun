@@ -1,3 +1,8 @@
+"""请求追踪号和日志脱敏。
+
+同一次 HTTP 请求中的各节点都可读取追踪号；写日志时遮住 API 密钥和令牌。
+"""
+
 import re
 import sys
 from contextvars import ContextVar
@@ -20,24 +25,29 @@ def new_request_id(incoming: str | None) -> str:
 
 
 def set_request_id(request_id: str):
+    """把追踪号放进当前异步请求自己的上下文。"""
     return _REQUEST_ID.set(request_id)
 
 
 def reset_request_id(token) -> None:
+    """请求结束时恢复原上下文，避免影响其他请求。"""
     _REQUEST_ID.reset(token)
 
 
 def current_request_id() -> str | None:
+    """读取本次请求的追踪号，供工具回调 Java 时一并传递。"""
     return _REQUEST_ID.get()
 
 
 def sanitize(text: str | None) -> str:
+    """遮住日志文本中常见的认证请求头和 Bearer 令牌。"""
     value = "" if text is None else str(text)
     value = _SENSITIVE_HEADER.sub(r"\1=[redacted]", value)
     return _BEARER.sub("Bearer [redacted]", value)
 
 
 def configure_logging() -> None:
+    """在服务启动时注册统一的日志输出和脱敏过滤。"""
     logger.remove()
     logger.add(
         sys.stderr,

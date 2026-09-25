@@ -1,4 +1,8 @@
-"""Fail-closed safety checks for untrusted RAG chunks."""
+"""院内检索结果进入模型前的最后一道筛选。
+
+只有状态有效、在生效期内、正文非空且未命中明显提示注入文本的片段才保留。
+文档正文是参考资料，即使包含“忽略指令”之类的话也不能改变助手规则。
+"""
 
 import re
 from datetime import UTC, datetime
@@ -25,10 +29,12 @@ def sanitize_rag_text(value: str, *, limit: int = MAX_RAG_CHUNK_CHARS) -> str:
 
 
 def has_prompt_injection_risk(value: str) -> bool:
+    """识别常见的“让模型改听文档指令”文本。"""
     return bool(_PROMPT_INJECTION.search(value))
 
 
 def _parse_time(value: object) -> datetime | None:
+    """把文档元数据里的时间转为 UTC；缺失或格式错误时返回空值。"""
     if not isinstance(value, str) or not value.strip():
         return None
     try:
@@ -56,7 +62,7 @@ def is_active_document(metadata: dict, *, now: datetime | None = None) -> bool:
 def prepare_rag_documents(
     documents: list[Document], *, now: datetime | None = None
 ) -> tuple[list[Document], int]:
-    """Return safe active chunks and the count rejected for injection risk."""
+    """返回可供回答的资料片段，以及因风险文本被丢弃的数量。"""
 
     safe: list[Document] = []
     rejected = 0

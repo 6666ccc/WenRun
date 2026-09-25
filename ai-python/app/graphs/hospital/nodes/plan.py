@@ -1,4 +1,7 @@
-"""多意图回合的按需规划节点：拆子目标、判依赖，不产生面向患者的文本。
+"""一句话同时有多个需求时，拆出各助手的任务并安排先后顺序。
+
+例如“感冒该看哪科，顺便帮我找号源”：knowledge 先给科室建议，
+tools 再依据它查询号源。本节点只做内部规划，不直接回答患者。
 
 只有 begin_node 选中 ≥2 个 Agent 时才会进入本节点。它的输出 ``task_plan`` 决定：
 - 每个 Agent 本轮只需处理的子目标（避免互相抢答或漏答）；
@@ -55,6 +58,8 @@ REPAIR_SYSTEM_PROMPT = """你刚才的规划结果不符合要求。请基于下
 
 
 class PlannedTask(BaseModel):
+    """一个助手要完成的子目标，以及它必须等待哪个助手的结果。"""
+
     model_config = ConfigDict(extra="forbid")
 
     agent: AgentName
@@ -63,6 +68,8 @@ class PlannedTask(BaseModel):
 
 
 class TaskPlan(BaseModel):
+    """整句话拆分出的任务清单。"""
+
     model_config = ConfigDict(extra="forbid")
 
     tasks: list[PlannedTask] = Field(default_factory=list)
@@ -117,11 +124,13 @@ def normalize_plan(plan: TaskPlan | None, selected_agents: list[AgentName]) -> d
 
 
 def _response_text(response: object) -> str:
+    """只取模型返回的纯文本，忽略非字符串内容。"""
     content = getattr(response, "content", "")
     return content.strip() if isinstance(content, str) else ""
 
 
 def _parse_plan(text: str) -> TaskPlan | None:
+    """把模型的 JSON 计划校验成固定结构；不合法时交给修复或降级分支。"""
     if not text:
         return None
     try:
@@ -131,11 +140,13 @@ def _parse_plan(text: str) -> TaskPlan | None:
 
 
 def build_plan_system_prompt(selected_agents: list[AgentName]) -> str:
+    """把本轮允许使用的助手名单写进规划提示词。"""
     # 提示词里含 JSON 花括号，不能用 str.format，否则会被当成占位符。
     return PLAN_SYSTEM_PROMPT.replace("{selected_agents}", ", ".join(selected_agents))
 
 
 def _plan_with_model(messages: list[BaseMessage], selected_agents: list[AgentName]) -> str | None:
+    """请模型把多个意图拆成子任务；模型不可用时返回空。"""
     prompt = build_plan_system_prompt(selected_agents)
     try:
         return _response_text(model.invoke([bounded_system_message(prompt), *messages]))
@@ -147,6 +158,7 @@ def _plan_with_model(messages: list[BaseMessage], selected_agents: list[AgentNam
 def _repair_invalid_json(
     messages: list[BaseMessage], selected_agents: list[AgentName], invalid_output: str
 ) -> str | None:
+    """规划结果不是合法 JSON 时，只允许模型再修正一次格式。"""
     repair_prompt = REPAIR_SYSTEM_PROMPT.format(
         rules=build_plan_system_prompt(selected_agents),
         invalid_output=invalid_output[:2_000],
@@ -159,7 +171,7 @@ def _repair_invalid_json(
 
 
 def plan_node(state: State) -> dict:
-    """为多意图回合生成 task_plan；单意图时不调用模型。"""
+    """为多意图回合生成 task_plan；规划无效时让各助手并行处理。"""
 
     selected_agents = [
         agent for agent in (state.get("selected_agents") or []) if isinstance(agent, str)
@@ -195,22 +207,26 @@ def plan_node(state: State) -> dict:
 
 
 def plan_tasks(state: State) -> list[dict[str, Any]]:
+    """从共享状态中读出已校验的子任务列表。"""
     plan = state.get("task_plan")
     tasks = plan.get("tasks") if isinstance(plan, dict) else None
     return [task for task in (tasks or []) if isinstance(task, dict) and task.get("agent")]
 
 
 def task_for(state: State, agent: AgentName) -> dict[str, Any] | None:
+    """找出分给某个助手的任务。"""
     return next((task for task in plan_tasks(state) if task.get("agent") == agent), None)
 
 
 def task_goal(state: State, agent: AgentName) -> str | None:
+    """返回该助手本轮应处理的目标文字。"""
     task = task_for(state, agent)
     goal = task.get("goal") if task else None
     return goal.strip() if isinstance(goal, str) and goal.strip() else None
 
 
 def depends_on(state: State, agent: AgentName, upstream: AgentName) -> bool:
+    """判断该助手是否必须等另一个助手先完成。"""
     task = task_for(state, agent)
     return bool(task) and upstream in (task.get("depends_on") or [])
 

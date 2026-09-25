@@ -1,4 +1,9 @@
-"""Purpose-aware, token-bounded context assembly for every model-facing node."""
+"""给不同 Agent 准备它“需要且允许看到”的上下文。
+
+上下文包括最近对话、会话摘要、经确认的偏好和当前子任务。模型输入有长度上限，
+因此会按用途筛选并截短旧内容。外部资料和历史文本只作为数据传入，不能冒充系统指令；
+患者临床档案不在此处自动读取，而由知识工具按需查询。
+"""
 
 import json
 from collections.abc import Iterable
@@ -22,6 +27,7 @@ ContextPurpose = Literal["route", "chat", "knowledge", "tools", "fast"]
 
 
 def coerce_summary(value: object) -> ConversationSummary | None:
+    """兼容旧检查点的摘要格式，并把有效数据统一成结构化摘要。"""
     if isinstance(value, ConversationSummary):
         return value
     if isinstance(value, dict):
@@ -30,12 +36,13 @@ def coerce_summary(value: object) -> ConversationSummary | None:
         except ValueError:
             return None
     if isinstance(value, str) and value.strip():
-        # Legacy checkpoints remain readable and are migrated by the next summary pass.
+        # 旧检查点里的字符串摘要仍可读；下次压缩时再迁移为结构化摘要。
         return ConversationSummary(patient_self_reports=[value.strip()], version=1)
     return None
 
 
 def untrusted_context_message(label: str, payload: object) -> HumanMessage:
+    """把来源不可信的资料包成普通数据消息，并明确标记其不具备指令权限。"""
     serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return HumanMessage(
         content=(
@@ -68,21 +75,21 @@ def bounded_system_text(content: str) -> str:
 
 
 def _bounded_tail(messages: Iterable[BaseMessage], budget: int) -> list[BaseMessage]:
+    """优先保留较新的消息；单条太长时截去中间，保留首尾。"""
     candidates = [message for message in messages if not isinstance(message, ToolMessage)]
     kept: list[BaseMessage] = []
     for message in reversed(candidates):
         if count_tokens_approximately([message, *kept]) <= budget:
             kept.insert(0, message)
             continue
-        # The latest message is mandatory. Truncate data, never silently drop the turn.
+        # 最新消息必须保留；太长就截断内容，不能静默丢掉整轮问题。
         if not kept:
             content = getattr(message, "content", "")
             if isinstance(content, str):
                 low, high, best = 0, len(content), ""
                 while low <= high:
                     middle = (low + high) // 2
-                    # Preserve both the start and end of the latest turn. Patients often
-                    # append the most important symptom or confirmation state at the end.
+                    # 首尾都保留：患者常在句尾补充最关键的症状或确认条件。
                     head = (middle * 3) // 5
                     tail = middle - head
                     truncated = content if middle == len(content) else (
@@ -99,6 +106,7 @@ def _bounded_tail(messages: Iterable[BaseMessage], budget: int) -> list[BaseMess
     return kept
 
 
+# 不同助手只拿与职责有关的偏好；意图路由不需要任何长期偏好。
 _MEMORY_TYPES: dict[ContextPurpose, frozenset[str]] = {
     "route": frozenset(),
     "chat": frozenset({"communication_preference", "accessibility_need"}),
@@ -114,6 +122,7 @@ _CHAT_ACCESS_WORDS = ("看不清", "听不清", "大字", "语音", "读屏", "�
 
 
 def _latest_user_text(state: State) -> str:
+    """长期偏好筛选只参考患者最新这句话。"""
     return next((
         str(getattr(message, "content", ""))
         for message in reversed(state.get("messages") or [])
@@ -122,6 +131,7 @@ def _latest_user_text(state: State) -> str:
 
 
 def _memory_allowed(purpose: ContextPurpose, memory_type: str, content: str, latest: str) -> bool:
+    """判断一项偏好与当前助手和最新问题是否有关。"""
     if memory_type not in _MEMORY_TYPES[purpose]:
         return False
     if purpose == "tools" and memory_type == "appointment_preference":
@@ -134,6 +144,7 @@ def _memory_allowed(purpose: ContextPurpose, memory_type: str, content: str, lat
 
 
 def _active_memories(state: State, purpose: ContextPurpose) -> list[dict]:
+    """从 Java 给出的偏好中筛选少量与当前问题相关的有效条目。"""
     latest = _latest_user_text(state)
     ranked: list[tuple[int, dict]] = []
     for item in state.get("long_term_memories") or []:
@@ -175,7 +186,7 @@ def _active_memories(state: State, purpose: ContextPurpose) -> list[dict]:
 
 
 def _project_summary(summary: ConversationSummary, purpose: ContextPurpose) -> dict | None:
-    """Keep each node to the summary fields it is allowed to see."""
+    """只把该助手需要的摘要字段交给它，例如工具助手不读症状自述。"""
 
     if purpose == "route" and summary.pending_tasks:
         return {
@@ -244,11 +255,10 @@ def build_context(
     upstream_results: dict[str, str] | None = None,
     extra_untrusted: list[tuple[str, object]] | None = None,
 ) -> list[BaseMessage]:
-    """Return context data only; callers keep policy prompts in a separate SystemMessage.
+    """为指定用途组装模型输入，并在长度预算内优先保留最新一轮。
 
-    ``purpose`` decides which summary fields and preference types are visible.
-    Clinical records are not read here. A caller may pass already-minimized data
-    for this turn through ``extra_untrusted``; that data is not written back to state.
+    返回的是资料和对话；调用方另加可信的 SystemMessage 规则。
+    extra_untrusted 仅供本轮参考，不写回会话状态。
     """
 
     settings = get_settings()
@@ -260,8 +270,7 @@ def build_context(
     projected = _project_summary(summary, purpose) if summary is not None else None
     if projected is not None:
         data_messages.append(untrusted_context_message("conversation_summary", projected))
-    # Extra data is last in the data section so a tight budget keeps the current
-    # turn's minimized record ahead of older preferences.
+    # 本轮额外资料排在旧偏好后面；预算紧时优先保留较新的本轮资料。
     for label, payload in extra_untrusted or []:
         if payload_is_sensitive(payload):
             logger.warning("untrusted_context_blocked label={} reason=sensitive_content", label)
@@ -279,7 +288,7 @@ def build_context(
     if total > context_budget:
         result = _bounded_tail(result, context_budget)
         total = count_tokens_approximately(result)
-    # Subtask focus follows the latest turn so it is never trimmed away with old history.
+    # 本轮子任务放在最近消息之后，不会和较早的历史一起被截掉。
     focus = task_focus_messages(task_goal, upstream_results)
     if focus:
         result = [*result, *focus]

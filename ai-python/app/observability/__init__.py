@@ -1,1 +1,1 @@
-"""Privacy-safe observability helpers."""
+"""不记录患者正文的对话运行统计。"""
