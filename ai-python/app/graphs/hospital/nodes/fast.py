@@ -26,6 +26,7 @@ from app.graphs.hospital.tools.context import (
 )
 from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
+from app.observability.agent_output import log_agent_output
 
 FAST_TOOLS = [web_search]  # 与普通医院业务 Agent 的工具名单独立
 MAX_TOOL_ITERATIONS = 3
@@ -135,11 +136,16 @@ def fast_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
     ]
     text = ""
 
-    for _ in range(MAX_TOOL_ITERATIONS):
+    for iteration in range(MAX_TOOL_ITERATIONS):
         reply, text = _stream_turn(bound_model, messages)
         tool_calls = getattr(reply, "tool_calls", None) if reply is not None else None
         if not tool_calls:
             break
+        log_agent_output(
+            "fast_agent",
+            {"tool_names": [call.get("name") for call in tool_calls if isinstance(call, dict)]},
+            phase=f"tool_request_{iteration + 1}",
+        )
         messages.append(reply)
         for call in tool_calls:
             messages.append(
@@ -157,6 +163,7 @@ def fast_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
         _, text = _stream_turn(model, messages)
 
     final_reply = text.strip() or EMPTY_REPLY_FALLBACK
+    log_agent_output("fast_agent", final_reply, phase="answer")
     # 工具循环里的中间消息不写回 State：checkpoint 结构必须与正常模式保持一致。
     # 显式清空 selected_agents：快速图没有 begin_node，否则会串出上一轮正常模式的路由。
     return _fast_result(final_reply)

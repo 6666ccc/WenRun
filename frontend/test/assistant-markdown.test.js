@@ -72,6 +72,22 @@ test('keeps each date as its own slot group', () => {
   assert.doesNotMatch(html, /排班id/)
 })
 
+test('numeric ranges are not rendered as strikethrough', () => {
+  marked.setOptions({ breaks: true, gfm: true })
+  const html = renderAssistantMarkdown(
+    '**恢复期提醒**：通常上肢骨折愈合约6~8周、下肢约8~12周；体温 37.5~38.5 度。',
+    {
+      parse: (text) => marked.parse(text || ''),
+      sanitize: (value) => value,
+    },
+  )
+  assert.match(html, /<strong>恢复期提醒<\/strong>/)
+  assert.match(html, /6~8周/)
+  assert.match(html, /8~12周/)
+  assert.match(html, /37\.5~38\.5/)
+  assert.doesNotMatch(html, /<del>/)
+})
+
 test('compacts bare reference urls and folds the source list', () => {
   marked.setOptions({ breaks: true, gfm: true })
   const html = renderAssistantMarkdown(`建议清淡饮食。

@@ -46,6 +46,17 @@ class ContextTrace:
         self._finished = True
         if error_code:
             self.error_code = error_code
+        node_labels = {
+            "route": "意图识别",
+            "plan": "任务规划",
+            "chat": "闲聊回答",
+            "knowledge": "医疗知识回答",
+            "tools": "医院业务处理",
+            "retrieval": "知识检索",
+            "final": "最终答复汇总",
+            "summarize": "会话摘要",
+            "fast": "快速问答",
+        }
         payload = {
             "event": "context_trace",
             "request_id": self.request_id,
@@ -66,6 +77,15 @@ class ContextTrace:
             "context_schema_version": CONTEXT_SCHEMA_VERSION,
             "model_name": os.getenv("DASHSCOPE_CHAT_MODEL", "unknown"),
         }
+        logger.info(
+            "本轮请求统计 请求模式={} 执行节点={} 首个文字耗时={} 毫秒 总耗时={} 毫秒 检索片段数={} 错误代码={} | context_trace",
+            {"normal": "普通模式", "fast": "快速模式"}.get(self.mode, self.mode),
+            [f"{node_labels.get(node, node)}（{node}）" for node in payload["node_names"]],
+            payload["first_token_ms"],
+            payload["total_ms"],
+            payload["rag_count"],
+            payload["error_code"],
+        )
         logger.info("context_trace {}", json.dumps(payload, ensure_ascii=False, sort_keys=True))
         _record_snapshot(payload)
         if self._token is not None:

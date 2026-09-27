@@ -345,7 +345,7 @@ async def _chat_events(
                 first_token_at = perf_counter()
                 trace.first_token_ms = round((first_token_at - started_at) * 1000)
                 logger.info(
-                    "chat_stream_first_token conversation_id={} elapsed_ms={}",
+                    "回答开始输出 会话={} 首个文字耗时={} 毫秒 | chat_stream_first_token",
                     conversation_id,
                     round((first_token_at - started_at) * 1000),
                 )
@@ -427,7 +427,7 @@ async def _chat_events(
         }
     )
     logger.info(
-        "chat_stream_completed conversation_id={} elapsed_ms={} first_token_ms={}",
+        "本轮对话处理完成 会话={} 总耗时={} 毫秒 首个文字耗时={} 毫秒 | chat_stream_completed",
         conversation_id,
         round((perf_counter() - started_at) * 1000),
         round((first_token_at - started_at) * 1000)

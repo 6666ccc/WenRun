@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.graphs.hospital.context_builder import bounded_system_message, build_context
 from app.graphs.hospital.state import AgentName, State
 from app.models.chat import model
+from app.observability.agent_output import log_agent_output
 
 # 依赖白名单：(下游, 上游)。除此之外的依赖一律丢弃，保证图里不会出现环或未知路径。
 ALLOWED_DEPENDENCIES: frozenset[tuple[AgentName, AgentName]] = frozenset({("tools", "knowledge")})
@@ -149,7 +150,9 @@ def _plan_with_model(messages: list[BaseMessage], selected_agents: list[AgentNam
     """请模型把多个意图拆成子任务；模型不可用时返回空。"""
     prompt = build_plan_system_prompt(selected_agents)
     try:
-        return _response_text(model.invoke([bounded_system_message(prompt), *messages]))
+        output = _response_text(model.invoke([bounded_system_message(prompt), *messages]))
+        log_agent_output("task_planner", output, phase="planning")
+        return output
     except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
         logger.exception("Task planning failed")
         return None
@@ -164,7 +167,9 @@ def _repair_invalid_json(
         invalid_output=invalid_output[:2_000],
     )
     try:
-        return _response_text(model.invoke([bounded_system_message(repair_prompt), *messages]))
+        output = _response_text(model.invoke([bounded_system_message(repair_prompt), *messages]))
+        log_agent_output("task_planner", output, phase="json_repair")
+        return output
     except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
         logger.exception("Task plan JSON repair failed")
         return None
@@ -190,15 +195,20 @@ def plan_node(state: State) -> dict:
             logger.warning("Task planner returned invalid JSON after one repair attempt")
 
     task_plan = normalize_plan(plan, selected_agents)
+    agent_labels = {"knowledge": "医疗知识助手", "chat": "闲聊助手", "tools": "医院业务助手"}
+    readable_tasks = [
+        {
+            "任务助手": f"{agent_labels.get(task['agent'], task['agent'])}（{task['agent']}）",
+            "依赖": [agent_labels.get(agent, agent) for agent in task["depends_on"]],
+        }
+        for task in task_plan["tasks"]
+    ]
     logger.info(
-        "task_plan conversation_id={} degraded={} repaired={} tasks={}",
+        "多意图任务拆分完成 会话={} 是否使用降级方案={} 是否修复过格式={} 任务列表={} | task_plan",
         state.get("conversation_id"),
         plan is None,
         repaired,
-        [
-            (task["agent"], task["depends_on"])
-            for task in task_plan["tasks"]
-        ],
+        readable_tasks,
     )
     return {"task_plan": task_plan}
 

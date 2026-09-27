@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.graphs.hospital.state import State
 from app.models.chat import model
+from app.observability.agent_output import log_agent_output
 
 FINAL_SYSTEM_PROMPT = """你是温润诊所患者端的回复汇总助手。
 你的任务是把多个内部助手已经生成的内容整理成一条自然、简洁、连贯的中文回复。
@@ -68,7 +69,9 @@ def _summarize_replies(replies: list[tuple[str, str]]) -> str:
         if not isinstance(content, str) or not content:
             continue
         chunks.append(content)
-    return "".join(chunks).strip()
+    reply = "".join(chunks).strip()
+    log_agent_output("reply_summarizer", reply, phase="multi_agent_summary")
+    return reply
 
 
 def final_node(state: State) -> dict:

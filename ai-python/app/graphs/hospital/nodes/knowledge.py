@@ -27,6 +27,7 @@ from app.graphs.hospital.tools.clinical_context import (
 from app.graphs.hospital.tools.context import HospitalToolContext
 from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
+from app.observability.agent_output import log_agent_output
 from app.observability.context_metrics import record_retrieval
 from app.rag.chroma import get_hospital_retriever
 from app.rag.documents import format_rag_context, to_rag_sources
@@ -201,6 +202,7 @@ def knowledge_node(state: State, runtime: Runtime[HospitalToolContext] | None = 
     # 急症路径必须是确定性的，不能依赖 RAG、联网或另一轮模型是否可用。
     urgent_reply = _urgent_safety_reply(state)
     if urgent_reply:
+        log_agent_output("knowledge_agent", urgent_reply, phase="urgent_safety")
         return {"knowledge_reply": urgent_reply, "rag_sources": []}
 
     # 步骤六：将用户问题传给 Retriever；内部会执行 embedding 与 Chroma 相似度检索。
@@ -208,7 +210,9 @@ def knowledge_node(state: State, runtime: Runtime[HospitalToolContext] | None = 
     goal = task_goal(state, "knowledge")
     query = goal or _last_user_query(state)
     if not query:
-        return {"knowledge_reply": "请告诉我您想咨询的具体问题。", "rag_sources": []}
+        reply = "请告诉我您想咨询的具体问题。"
+        log_agent_output("knowledge_agent", reply, phase="clarification")
+        return {"knowledge_reply": reply, "rag_sources": []}
 
     try:
         documents = get_hospital_retriever().invoke(query)
@@ -228,19 +232,20 @@ def knowledge_node(state: State, runtime: Runtime[HospitalToolContext] | None = 
     # 步骤七：未命中足够相关的院内资料时，交给原有联网 Agent 兜底。
     if not documents:
         try:
+            reply = _web_fallback_reply(state, runtime, goal)
+            log_agent_output("knowledge_agent", reply, phase="web_fallback_answer")
             return {
-                "knowledge_reply": _web_fallback_reply(state, runtime, goal),
+                "knowledge_reply": reply,
                 "rag_sources": [],
             }
         except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
             logger.exception("Web fallback failed after RAG miss")
-            return {
-                "knowledge_reply": (
-                    "院内知识库暂时不可用，联网检索也未能完成。"
-                    "请稍后再试，或咨询医院工作人员。"
-                ),
-                "rag_sources": [],
-            }
+            reply = (
+                "院内知识库暂时不可用，联网检索也未能完成。"
+                "请稍后再试，或咨询医院工作人员。"
+            )
+            log_agent_output("knowledge_agent", reply, phase="fallback")
+            return {"knowledge_reply": reply, "rag_sources": []}
 
     # 步骤八：命中后仅允许按需读取本人档案，不挂载 web_search。
     context = format_rag_context(documents)
@@ -265,7 +270,9 @@ def knowledge_node(state: State, runtime: Runtime[HospitalToolContext] | None = 
 
     # 步骤九：用 stream 而非 invoke，让本节点的模型分片能被 SSE 路由立即转发。
     # 纯知识提问时 final_node 只做透传，本节点就是患者看到的正文。
+    reply = _rag_reply(rag_messages, runtime)
+    log_agent_output("knowledge_agent", reply, phase="rag_answer")
     return {
-        "knowledge_reply": _rag_reply(rag_messages, runtime),
+        "knowledge_reply": reply,
         "rag_sources": to_rag_sources(documents),
     }

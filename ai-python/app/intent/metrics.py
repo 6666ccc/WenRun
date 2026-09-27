@@ -41,7 +41,10 @@ def route_metrics_snapshot() -> dict:
     with _lock:
         stage_counts = dict(_stage_counts)
         total = sum(_stage_counts.values())
-        local = stage_counts.get("rules", 0) + stage_counts.get("lightweight_model", 0)
+        local = sum(
+            stage_counts.get(stage, 0)
+            for stage in ("rules", "lightweight_model", "ollama_model")
+        )
         return {
             "total": total,
             "localCoverage": round(local / total, 4) if total else 0.0,

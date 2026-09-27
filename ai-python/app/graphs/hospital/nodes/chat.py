@@ -14,6 +14,7 @@ from app.graphs.hospital.tools.context import (
     format_clinic_clock,
 )
 from app.models.chat import model
+from app.observability.agent_output import log_agent_output
 
 CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短、尊重、有温度的中文直接回复患者。
 
@@ -66,7 +67,9 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
 
     router_response = state.get("router_response")
     if isinstance(router_response, str) and router_response.strip():
-        return {"chat_reply": router_response.strip()}
+        reply = router_response.strip()
+        log_agent_output("chat_agent", reply, phase="router_fallback")
+        return {"chat_reply": reply}
 
     ##任务二：调用闲聊 agent，把回复写入 chat_reply 供汇总节点使用
     # stream 会把模型分片逐个送到 SSE；invoke 则要等整段答案结束才能返回。
@@ -83,7 +86,10 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
             chunks.append(content)
     except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
         logger.exception("Chat model failed; using deterministic intro")
+        log_agent_output("chat_agent", CHAT_MODEL_FALLBACK, phase="fallback")
         return {"chat_reply": CHAT_MODEL_FALLBACK}
-    return {"chat_reply": "".join(chunks) or CHAT_MODEL_FALLBACK}
+    reply = "".join(chunks) or CHAT_MODEL_FALLBACK
+    log_agent_output("chat_agent", reply, phase="answer")
+    return {"chat_reply": reply}
 
 

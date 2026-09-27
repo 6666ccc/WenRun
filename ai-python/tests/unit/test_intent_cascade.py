@@ -97,6 +97,52 @@ def test_rules_keep_identity_when_mixed_with_medical_and_business():
     assert "identity_with_other_intents" in result.matched_rules
 
 
+def test_rules_do_not_capture_partial_multi_intent():
+    text = "今天是周几？是周5请你帮我挂骨科号，不是的话请你给我讲解一下骨折了该怎么办？我好害怕。"
+
+    assert match_rules(text) is None
+
+
+def test_cascade_sends_conditional_multi_intent_to_cloud_llm():
+    text = "今天是周几？是周5请你帮我挂骨科号，不是的话请你给我讲解一下骨折了该怎么办？我好害怕。"
+
+    result = cascade.route_locally(text)
+
+    assert result.accepted is False
+    assert result.stage == "llm_required"
+    assert result.escalation_reason == "conditional_request_requires_reasoning"
+
+
+def test_rules_leave_unconditional_mixed_request_for_later_layers(monkeypatch):
+    text = "今天是周几？请你帮我挂骨科号，再给我讲讲骨折了该怎么办？我好害怕。"
+
+    assert match_rules(text) is None
+    monkeypatch.setattr(
+        cascade,
+        "get_settings",
+        lambda: type("Settings", (), {"intent_local_backend": "sklearn"})(),
+    )
+    monkeypatch.setattr(
+        cascade,
+        "get_lightweight_classifier",
+        lambda: _StubClassifier(
+            LightweightPrediction(
+                selected_agents=["knowledge", "chat", "tools"],
+                scores={"knowledge": 0.8, "chat": 0.7, "tools": 0.9},
+                accepted=True,
+                margin=0.1,
+                nearest_similarity=0.8,
+            )
+        ),
+    )
+
+    result = cascade.route_locally(text)
+
+    assert result.accepted is True
+    assert result.stage == "lightweight_model"
+    assert set(result.selected_agents) == {"knowledge", "chat", "tools"}
+
+
 def test_rules_combine_medical_and_business_intents():
     result = match_rules("孩子发烧怎么办，帮我挂明天儿科")
 

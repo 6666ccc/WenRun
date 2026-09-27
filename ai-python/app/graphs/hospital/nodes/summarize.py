@@ -16,6 +16,7 @@ from app.graphs.hospital.memory import needs_summary, split_for_summary
 from app.graphs.hospital.state import ConversationSummary, PatientSelfReport, State
 from app.graphs.hospital.tools.context import clinic_now
 from app.models.chat import model
+from app.observability.agent_output import log_agent_output
 from app.observability.context_metrics import record_summary
 
 SUMMARY_SYSTEM_PROMPT = """你是温润诊所患者端对话的历史压缩器，不对患者说话。
@@ -135,7 +136,9 @@ def summarize_node(state: State) -> dict:
     except Exception:  # noqa: BLE001 - model/provider errors must not break chat
         logger.exception("conversation_summary_failed conversation_id={}", state.get("conversation_id"))
         return {}
-    incoming = _parse_summary(getattr(response, "content", ""))
+    raw_output = getattr(response, "content", "")
+    log_agent_output("conversation_summarizer", raw_output, phase="structured_summary")
+    incoming = _parse_summary(raw_output)
     if incoming is None:
         logger.warning(
             "conversation_summary_invalid conversation_id={}", state.get("conversation_id")

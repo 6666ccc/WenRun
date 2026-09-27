@@ -145,7 +145,14 @@ export function normalizeScheduleMarkdown(text) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
+/** 数字区间里的 ~ 不是删除线。先转义，避免 6~8 与后面的 8~12 被配成一对。 */
+export function protectNumericRanges(text) {
+  return String(text || '').replace(/(\d(?:\.\d+)?)~(\d(?:\.\d+)?)/g, '$1\\~$2')
+}
+
 export function renderAssistantMarkdown(markdown, { parse, sanitize }) {
-  const cleaned = compactBareUrlLines(normalizeScheduleMarkdown(stripInternalIds(markdown)))
+  const cleaned = protectNumericRanges(
+    compactBareUrlLines(normalizeScheduleMarkdown(stripInternalIds(markdown))),
+  )
   return sanitize(enhanceAssistantHtml(parse(cleaned)))
 }

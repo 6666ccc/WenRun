@@ -28,6 +28,7 @@ from app.graphs.hospital.tools import (
 )
 from app.graphs.hospital.tools.context import format_clinic_clock
 from app.models.chat import model
+from app.observability.agent_output import log_agent_output
 from app.observability.context_metrics import record_tool_names
 
 TOOL_SYSTEM_PROMPT = """你是温润诊所的患者端业务助手。用简短、尊重、有温度的中文直接回复患者。
@@ -182,7 +183,9 @@ def tool_node(state: State, runtime: Runtime[HospitalToolContext]) -> dict:
             "tool_node_missing_delegated_token conversation_id={}",
             state.get("conversation_id"),
         )
-        return {"tools_reply": "业务查询服务暂不可用，请稍后重试。"}
+        fallback = "业务查询服务暂不可用，请稍后重试。"
+        log_agent_output("business_agent", fallback, phase="fallback")
+        return {"tools_reply": fallback}
 
     # 运行时上下文只在本次请求内有效，直接透传给嵌套 Agent。
     # 多意图回合里只处理规划器分配的子目标；依赖知识助手时把它的结论一并带上，
@@ -216,4 +219,5 @@ def tool_node(state: State, runtime: Runtime[HospitalToolContext]) -> dict:
     content = getattr(last, "content", "") if last is not None else ""
     if not isinstance(content, str):
         content = str(content)
+    log_agent_output("business_agent", content, phase="answer")
     return {"tools_reply": content}

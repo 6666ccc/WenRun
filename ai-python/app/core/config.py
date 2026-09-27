@@ -1,6 +1,7 @@
 """从环境变量和 .env 读取服务配置，集中给各模块使用。"""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -45,6 +46,27 @@ class Settings(BaseSettings):
         True,
         validation_alias="INTENT_LIGHTWEIGHT_ENABLED",
     )
+    intent_local_backend: Literal["ollama", "sklearn"] = Field(
+        "sklearn", validation_alias="INTENT_LOCAL_BACKEND"
+    )
+    intent_ollama_base_url: str = Field(
+        "http://localhost:11434/v1", validation_alias="INTENT_OLLAMA_BASE_URL"
+    )
+    intent_ollama_model: str = Field(
+        "deepseek-r1:1.5b", validation_alias="INTENT_OLLAMA_MODEL"
+    )
+    intent_ollama_timeout_seconds: float = Field(
+        25.0, gt=0, validation_alias="INTENT_OLLAMA_TIMEOUT_SECONDS"
+    )
+    intent_ollama_acceptance_threshold: float = Field(
+        0.70, ge=0.0, le=1.0, validation_alias="INTENT_OLLAMA_ACCEPTANCE_THRESHOLD"
+    )
+    intent_ollama_ambiguity_margin: float = Field(
+        0.15, ge=0.0, le=1.0, validation_alias="INTENT_OLLAMA_AMBIGUITY_MARGIN"
+    )
+    intent_ollama_sklearn_guard: bool = Field(
+        True, validation_alias="INTENT_OLLAMA_SKLEARN_GUARD"
+    )
     context_total_tokens: int = Field(8_000, ge=1_000, validation_alias="AI_CONTEXT_TOTAL_TOKENS")
     context_system_tokens: int = Field(2_000, ge=500, validation_alias="AI_CONTEXT_SYSTEM_TOKENS")
     context_summary_tokens: int = Field(1_200, ge=200, validation_alias="AI_CONTEXT_SUMMARY_TOKENS")
@@ -80,6 +102,13 @@ class Settings(BaseSettings):
         ge=0.0,
         le=1.0,
         validation_alias="INTENT_OOD_SIMILARITY_THRESHOLD",
+    )
+    log_agent_outputs: bool = Field(True, validation_alias="AI_LOG_AGENT_OUTPUTS")
+    agent_output_log_max_chars: int = Field(
+        2_000,
+        ge=100,
+        le=20_000,
+        validation_alias="AI_AGENT_OUTPUT_LOG_MAX_CHARS",
     )
 
 

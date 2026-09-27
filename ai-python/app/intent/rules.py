@@ -109,6 +109,16 @@ _MEDICAL_CONTEXT = re.compile(
     r"皮疹|过敏|失眠|不舒服|疼|痛|药|症状"
 )
 _DEPARTMENT_RECOMMENDATION = re.compile(r"(?:该|要|应该|建议)?看(?:哪|哪个|什么|哪一)科|挂什么科")
+# 这些信号本身不够精确，不能单独决定路径；但一旦出现，说明前面的规则没有把整句解释完。
+_RESIDUAL_CHAT = re.compile(
+    r"害怕|好怕|吓坏|吓死|恐慌|想哭|"
+    r"(?:今天|现在|当前|目前).{0,8}(?:周几|星期几|礼拜几|几号|几点)"
+)
+_RESIDUAL_KNOWLEDGE = re.compile(
+    r"骨折|骨裂|脱臼|扭伤|拉伤|烫伤|烧伤|中暑|"
+    r"(?:病|伤|痛|疼|炎).{0,8}(?:怎么办|怎么处理|如何处理|该怎么|要不要紧|严重吗)"
+)
+_REQUEST_BREAK = re.compile(r"[。！？!?；;，,]|(?:另外|此外|还有|同时|不是的话)")
 
 
 def detect_safety_flags(text: str) -> list[str]:
@@ -159,7 +169,9 @@ def match_rules(text: str) -> RuleMatch | None:
     if selected and _IDENTITY_MENTION.search(normalized):
         select("chat", "identity_with_other_intents")
 
-    if selected:
+    # 急症仍走规则，保证知识节点不会被放掉。其余只接受整句都能解释的命中；
+    # 只抓住挂号、后面还夹着时间、情绪或另一件医疗问题的，交给后续层。
+    if selected and (safety_flags or not _rule_match_is_incomplete(normalized, selected)):
         return RuleMatch(selected, matched_rules, safety_flags)
 
     if _EXACT_CHAT.fullmatch(normalized):
@@ -175,3 +187,20 @@ def match_rules(text: str) -> RuleMatch | None:
         return RuleMatch(["chat"], ["hospital_static_information"], safety_flags)
 
     return None
+
+
+def _rule_match_is_incomplete(normalized: str, selected: list[AgentName]) -> bool:
+    """规则只覆盖了句子的一部分时返回 True。"""
+
+    if "chat" not in selected and _RESIDUAL_CHAT.search(normalized):
+        return True
+    if "knowledge" not in selected and _RESIDUAL_KNOWLEDGE.search(normalized):
+        return True
+    if len(set(selected)) == 1 and _has_multiple_requests(normalized):
+        return True
+    return False
+
+
+def _has_multiple_requests(normalized: str) -> bool:
+    parts = [part.strip() for part in _REQUEST_BREAK.split(normalized)]
+    return sum(1 for part in parts if len(part) >= 2) >= 2
