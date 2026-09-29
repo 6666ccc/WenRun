@@ -249,6 +249,7 @@ onBeforeUnmount(() => {
                     :status="message.meta.status"
                   />
                   <div class="chat-md" v-html="renderMarkdown(message.content)" />
+                  <p v-if="message.meta?.errorMessage" class="chat-partial-notice" role="status">{{ message.meta.errorMessage }} 已保留上方已生成的内容，本轮回答尚未完成。</p>
                   <div v-if="message.meta?.confirm" class="chat-confirm">
                     <dl class="chat-confirm__detail">
                       <template v-for="(value, key) in confirmRows(message.meta.confirm.detail)" :key="key">
@@ -607,6 +608,7 @@ onBeforeUnmount(() => {
 
 .chat-message__assistant-content :deep(.chat-slot__meta) {
   flex: 0 0 auto;
+  margin-left: auto;
   color: var(--color-text-secondary);
   font-size: 13px;
   white-space: nowrap;
@@ -1026,6 +1028,15 @@ onBeforeUnmount(() => {
   border-color: currentColor;
   color: var(--color-primary, #1a7f6b);
   font-weight: 600;
+}
+
+.chat-partial-notice {
+  padding: 10px 14px;
+  border-left: 3px solid var(--color-border-strong);
+  color: var(--color-text-secondary);
+  background: var(--color-mint-050);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .chat-confirm {

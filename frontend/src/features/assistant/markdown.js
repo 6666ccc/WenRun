@@ -63,17 +63,18 @@ export function stripInternalIds(text) {
 
 export function parseSlotLine(text) {
   const raw = String(text || '').replace(/\s+/g, ' ').trim()
-  const periodMatch = raw.match(new RegExp(`^(${PERIODS})(?:\\s+|：|:)`))
+  // 加粗时段经 HTML 去标签后会变成「上午 ：」，冒号两侧都要吃掉。
+  const periodMatch = raw.match(new RegExp(`^(${PERIODS})\\s*(?:[：:]\\s*|\\s+)`))
   const period = periodMatch?.[1] || ''
   let body = period ? raw.slice(periodMatch[0].length).trim() : raw
   const remaining = body.match(/余号\s*([\d./]+)/)?.[1] || ''
   const fee = body.match(/挂号费\s*([\d.]+)/)?.[1] || ''
   const doctors = body
-    .replace(/，?\s*余号\s*[\d./]+/g, '')
-    .replace(/，?\s*挂号费\s*[\d.]+\s*元?/g, '')
+    .replace(/[，,]?\s*余号\s*[\d./]+\s*个?/g, '')
+    .replace(/[，,]?\s*挂号费\s*[\d.]+\s*元?/g, '')
     .replace(/[，,]\s*$/g, '')
     .split(/\s*[／/、]\s*/)
-    .map((item) => item.trim())
+    .map((item) => item.replace(/^[：:，,、\s]+|[：:，,、\s]+$/g, '').trim())
     .filter(Boolean)
   return { raw, period, doctors, remaining, fee }
 }
@@ -96,7 +97,8 @@ function renderSlot(slot) {
   if (!isScheduleSlot(slot)) {
     return `<article class="chat-slot"><div class="chat-slot__body"><strong>${escapeHtml(slot.raw)}</strong></div></article>`
   }
-  const doctors = escapeHtml(slot.doctors.join(' · ') || slot.raw)
+  const label = slot.doctors.join(' · ')
+  const name = label ? `<strong>${escapeHtml(label)}</strong>` : ''
   const meta = []
   if (slot.remaining) meta.push(`余号 ${escapeHtml(slot.remaining)}`)
   if (slot.fee) meta.push(`¥${escapeHtml(formatFee(slot.fee))}`)
@@ -104,7 +106,7 @@ function renderSlot(slot) {
     ? `<span class="chat-slot__period">${escapeHtml(slot.period)}</span>`
     : ''
   const metaHtml = meta.length ? `<span class="chat-slot__meta">${meta.join(' · ')}</span>` : ''
-  return `<article class="chat-slot">${period}<div class="chat-slot__body"><strong>${doctors}</strong>${metaHtml}</div></article>`
+  return `<article class="chat-slot">${period}<div class="chat-slot__body">${name}${metaHtml}</div></article>`
 }
 
 export function enhanceAssistantHtml(html) {

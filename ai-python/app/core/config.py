@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,12 +42,23 @@ class Settings(BaseSettings):
         validation_alias="AI_CHECKPOINT_TTL_MINUTES",
     )
     tavily_api_key: str = Field("", validation_alias="TAVILY_API_KEY")
-    intent_lightweight_enabled: bool = Field(
-        True,
-        validation_alias="INTENT_LIGHTWEIGHT_ENABLED",
+    intent_backend: Literal["jev", "ollama"] = Field(
+        "jev", validation_alias="INTENT_BACKEND"
     )
-    intent_local_backend: Literal["ollama", "sklearn"] = Field(
-        "sklearn", validation_alias="INTENT_LOCAL_BACKEND"
+    tokendance_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias="TOKENDANCE_API_KEY"
+    )
+    intent_jev_base_url: str = Field(
+        "https://openrouter.ai/api/v1", validation_alias="INTENT_JEV_BASE_URL"
+    )
+    intent_jev_model: str = Field(
+        "typesafe/jev-1.13", validation_alias="INTENT_JEV_MODEL"
+    )
+    intent_jev_timeout_seconds: float = Field(
+        10.0, gt=0, validation_alias="INTENT_JEV_TIMEOUT_SECONDS"
+    )
+    intent_jev_acceptance_threshold: float = Field(
+        0.70, gt=0.5, le=1.0, validation_alias="INTENT_JEV_ACCEPTANCE_THRESHOLD"
     )
     intent_ollama_base_url: str = Field(
         "http://localhost:11434/v1", validation_alias="INTENT_OLLAMA_BASE_URL"
@@ -64,9 +75,6 @@ class Settings(BaseSettings):
     intent_ollama_ambiguity_margin: float = Field(
         0.15, ge=0.0, le=1.0, validation_alias="INTENT_OLLAMA_AMBIGUITY_MARGIN"
     )
-    intent_ollama_sklearn_guard: bool = Field(
-        True, validation_alias="INTENT_OLLAMA_SKLEARN_GUARD"
-    )
     context_total_tokens: int = Field(8_000, ge=1_000, validation_alias="AI_CONTEXT_TOTAL_TOKENS")
     context_system_tokens: int = Field(2_000, ge=500, validation_alias="AI_CONTEXT_SYSTEM_TOKENS")
     context_summary_tokens: int = Field(1_200, ge=200, validation_alias="AI_CONTEXT_SUMMARY_TOKENS")
@@ -79,30 +87,6 @@ class Settings(BaseSettings):
     rag_metadata_mysql_password: str = Field("", validation_alias="RAG_METADATA_MYSQL_PASSWORD")
     summary_trigger_tokens: int = Field(5_000, ge=500, validation_alias="AI_SUMMARY_TRIGGER_TOKENS")
     summary_message_limit: int = Field(12, ge=10, validation_alias="AI_SUMMARY_MESSAGE_LIMIT")
-    intent_label_threshold: float = Field(
-        0.50,
-        ge=0.0,
-        le=1.0,
-        validation_alias="INTENT_LABEL_THRESHOLD",
-    )
-    intent_acceptance_threshold: float = Field(
-        0.60,
-        ge=0.0,
-        le=1.0,
-        validation_alias="INTENT_ACCEPTANCE_THRESHOLD",
-    )
-    intent_ambiguity_margin: float = Field(
-        0.12,
-        ge=0.0,
-        le=1.0,
-        validation_alias="INTENT_AMBIGUITY_MARGIN",
-    )
-    intent_ood_similarity_threshold: float = Field(
-        0.08,
-        ge=0.0,
-        le=1.0,
-        validation_alias="INTENT_OOD_SIMILARITY_THRESHOLD",
-    )
     log_agent_outputs: bool = Field(True, validation_alias="AI_LOG_AGENT_OUTPUTS")
     agent_output_log_max_chars: int = Field(
         2_000,

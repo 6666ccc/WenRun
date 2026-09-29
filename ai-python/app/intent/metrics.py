@@ -43,11 +43,15 @@ def route_metrics_snapshot() -> dict:
         total = sum(_stage_counts.values())
         local = sum(
             stage_counts.get(stage, 0)
-            for stage in ("rules", "lightweight_model", "ollama_model")
+            for stage in ("rules", "ollama_model")
         )
         return {
             "total": total,
             "localCoverage": round(local / total, 4) if total else 0.0,
+            "cascadeCoverage": (
+                round((local + stage_counts.get("jev_model", 0)) / total, 4)
+                if total else 0.0
+            ),
             "stageCounts": stage_counts,
             "escalationReasons": dict(_escalation_counts),
             "safetyFlagCounts": dict(_safety_counts),

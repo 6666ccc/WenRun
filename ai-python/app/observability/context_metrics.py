@@ -37,6 +37,7 @@ class ContextTrace:
     node_names: set[str] = field(default_factory=set)
     first_token_ms: int | None = None
     error_code: str | None = None
+    stage_timings: list[dict] = field(default_factory=list)
     _token: Token | None = field(default=None, repr=False)
     _finished: bool = field(default=False, repr=False)
 
@@ -76,6 +77,7 @@ class ContextTrace:
             "prompt_version": PROMPT_VERSION,
             "context_schema_version": CONTEXT_SCHEMA_VERSION,
             "model_name": os.getenv("DASHSCOPE_CHAT_MODEL", "unknown"),
+            "stage_timings": list(self.stage_timings),
         }
         logger.info(
             "本轮请求统计 请求模式={} 执行节点={} 首个文字耗时={} 毫秒 总耗时={} 毫秒 检索片段数={} 错误代码={} | context_trace",
@@ -102,6 +104,7 @@ _TOTAL_MS: deque[int] = deque(maxlen=500)
 _FIRST_TOKEN_MS: deque[int] = deque(maxlen=500)
 _TOKEN_TOTALS: Counter[str] = Counter()
 _COMPLETED = 0
+_RECENT_REQUESTS: deque[dict] = deque(maxlen=20)
 
 
 def _record_snapshot(payload: dict) -> None:
@@ -109,6 +112,10 @@ def _record_snapshot(payload: dict) -> None:
     global _COMPLETED
     with _METRICS_LOCK:
         _COMPLETED += 1
+        _RECENT_REQUESTS.append({
+            key: payload.get(key) for key in
+            ("request_id", "mode", "first_token_ms", "total_ms", "error_code", "stage_timings")
+        })
         _MODE_COUNTS[str(payload["mode"])] += 1
         if payload.get("error_code"):
             _ERROR_COUNTS[str(payload["error_code"])] += 1
@@ -142,6 +149,7 @@ def context_metrics_snapshot() -> dict:
             "inputTokenTotalsBySource": dict(_TOKEN_TOTALS),
             "scope": "current_process",
             "containsPatientText": False,
+            "recentRequests": list(_RECENT_REQUESTS),
         }
 
 

@@ -29,6 +29,7 @@ from app.graphs.hospital.tools.search import web_search
 from app.models.chat import model
 from app.observability.agent_output import log_agent_output
 from app.observability.context_metrics import record_retrieval
+from app.observability.progress import progress_step
 from app.rag.chroma import get_hospital_retriever
 from app.rag.documents import format_rag_context, to_rag_sources
 from app.rag.safety import prepare_rag_documents
@@ -53,7 +54,7 @@ KNOWLEDGE_SYSTEM_PROMPT = """你是温润诊所的患者端知识助手。用简
 - dataGaps 里的当前用药和孕哺状态档案中没有，不要编造。
 - reportAccess 为 explicit_selection_required 时，只能根据 documents 的标题、类型和日期请患者选定一份。不要描述报告内容，不要输出文件链接。
 - 没有这份数据时，按公开资料回答，不要假装知道患者的检查结果。
-- 本院楼层、营业时间、就诊须知、科室目录、号源、排班、挂号：不要搜网页，一句交给业务助手或到院咨询。
+- 本院楼层、营业时间、就诊须知、科室目录、号源、排班、挂号：不要搜网页，也不要在医疗建议中讨论这些查询的处理情况。
 - 检索为空或与问题无关：说明公开资料没有足够依据，请换个问法或到院评估。
 
 出处规则：
@@ -74,7 +75,7 @@ KNOWLEDGE_SYSTEM_PROMPT = """你是温润诊所的患者端知识助手。用简
 - 不闲聊、不陪聊；寒暄最多一句带过，立刻回到医疗知识摘要
 - 不说「我已经帮你挂好号」——那些由其他节点处理
 
-多意图时：患者一句话里若同时有医疗提问和寒暄/挂号/院务，你只回答医疗知识部分。其余留给其他助手。
+多意图时：只输出医疗知识部分，界面会另行展示就诊查询结果。不要说“交给业务助手”“其他助手处理”，不要声称整套服务无法查询号源，也不要重复挂号请求。直接以健康建议开始和结束本段。
 
 急症或明确危险（如胸痛、大出血、呼吸困难、想伤害自己）：先明确建议立即拨打急救或前往急诊，再视检索结果做极短补充；没有资料就不要展开。
 
@@ -215,7 +216,8 @@ def knowledge_node(state: State, runtime: Runtime[HospitalToolContext] | None = 
         return {"knowledge_reply": reply, "rag_sources": []}
 
     try:
-        documents = get_hospital_retriever().invoke(query)
+        with progress_step("retrieval"):
+            documents = get_hospital_retriever().invoke(query)
     except Exception:  # noqa: BLE001 - vector clients expose heterogeneous errors
         logger.exception("RAG retrieval failed; falling back to web search")
         documents = []

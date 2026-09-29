@@ -1,6 +1,7 @@
 """把知识、闲聊、院内业务节点的结果收成唯一一条患者可见回复。
 
-只有一个节点给出回复时直接透传；多个节点同时有结果时才请模型整理。
+只有一个节点给出回复时直接透传；已规划的知识与业务答复按固定分区拼接，
+使先显示的内容保持稳定。其他多节点组合才请模型整理。
 模型失败时拼接原回复，避免丢失已得到的业务结果。
 """
 
@@ -8,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from loguru import logger
 
 from app.graphs.hospital.state import State
+from app.graphs.hospital.reply_sections import compose_reply_sections, uses_reply_sections
 from app.models.chat import model
 from app.observability.agent_output import log_agent_output
 
@@ -80,6 +82,10 @@ def final_node(state: State) -> dict:
 
     if not replies:
         final_reply = "抱歉，暂时没有生成可用的回复，请重新描述您的问题。"
+    elif uses_reply_sections(state):
+        # Keep already displayed medical advice stable while business results arrive.
+        # Both nodes have scoped tasks and patient-facing output; no extra LLM pass.
+        final_reply = compose_reply_sections(state)
     elif len(replies) == 1:
         # 单个节点的结果无需再次调用模型，避免改写事实或引用。
         final_reply = replies[0][1]

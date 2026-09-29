@@ -63,11 +63,18 @@ DASHSCOPE_CHAT_MODEL=聊天模型名称
 EMBEDDING_MODEL=向量模型名称
 
 # 级联意图路由；默认值见 ai-python/.env.example
-INTENT_LIGHTWEIGHT_ENABLED=true
-INTENT_LABEL_THRESHOLD=0.50
-INTENT_ACCEPTANCE_THRESHOLD=0.60
-INTENT_AMBIGUITY_MARGIN=0.12
-INTENT_OOD_SIMILARITY_THRESHOLD=0.08
+INTENT_BACKEND=jev
+TOKENDANCE_API_KEY=
+INTENT_JEV_BASE_URL=https://tokendance.space/gateway/typesafe/v1
+INTENT_JEV_MODEL=bocha-jev-v1
+INTENT_JEV_TIMEOUT_SECONDS=10
+INTENT_JEV_ACCEPTANCE_THRESHOLD=0.70
+# 切回本地：INTENT_BACKEND=ollama，填写可达的 Ollama 地址并重启
+INTENT_OLLAMA_BASE_URL=http://localhost:11434/v1
+INTENT_OLLAMA_MODEL=deepseek-r1:1.5b
+INTENT_OLLAMA_TIMEOUT_SECONDS=25
+INTENT_OLLAMA_ACCEPTANCE_THRESHOLD=0.70
+INTENT_OLLAMA_AMBIGUITY_MARGIN=0.15
 
 # Chroma：进程内持久化目录，空则默认 ai-python/data/chroma
 CHROMA_PERSIST_DIR=
@@ -99,6 +106,7 @@ TAVILY_API_KEY=
 - Chroma 运行在 Python 进程内，不再需要独立向量库容器或 API Key。
 - `JAVA_TOOL_BASE_URL` 只能指向 Java 的内网地址。Python 不直接查询或修改 HIS 业务表；业务 Tool 必须经过 Java。唯一的直连例外是 `ai_knowledge_documents` 文档生命周期登记表，生产账号应只授予该表所需权限。
 - `.env` 含密钥，已被 Git 忽略，不得提交。
+- Jev 使用 TokenDance TypeSafe SystemOne API（`/gateway/typesafe/v1/systemone`）；key 留空时先回退到 Ollama，Ollama 不可用或判断不确定时再升级云端 LLM；已配置 key 的 Jev 服务异常或结果不确定时仍升级到原有云端 LLM。切换 `INTENT_BACKEND` 后需重启。Jev 只替换意图分类层，回答、规划和检索模型配置保持原样。
 
 ### 2.2 启动方式
 
@@ -199,7 +207,7 @@ Java 的单条流默认最长 300 秒；Java 到 Python 的默认连接超时为
 正常模式的路由与并行分发如下：
 
 ```text
-输入 → 高精度规则 → 轻量分类器 →（不确定时）LLM 分类
+输入 → 高精度规则 → Jev / Ollama 分类器 →（不确定时）LLM 分类
                                       ↓
 START → begin_node ─┬→ knowledge_node ─┐
                     ├→ chat_node ───────┼→ final_node → summarize_node → END

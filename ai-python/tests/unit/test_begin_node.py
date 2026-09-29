@@ -230,14 +230,14 @@ def test_begin_node_resets_previous_turn_outputs(monkeypatch):
         assert result[field] is None
 
 
-def _lightweight_chat(monkeypatch):
+def _jev_chat(monkeypatch):
     monkeypatch.setattr(
         begin,
         "_route_locally",
         lambda text: LocalRouteResult(
             accepted=True,
             selected_agents=["chat"],
-            stage="lightweight_model",
+            stage="jev_model",
             scores={"chat": 0.9},
         ),
     )
@@ -255,10 +255,10 @@ def _followup_state(text="明天下午"):
     }
 
 
-def test_begin_node_escalates_slot_followup_to_llm_instead_of_lightweight_chat(monkeypatch):
+def test_begin_node_escalates_slot_followup_to_llm_instead_of_jev_chat(monkeypatch):
     """上一轮业务助手在追问参数时，“明天下午”不能被无上下文的轻量模型判成闲聊。"""
 
-    _lightweight_chat(monkeypatch)
+    _jev_chat(monkeypatch)
     stub_model = StubModel([AIMessage(content='{"selected_agents":["tools"]}')])
     monkeypatch.setattr(begin, "model", stub_model)
 
@@ -274,8 +274,8 @@ def test_begin_node_escalates_slot_followup_to_llm_instead_of_lightweight_chat(m
     )
 
 
-def test_begin_node_keeps_lightweight_result_when_previous_turn_was_not_a_question(monkeypatch):
-    _lightweight_chat(monkeypatch)
+def test_begin_node_keeps_jev_result_when_previous_turn_was_not_a_question(monkeypatch):
+    _jev_chat(monkeypatch)
     stub_model = StubModel([])
     monkeypatch.setattr(begin, "model", stub_model)
 
@@ -284,7 +284,7 @@ def test_begin_node_keeps_lightweight_result_when_previous_turn_was_not_a_questi
     result = begin.begin_node(state)
 
     assert result["selected_agents"] == ["chat"]
-    assert result["intent_route"]["stage"] == "lightweight_model"
+    assert result["intent_route"]["stage"] == "jev_model"
     assert len(stub_model.calls) == 0
 
 

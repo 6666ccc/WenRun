@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import lru_cache
 
 from langchain_openai import ChatOpenAI
@@ -11,10 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from app.core.config import get_settings
 from app.graphs.hospital.state import AgentName
+from app.intent.prediction import IntentPrediction
 from app.intent.rules import normalize_text
 from app.observability.agent_output import log_agent_output
 
-LABELS: tuple[AgentName, ...] = ("knowledge", "chat", "tools")
 LABEL_SCORE_CUTOFF = 0.5
 
 OLLAMA_INTENT_PROMPT = """你是医院患者端的意图分类器。只判断患者最新一句话，不回答问题。
@@ -67,15 +66,6 @@ class OllamaIntentDecision(BaseModel):
         return self
 
 
-@dataclass(frozen=True)
-class OllamaPrediction:
-    selected_agents: list[AgentName]
-    scores: dict[str, float]
-    accepted: bool
-    margin: float | None
-    reason: str | None = None
-
-
 class OllamaIntentClassifier:
     """仅供意图路由使用，不替换其他节点的云端回答模型。"""
 
@@ -100,7 +90,7 @@ class OllamaIntentClassifier:
         self.ambiguity_margin = settings.intent_ollama_ambiguity_margin
 
     #执行意图分类
-    def predict(self, text: str) -> OllamaPrediction:
+    def predict(self, text: str) -> IntentPrediction:
         result = self.structured_model.invoke(
             [("system", OLLAMA_INTENT_PROMPT), ("human", normalize_text(text))]
         )
@@ -118,7 +108,7 @@ class OllamaIntentClassifier:
                 "ollama_intent_invalid_output error_type={}",
                 type(error).__name__ if error is not None else "missing_parsed_result",
             )
-            return OllamaPrediction([], {}, False, None, "invalid_output")
+            return IntentPrediction([], {}, False, None, "invalid_output")
 
         log_agent_output(
             "ollama_intent_classifier",
@@ -140,7 +130,7 @@ class OllamaIntentClassifier:
         elif len(selected) == 1 and margin < self.ambiguity_margin:
             reason = "ambiguous_top_intents"
 
-        return OllamaPrediction(
+        return IntentPrediction(
             selected_agents=selected,
             scores=scores,
             accepted=reason is None,

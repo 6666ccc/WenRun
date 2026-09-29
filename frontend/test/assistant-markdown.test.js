@@ -50,6 +50,36 @@ test('enhanceAssistantHtml turns date groups into a slot board', () => {
   assert.doesNotMatch(html, /<ul>/)
 })
 
+test('parseSlotLine ignores the count unit when a bold period has no doctor', () => {
+  assert.deepEqual(
+    parseSlotLine('上午 ：余号 20 个，挂号费 50 元'),
+    {
+      raw: '上午 ：余号 20 个，挂号费 50 元',
+      period: '上午',
+      doctors: [],
+      remaining: '20',
+      fee: '50',
+    },
+  )
+})
+
+test('bold period lines render slots without a leftover count unit', () => {
+  marked.setOptions({ breaks: true, gfm: true })
+  const html = renderAssistantMarkdown(`2026年9月30日（星期三）内科张伟医生的排班如下：
+
+- **上午**：余号 20 个，挂号费 50 元
+- **下午**：余号 20 个，挂号费 50 元`, {
+    parse: (text) => marked.parse(text || ''),
+    sanitize: (value) => value,
+  })
+  assert.match(html, /chat-slot__period">上午/)
+  assert.match(html, /chat-slot__period">下午/)
+  assert.match(html, /余号 20/)
+  assert.match(html, /¥50/)
+  assert.doesNotMatch(html, /<strong>[^<]*个/)
+  assert.doesNotMatch(html, /<strong>[：:]/)
+})
+
 test('ordinary lists stay lists', () => {
   const html = enhanceAssistantHtml('<ul><li>多喝水</li><li>清淡饮食</li></ul>')
   assert.match(html, /<ul>/)

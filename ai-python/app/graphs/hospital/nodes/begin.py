@@ -4,13 +4,13 @@
 和 tools（本院业务）。请从 begin_node 往下读，它按这个顺序判断，命中即停：
 
 1. 高精度规则：句式完全明确时直接定标签（实现在 app/intent/rules.py）。
-2. 本地多标签分类器：默认由 Ollama 结构化输出标签和分数；可配置切回
-   原有的 sklearn 分类器。上一轮助手还在追问时跳过本地结果，
+2. 多标签分类器：默认调用 TokenDance Jev SystemOne API，可配置切换为本地 Ollama。
+   上一轮助手还在追问时跳过分类器结果，
    因为“明天下午”这类短句没有上文会被误判成闲聊。
 3. 大模型：看得到最近几轮对话。输出格式不合格就要求重答一次；仍失败时，
    优先沿用分类器已经给出的倾向，完全没有线索再给一句固定澄清。
 
-前两步合成一次本地判断，入口是本文件的 _route_locally，细节在 app/intent/cascade.py。
+前两步合成一次级联判断，入口是本文件的 _route_locally，细节在 app/intent/cascade.py。
 本文件后半是第三步专用的提示词和结果校验，阅读主流程时可以先跳过。
 """
 
@@ -28,7 +28,7 @@ from app.observability.agent_output import log_agent_output
 
 
 def begin_node(state: State) -> dict:
-    """按「规则 → Ollama/sklearn 本地分类器 → 云端大模型」识别意图。"""
+    """按「规则 → Jev/Ollama 分类器 → 云端大模型」识别意图。"""
     # 按「判断意图」这个用途，从当前对话里抽出最近几轮和还没办完的事，打包成L3可以看懂的上文。
     messages = build_context(state, purpose="route")
     user_text = _latest_user_text(state)
@@ -40,7 +40,7 @@ def begin_node(state: State) -> dict:
     out_of_scope = False
 
     # 第一步命中高精度规则：直接采用，即使上一轮还在追问也不改走大模型。
-    # 第二步是本地分类器。它看不到历史，追问中的短句（如“明天下午”）改走第三步。
+    # 第二步是意图分类器。它看不到历史，追问中的短句（如“明天下午”）改走第三步。
     local_accepted = local.accepted
     if local_accepted and local.stage != "rules" and pending_followup(state):
         local_accepted = False
@@ -66,11 +66,7 @@ def begin_node(state: State) -> dict:
         if decision is None:
             if local.selected_agents:
                 selected_agents = list(local.selected_agents)
-                route_metadata["stage"] = (
-                    "ollama_degraded"
-                    if local.stage == "ollama_model"
-                    else "lightweight_degraded"
-                )
+                route_metadata["stage"] = local.stage.replace("_model", "_degraded")
                 route_metadata["fallback_reason"] = "llm_unavailable_use_local"
             else:
                 selected_agents = ["chat"]
@@ -129,7 +125,7 @@ def begin_node(state: State) -> dict:
 
 def _route_locally(text: str) -> LocalRouteResult:
     """把患者最新那句话交给 app/intent/cascade.py：先用高精度规则判断；
-    规则没命中，再跑选定的本地分类器。两步都拿不准时走云端大模型。"""
+    规则没命中，再跑选定的意图分类器。两步都拿不准时走云端大模型。"""
     return route_locally(text)
 
 
@@ -139,7 +135,9 @@ _AGENT_LABELS_ZH = {"knowledge": "医疗知识助手", "chat": "闲聊助手", "
 _INTENT_LABELS_ZH = {"knowledge": "医疗知识", "chat": "闲聊", "tools": "医院业务"}
 _ROUTE_STAGE_LABELS = {
     "rules": "规则直接命中",
-    "lightweight_model": "旧版本地分类器判断",
+    "jev_model": "Jev 意图判断",
+    "jev_degraded": "云端不可用，采用 Jev 已接受结果",
+    "ollama_degraded": "云端不可用，采用 Ollama 已接受结果",
     "ollama_model": "本地 Ollama 判断",
     "llm_required": "需要云端大模型判断",
     "llm": "云端大模型已判断",
@@ -148,16 +146,14 @@ _ROUTE_STAGE_LABELS = {
 _ESCALATION_REASON_LABELS = {
     "conditional_request_requires_reasoning": "包含条件判断，交给云端大模型",
     "pending_followup": "正在回答上一轮追问，交给云端大模型结合历史判断",
-    "local_model_disagreement": "Ollama 与旧分类器意见不一致",
-    "local_ood_guard": "旧分类器认为问题超出训练数据范围",
+    "jev_not_configured": "Jev API key 尚未配置",
+    "jev_unavailable": "Jev 服务不可用",
     "ollama_unavailable": "本地 Ollama 不可用",
-    "invalid_output": "本地模型输出格式无效",
-    "low_confidence": "本地模型判断信心不足",
-    "ambiguous_top_intents": "本地模型无法区分最可能的意图",
-    "local_uncertain": "本地模型标记为不确定",
-    "local_out_of_scope": "本地模型认为问题超出服务范围",
-    "lightweight_model_unavailable": "旧版本地分类器不可用",
-    "out_of_distribution": "问题与旧版训练数据差异较大",
+    "invalid_output": "意图分类器输出格式无效",
+    "low_confidence": "意图分类器判断信心不足",
+    "ambiguous_top_intents": "意图分类器无法区分最可能的意图",
+    "local_uncertain": "意图分类器标记为不确定",
+    "local_out_of_scope": "意图分类器认为问题超出服务范围",
 }
 _RULE_LABELS = {
     "appointment_action": "挂号或退号办理请求",

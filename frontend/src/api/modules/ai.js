@@ -11,7 +11,7 @@ export function normalizeChatEvent(event) {
 function applyChatEvent(raw, acc, handlers) {
   const event = normalizeChatEvent(raw)
   if (event.type === 'status') {
-    handlers.onStatus?.(event.content)
+    handlers.onStatus?.(event.step || event.content)
     return null
   }
   if (event.type === 'token' && event.content) {
@@ -58,12 +58,8 @@ function applyChatEvent(raw, acc, handlers) {
   return null
 }
 
-function finishStream(acc, handlers) {
-  if (acc.reply) {
-    const done = { reply: acc.reply, intent: acc.intent, sources: acc.sources }
-    handlers.onDone?.(done)
-    return { status: 'completed', ...done }
-  }
+function finishStream() {
+  // A partial section is not a completed answer. Only done/confirm ends a turn.
   throw new Error('流式响应意外结束')
 }
 
@@ -73,7 +69,7 @@ export async function consumeChatEvents(events, handlers = {}) {
     const result = applyChatEvent(raw, acc, handlers)
     if (result) return result
   }
-  return finishStream(acc, handlers)
+  return finishStream()
 }
 
 function parseSseChunk(part, onEvent) {
@@ -84,11 +80,14 @@ function parseSseChunk(part, onEvent) {
   if (!line) return
   const raw = line.slice(5).trim()
   if (!raw) return
+  let event
   try {
-    onEvent(JSON.parse(raw))
+    event = JSON.parse(raw)
   } catch {
     // ignore malformed SSE payloads
+    return
   }
+  onEvent(event)
 }
 
 async function streamRequest(url, payload, handlers = {}) {
@@ -158,7 +157,7 @@ async function streamRequest(url, payload, handlers = {}) {
     parseSseChunk(buffer, handleEvent)
   }
   if (terminal) return terminal
-  return finishStream(acc, handlers)
+  return finishStream()
 }
 
 export function chatStream(payload, handlers = {}) {

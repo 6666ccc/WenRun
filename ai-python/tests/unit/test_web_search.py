@@ -30,9 +30,10 @@ def test_search_web_maps_tavily_results(monkeypatch):
         def __init__(self, api_key: str) -> None:
             assert api_key == "tvly-test"
 
-        def search(self, query: str, max_results: int = 5, search_depth: str = "basic"):
+        def search(self, query: str, max_results: int = 5, search_depth: str = "basic", timeout: float = 60):
             assert query == "感冒吃什么药"
             assert max_results == 5
+            assert timeout == 20
             return {
                 "results": [
                     {
@@ -77,3 +78,19 @@ def test_web_search_tool_uses_formatted_results(monkeypatch):
     text = web_search.invoke({"query": "感冒吃什么药"})
     assert "[1] 感冒护理" in text
     assert "https://example.com/cold" in text
+
+
+def test_search_failure_is_reported_without_aborting_the_agent(monkeypatch):
+    from app.observability import progress
+
+    events = []
+    monkeypatch.setattr(progress, "get_stream_writer", lambda: events.append)
+
+    def unavailable(*args, **kwargs):
+        raise TimeoutError("SECRET provider details")
+
+    monkeypatch.setattr("app.graphs.hospital.tools.search.search_web", unavailable)
+    reply = web_search.invoke({"query": "胃胀反酸"})
+    assert reply.startswith("暂时无法查询")
+    assert "SECRET" not in reply
+    assert events[-1]["step"]["status"] == "failed"

@@ -10,6 +10,7 @@ from app.observability.context_metrics import current_context_trace
 
 _AGENT_LABELS = {
     "intent_router": "云端意图识别模型",
+    "jev_intent_classifier": "Jev 意图识别模型",
     "ollama_intent_classifier": "本地 Ollama 意图识别模型",
     "task_planner": "多意图任务规划器",
     "chat_agent": "闲聊助手",

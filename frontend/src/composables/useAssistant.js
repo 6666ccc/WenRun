@@ -18,7 +18,7 @@ import {
   sessionHasPendingConfirm,
   shouldRemoveLocalSessionAfterDeleteError,
 } from '../features/assistant/session'
-import { appendProgressStep, completeProgressSteps } from '../features/assistant/progress'
+import { appendProgressStep, completeProgressSteps, interruptProgressSteps } from '../features/assistant/progress'
 const FAST_MODE_KEY = 'wenrun_ai_fast_mode'
 const ACTIVE_ID_KEY = 'wenrun_ai_active_conversation'
 const fulfilled = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
@@ -261,8 +261,12 @@ function appendAssistantError(runtime, conversationId, requestId, code, message,
   if (request && request.status === 'running') request.status = status
   updateAssistant(runtime, conversationId, requestId, (current) => ({
     ...current,
-    content: message || 'AI 服务暂时不可用，请稍后重试。',
-    meta: { ...current.meta, requestId, status, errorCode: code },
+    content: current.content?.trim() ? current.content : (message || 'AI 服务暂时不可用，请稍后重试。'),
+    meta: {
+      ...current.meta, requestId, status, errorCode: code,
+      errorMessage: current.content?.trim() ? (message || 'AI 服务暂时不可用，请稍后重试。') : null,
+      progressSteps: interruptProgressSteps(current.meta?.progressSteps, status),
+    },
   }))
   setRequestStatus(runtime, conversationId, requestId, status)
 }
@@ -286,7 +290,7 @@ function markAssistantAwaitingConfirm(runtime, conversationId, requestId, confir
       requestId,
       status: 'confirming',
       confirm: confirming,
-      progressSteps: appendProgressStep(message.meta?.progressSteps, '等待您确认'),
+      progressSteps: appendProgressStep(interruptProgressSteps(message.meta?.progressSteps, 'confirming'), '等待您确认'),
     },
   }))
 }
@@ -296,7 +300,7 @@ function createStreamHandlers(runtime, conversationId, requestId) {
     signal: runtime.requests.get(requestId)?.controller.signal,
     onStatus: (text) => {
       if (runtime.requests.get(requestId)?.status === 'running') {
-        runtime.streamStatus.value = text
+        runtime.streamStatus.value = typeof text === 'object' ? text.label : text
         appendAssistantProgress(runtime, conversationId, requestId, text)
       }
     },

@@ -1,5 +1,5 @@
 from app.intent import cascade
-from app.intent.classifier import LightweightIntentClassifier, LightweightPrediction
+from app.intent.prediction import IntentPrediction
 from app.intent.rules import detect_safety_flags, match_rules, normalize_text
 
 
@@ -120,18 +120,17 @@ def test_rules_leave_unconditional_mixed_request_for_later_layers(monkeypatch):
     monkeypatch.setattr(
         cascade,
         "get_settings",
-        lambda: type("Settings", (), {"intent_local_backend": "sklearn"})(),
+        lambda: type("Settings", (), {"intent_backend": "jev", "intent_jev_model": "test"})(),
     )
     monkeypatch.setattr(
         cascade,
-        "get_lightweight_classifier",
+        "get_jev_intent_classifier",
         lambda: _StubClassifier(
-            LightweightPrediction(
+            IntentPrediction(
                 selected_agents=["knowledge", "chat", "tools"],
                 scores={"knowledge": 0.8, "chat": 0.7, "tools": 0.9},
                 accepted=True,
                 margin=0.1,
-                nearest_similarity=0.8,
             )
         ),
     )
@@ -139,7 +138,7 @@ def test_rules_leave_unconditional_mixed_request_for_later_layers(monkeypatch):
     result = cascade.route_locally(text)
 
     assert result.accepted is True
-    assert result.stage == "lightweight_model"
+    assert result.stage == "jev_model"
     assert set(result.selected_agents) == {"knowledge", "chat", "tools"}
 
 
@@ -160,25 +159,6 @@ def test_safety_rule_is_orthogonal_to_appointment_intent():
     assert result.safety_flags == ["breathing_difficulty", "acute_chest_pain"]
 
 
-def test_lightweight_classifier_accepts_close_domain_query():
-    classifier = LightweightIntentClassifier()
-
-    result = classifier.predict("胃不舒服应该怎么处理")
-
-    assert result.accepted is True
-    assert result.selected_agents == ["knowledge"]
-    assert result.scores["knowledge"] >= classifier.acceptance_threshold
-
-
-def test_lightweight_classifier_rejects_out_of_distribution_query():
-    classifier = LightweightIntentClassifier()
-
-    result = classifier.predict("解释一下量子纠缠和黑洞信息悖论")
-
-    assert result.accepted is False
-    assert result.reason in {"out_of_distribution", "low_confidence"}
-
-
 class _StubClassifier:
     def __init__(self, prediction):
         self.prediction = prediction
@@ -188,40 +168,40 @@ class _StubClassifier:
         return self.prediction
 
 
-def test_cascade_uses_lightweight_model_when_confident(monkeypatch):
-    prediction = LightweightPrediction(
+def test_cascade_uses_jev_model_when_confident(monkeypatch):
+    monkeypatch.setattr(cascade, "get_settings", lambda: type("Settings", (), {"intent_backend": "jev", "intent_jev_model": "test"})())
+    prediction = IntentPrediction(
         selected_agents=["tools"],
         scores={"knowledge": 0.05, "chat": 0.05, "tools": 0.9},
         accepted=True,
         margin=0.85,
-        nearest_similarity=0.8,
     )
-    monkeypatch.setattr(cascade, "get_lightweight_classifier", lambda: _StubClassifier(prediction))
+    monkeypatch.setattr(cascade, "get_jev_intent_classifier", lambda: _StubClassifier(prediction))
 
     result = cascade.route_locally("我想找一位医生")
 
     assert result.accepted is True
-    assert result.stage == "lightweight_model"
+    assert result.stage == "jev_model"
     assert result.selected_agents == ["tools"]
 
 
 def test_cascade_escalates_ambiguous_prediction(monkeypatch):
-    prediction = LightweightPrediction(
+    monkeypatch.setattr(cascade, "get_settings", lambda: type("Settings", (), {"intent_backend": "jev", "intent_jev_model": "test"})())
+    prediction = IntentPrediction(
         selected_agents=["knowledge"],
         scores={"knowledge": 0.61, "chat": 0.58, "tools": 0.1},
         accepted=False,
         margin=0.03,
-        nearest_similarity=0.5,
         reason="ambiguous_top_intents",
     )
-    monkeypatch.setattr(cascade, "get_lightweight_classifier", lambda: _StubClassifier(prediction))
+    monkeypatch.setattr(cascade, "get_jev_intent_classifier", lambda: _StubClassifier(prediction))
 
     result = cascade.route_locally("这件事该怎么办")
 
     assert result.accepted is False
     assert result.stage == "llm_required"
     assert result.escalation_reason == "ambiguous_top_intents"
-    assert result.selected_agents == ["knowledge"]
+    assert result.selected_agents == []
 
 
 def test_detect_safety_flags_does_not_match_plain_chest_discomfort_as_acute():

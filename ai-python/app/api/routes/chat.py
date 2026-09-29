@@ -37,6 +37,8 @@ from app.graphs.hospital.rehydration import build_rehydrated_messages
 from app.graphs.hospital.tools.context import HospitalToolContext
 from app.models.chat import ChatRequest, ChatResponse, ChatResumeRequest
 from app.observability.context_metrics import begin_context_trace
+from app.observability.progress import public_progress
+from app.graphs.hospital.reply_sections import compose_reply_sections, uses_reply_sections
 from app.rag.ingest import (
     deactivate_document,
     delete_document,
@@ -286,34 +288,68 @@ async def _chat_events(
         rehydrated=rehydrated,
     )
     first_token_at: float | None = None
-    yield _sse({"type": "status", "content": "正在分析您的问题…"})
+    yield _sse({"type": "status", "content": "已收到您的问题", "step": {
+        "id": "request", "label": "已收到您的问题", "status": "completed", "elapsedMs": 0,
+    }})
     graph_state: dict[str, Any] = {}
     streamed_reply = False
     selected_agents: list[str] = []
-    retrieval_status_sent = False
-    final_status_sent = False
-    plan_status_sent = False
+    section_text = ""
+    sent_sources: set[str] = set()
+
+    def new_sources(sources: list) -> list:
+        fresh = []
+        for source in sources:
+            key = json.dumps(source, ensure_ascii=False, sort_keys=True)
+            if key not in sent_sources:
+                sent_sources.add(key)
+                fresh.append(source)
+        return fresh
+
+    def visible_token(content: str) -> str:
+        nonlocal first_token_at, streamed_reply
+        if first_token_at is None:
+            first_token_at = perf_counter()
+            trace.first_token_ms = round((first_token_at - started_at) * 1000)
+            logger.info("chat_stream_first_token conversation_id={} elapsed_ms={}", conversation_id, trace.first_token_ms)
+        streamed_reply = True
+        return _sse({"type": "token", "content": content})
     try:
         # 图在后台持续运行；每来一个片段，就更新最终状态或向客户端推送正文。
         async for part in _stream_graph(graph_instance, graph_input, context, config):
+            if part.get("type") == "custom":
+                event = public_progress(part.get("data"))
+                if event is not None:
+                    yield _sse(event)
+                continue
             _merge_stream_state(graph_state, part)
             incoming_agents = graph_state.get("selected_agents") or []
             selected_agents = [
                 agent for agent in incoming_agents if isinstance(agent, str)
             ]
 
-            if not fast_mode and len(selected_agents) >= 2 and not plan_status_sent:
-                # 多意图回合会先经过 plan_node 拆子目标，给患者一个明确的等待提示。
-                plan_status_sent = True
-                yield _sse({"type": "status", "content": "正在拆解您的请求…"})
-
-            if (
-                not fast_mode
-                and "knowledge" in selected_agents
-                and not retrieval_status_sent
-            ):
-                retrieval_status_sent = True
-                yield _sse({"type": "status", "content": "正在检索相关资料…"})
+            if part.get("type") == "updates" and not part.get("ns"):
+                updates = part.get("data") or {}
+                for node, update in updates.items():
+                    if not isinstance(update, dict) or node == "__interrupt__":
+                        continue
+                    graph_state.update({key: value for key, value in update.items() if key != "messages"})
+                    if node not in {"knowledge_node", "tool_node", "final_node"}:
+                        continue
+                    if node == "knowledge_node":
+                        for source in new_sources(update.get("rag_sources") or []):
+                            yield _sse({"type": "citation", "sources": [source]})
+                    if not fast_mode and uses_reply_sections(graph_state):
+                        text = compose_reply_sections(graph_state, ready_prefix=node != "final_node")
+                        if text.startswith(section_text) and len(text) > len(section_text):
+                            yield visible_token(text[len(section_text):])
+                            section_text = text
+                    elif not streamed_reply and len(graph_state.get("selected_agents") or []) == 1:
+                        field = {"knowledge_node": "knowledge_reply", "tool_node": "tools_reply", "final_node": "final_reply"}[node]
+                        text = update.get(field)
+                        if isinstance(text, str) and text:
+                            yield visible_token(text)
+                continue
 
             if part.get("type") != "messages":
                 continue
@@ -328,29 +364,15 @@ async def _chat_events(
             if not isinstance(metadata, dict):
                 continue
             node_name = metadata.get("langgraph_node")
+            if not fast_mode and uses_reply_sections(graph_state):
+                continue
             visible_nodes = _stream_visible_nodes(selected_agents, fast_mode)
             if node_name not in visible_nodes or not _is_streamable_message(
                 message_chunk
             ):
                 continue
             content = _text_from_message_chunk(message_chunk)
-            if (
-                not fast_mode
-                and "knowledge" in selected_agents
-                and not final_status_sent
-            ):
-                final_status_sent = True
-                yield _sse({"type": "status", "content": "正在整理答案…"})
-            if first_token_at is None:
-                first_token_at = perf_counter()
-                trace.first_token_ms = round((first_token_at - started_at) * 1000)
-                logger.info(
-                    "回答开始输出 会话={} 首个文字耗时={} 毫秒 | chat_stream_first_token",
-                    conversation_id,
-                    round((first_token_at - started_at) * 1000),
-                )
-            streamed_reply = True
-            yield _sse({"type": "token", "content": content})
+            yield visible_token(content)
 
         # 写工具挂起时根图不会产出 final_reply，必须在取回复之前先判断有没有待确认项。
         pending = await _pending_confirmations(graph_instance, config)
@@ -403,12 +425,12 @@ async def _chat_events(
         trace.finish(error_code="AI_CHAT_FAILED")
         return
 
-    for source in response.sources:
+    for source in new_sources(response.sources):
         yield _sse({"type": "citation", "sources": [source]})
     if not streamed_reply:
         # 如果服务提供方不提供令牌片段，则发送一个完整令牌以保持协议一致，
         # 避免返回空答案。
-        yield _sse({"type": "token", "content": response.reply})
+        yield visible_token(response.reply)
     if resume_pending:
         # 旁路回答结束后把原来的确认卡片重新交还给患者；done 会让前端结束本轮，不能发。
         logger.info(
@@ -452,7 +474,7 @@ async def _stream_graph(
         graph_input,
         context=context,
         config=config,
-        stream_mode=["messages", "values"],
+        stream_mode=["messages", "values", "updates", "custom"],
         subgraphs=True,
         version="v2",
     ):

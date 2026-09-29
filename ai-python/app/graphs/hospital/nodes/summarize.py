@@ -18,6 +18,7 @@ from app.graphs.hospital.tools.context import clinic_now
 from app.models.chat import model
 from app.observability.agent_output import log_agent_output
 from app.observability.context_metrics import record_summary
+from app.observability.progress import progress_step
 
 SUMMARY_SYSTEM_PROMPT = """你是温润诊所患者端对话的历史压缩器，不对患者说话。
 只压缩已有内容，不补充医学知识，不新增诊断、药名或剂量。
@@ -132,7 +133,8 @@ def summarize_node(state: State) -> dict:
     if not transcript:
         return {}
     try:
-        response = model.invoke(_build_prompt(state.get("summary"), transcript))
+        with progress_step("summary"):
+            response = model.invoke(_build_prompt(state.get("summary"), transcript))
     except Exception:  # noqa: BLE001 - model/provider errors must not break chat
         logger.exception("conversation_summary_failed conversation_id={}", state.get("conversation_id"))
         return {}

@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 from app.intent import cascade
-from app.intent.classifier import LightweightPrediction
-from app.intent.ollama_classifier import OllamaIntentClassifier, OllamaPrediction
+from app.intent.ollama_classifier import OllamaIntentClassifier
+from app.intent.prediction import IntentPrediction
 
 
 class _StructuredResponse:
@@ -10,7 +10,11 @@ class _StructuredResponse:
         self.parsed = parsed
 
     def invoke(self, messages):
-        return {"parsed": self.parsed, "raw": SimpleNamespace(content=""), "parsing_error": None}
+        return {
+            "parsed": self.parsed,
+            "raw": SimpleNamespace(content=""),
+            "parsing_error": None,
+        }
 
 
 def _classifier(parsed):
@@ -22,8 +26,15 @@ def _classifier(parsed):
     return classifier
 
 
-def _decision(*, knowledge=0.0, chat=0.0, tools=0.0, selected=None,
-              out_of_scope=False, uncertain=False):
+def _decision(
+    *,
+    knowledge=0.0,
+    chat=0.0,
+    tools=0.0,
+    selected=None,
+    out_of_scope=False,
+    uncertain=False,
+):
     return {
         "selected_agents": selected if selected is not None else [],
         "scores": {"knowledge": knowledge, "chat": chat, "tools": tools},
@@ -61,66 +72,30 @@ def test_structured_ollama_result_escalates_low_score():
     assert prediction.reason == "low_confidence"
 
 
-def test_ollama_guard_escalates_conflicting_legacy_prediction(monkeypatch):
+def test_ollama_backend_keeps_local_route(monkeypatch):
     monkeypatch.setattr(
         cascade,
         "get_settings",
         lambda: SimpleNamespace(
-            intent_local_backend="ollama",
-            intent_ollama_model="deepseek-r1:1.5b",
-            intent_ollama_sklearn_guard=True,
+            intent_backend="ollama", intent_ollama_model="local-model"
         ),
     )
     monkeypatch.setattr(
         cascade,
         "get_ollama_intent_classifier",
         lambda: SimpleNamespace(
-            predict=lambda text: OllamaPrediction(
-                ["knowledge"], {"knowledge": 0.9, "chat": 0.0, "tools": 0.1}, True, 0.8
-            )
+            predict=lambda text: IntentPrediction(["tools"], {"tools": 0.9}, True, 0.8)
         ),
     )
     monkeypatch.setattr(
         cascade,
-        "get_lightweight_classifier",
-        lambda: SimpleNamespace(
-            predict=lambda text: LightweightPrediction(
-                ["tools"], {"knowledge": 0.1, "chat": 0.0, "tools": 0.8},
-                True, 0.7, 0.8
-            )
-        ),
+        "get_jev_intent_classifier",
+        lambda: (_ for _ in ()).throw(AssertionError("Jev must not be called")),
     )
 
     result = cascade.route_locally("我想找一位医生")
 
-    assert result.accepted is False
-    assert result.stage == "llm_required"
-    assert result.escalation_reason == "local_model_disagreement"
-    assert result.selected_agents == []
-
-
-def test_sklearn_backend_keeps_old_route(monkeypatch):
-    monkeypatch.setattr(
-        cascade, "get_settings", lambda: SimpleNamespace(intent_local_backend="sklearn")
-    )
-    monkeypatch.setattr(
-        cascade,
-        "get_lightweight_classifier",
-        lambda: SimpleNamespace(
-            version="legacy-test",
-            predict=lambda text: LightweightPrediction(
-                ["tools"], {"knowledge": 0.1, "chat": 0.0, "tools": 0.8},
-                True, 0.7, 0.8
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        cascade,
-        "get_ollama_intent_classifier",
-        lambda: (_ for _ in ()).throw(AssertionError("Ollama must not be called")),
-    )
-
-    result = cascade.route_locally("我想找一位医生")
-
-    assert result.stage == "lightweight_model"
+    assert result.accepted
+    assert result.stage == "ollama_model"
     assert result.selected_agents == ["tools"]
+    assert result.model_version == "ollama:local-model"

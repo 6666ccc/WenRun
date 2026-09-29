@@ -282,7 +282,7 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     assert response.headers["content-type"].startswith("text/event-stream")
     events = _sse_events(response)
     assert [event["type"] for event in events] == [
-        "status", "status", "citation", "token", "done"
+        "status", "citation", "token", "done"
     ]
     assert events[-1]["conversationId"] == "demo"
     assert events[-1]["reply"] == "已生成回复"
@@ -351,7 +351,7 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
         "你好", "，有什么可以帮您？"
     ]
     assert events[-1]["reply"] == "你好，有什么可以帮您？"
-    assert captured["stream_mode"] == ["messages", "values"]
+    assert captured["stream_mode"] == ["messages", "values", "updates", "custom"]
     assert captured["subgraphs"] is True
     assert captured["version"] == "v2"
 
@@ -403,18 +403,12 @@ def test_chat_stream_hides_knowledge_internals_when_final_node_summarizes(monkey
     events = _sse_events(response)
     assert [event["type"] for event in events] == [
         "status",
-        "status",
-        "status",
-        "status",
         "token",
         "done",
     ]
-    # 多意图回合先经过 plan_node，患者应看到拆解提示。
+    # Only actual lifecycle events create progress; selected agents do not imply it.
     assert [event["content"] for event in events if event["type"] == "status"] == [
-        "正在分析您的问题…",
-        "正在拆解您的请求…",
-        "正在检索相关资料…",
-        "正在整理答案…",
+        "已收到您的问题",
     ]
     assert [event["content"] for event in events if event["type"] == "token"] == [
         "最终面向患者的答案"
@@ -470,8 +464,6 @@ def test_chat_stream_forwards_knowledge_node_when_knowledge_is_the_sole_agent(mo
     assert response.status_code == 200
     events = _sse_events(response)
     assert [event["type"] for event in events] == [
-        "status",
-        "status",
         "status",
         "token",
         "token",

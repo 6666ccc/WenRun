@@ -4,7 +4,10 @@
 快速图：快速回答 → 历史摘要。图可以带检查点运行，也可以无状态运行。
 """
 
+from inspect import signature
+
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.runtime import Runtime
 from langgraph.graph import END, START, StateGraph
 
 from app.graphs.hospital.nodes.begin import begin_node
@@ -17,6 +20,7 @@ from app.graphs.hospital.nodes.summarize import summarize_node
 from app.graphs.hospital.nodes.tool import tool_node
 from app.graphs.hospital.state import AgentName, State
 from app.graphs.hospital.tools.context import HospitalToolContext
+from app.observability.progress import progress_step
 
 NODE_BY_AGENT: dict[AgentName, str] = {
     "knowledge": "knowledge_node",
@@ -24,6 +28,16 @@ NODE_BY_AGENT: dict[AgentName, str] = {
     "tools": "tool_node",
 }
 REPLY_NODES = frozenset(NODE_BY_AGENT.values())
+
+
+def _observed(node, key):
+    needs_runtime = "runtime" in signature(node).parameters
+
+    def run(state: State, runtime: Runtime[HospitalToolContext]) -> dict:
+        with progress_step(key):
+            return node(state, runtime) if needs_runtime else node(state)
+
+    return run
 
 
 def _nodes_for(agents: list[str]) -> list[str]:
@@ -61,14 +75,14 @@ def _after_knowledge(state: State) -> str:
 def _workflow() -> StateGraph:
     """声明普通对话的节点与执行顺序，尚未连接检查点。"""
     workflow = StateGraph(State, context_schema=HospitalToolContext)
-    workflow.add_node("begin_node", begin_node)
-    workflow.add_node("plan_node", plan_node)
-    workflow.add_node("knowledge_node", knowledge_node)
-    workflow.add_node("chat_node", chat_node)
-    workflow.add_node("tool_node", tool_node)
+    workflow.add_node("begin_node", _observed(begin_node, "route"))
+    workflow.add_node("plan_node", _observed(plan_node, "plan"))
+    workflow.add_node("knowledge_node", _observed(knowledge_node, "knowledge"))
+    workflow.add_node("chat_node", _observed(chat_node, "chat"))
+    workflow.add_node("tool_node", _observed(tool_node, "business"))
     # defer=True：chat_node 与 knowledge→tool 接力链可能落在不同 superstep，
     # 汇总必须等所有分支都结束后只执行一次。
-    workflow.add_node("final_node", final_node, defer=True)
+    workflow.add_node("final_node", _observed(final_node, "final"), defer=True)
     workflow.add_node("summarize_node", summarize_node)
 
     workflow.add_edge(START, "begin_node")
@@ -92,7 +106,7 @@ def _fast_workflow() -> StateGraph:
     """快速模式只运行快速回答和摘要，不进入医院业务工具节点。"""
 
     workflow = StateGraph(State, context_schema=HospitalToolContext)
-    workflow.add_node("fast_node", fast_node)
+    workflow.add_node("fast_node", _observed(fast_node, "fast"))
     workflow.add_node("summarize_node", summarize_node)
 
     workflow.add_edge(START, "fast_node")

@@ -4,6 +4,8 @@ import os
 
 from langchain.tools import tool
 from tavily import TavilyClient
+from loguru import logger
+from app.observability.progress import track_operation
 
 
 def format_search_results(results: list[dict]) -> str:
@@ -27,6 +29,7 @@ def search_web(query: str, max_results: int = 5) -> list[dict]:
         query,
         max_results=max_results,
         search_depth="basic",
+        timeout=20,
     )
     mapped: list[dict] = []
     for item in data.get("results") or []:
@@ -41,7 +44,12 @@ def search_web(query: str, max_results: int = 5) -> list[dict]:
 
 
 @tool
+@track_operation("web")
 def web_search(query: str) -> str:
     """检索公开网页。query 必须是整理后的短检索词，不要传入患者原话全文。"""
-    text = format_search_results(search_web(query))
+    try:
+        text = format_search_results(search_web(query))
+    except Exception as exc:  # Provider/network failure must not discard sibling search results.
+        logger.warning("Public search unavailable: {}", type(exc).__name__)
+        return "暂时无法查询公开医疗资料。本次不要重复尝试同一检索；可依据其他成功检索的资料回答，没有依据时请明确说明。"
     return text or "（无命中。可能未配置 TAVILY_API_KEY，或搜索无结果。）"

@@ -2,6 +2,7 @@
 
 from langchain.tools import ToolRuntime, tool
 from loguru import logger
+from app.observability.progress import track_operation
 
 from app.graphs.hospital.tools.base import UNAVAILABLE_MESSAGE
 from app.graphs.hospital.tools.context import HospitalToolContext
@@ -27,6 +28,7 @@ def resolve_department_id(
 
 
 @tool
+@track_operation("departments")
 def list_departments(runtime: ToolRuntime[HospitalToolContext]) -> str:
     """查询本院当前开设的科室。患者问有哪些科室、能看哪些科时调用。"""
     context = runtime.context

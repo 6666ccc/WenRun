@@ -4,6 +4,7 @@ from datetime import date, time, timedelta
 
 from langchain.tools import ToolRuntime, tool
 from loguru import logger
+from app.observability.progress import track_operation
 
 from app.graphs.hospital.tools.base import MAX_ROWS, UNAVAILABLE_MESSAGE
 from app.graphs.hospital.tools.context import CLINIC_TZ, HospitalToolContext
@@ -67,6 +68,7 @@ def _format_schedule(item: Schedule) -> str:
 
 
 @tool
+@track_operation("schedules")
 def list_schedules(
     runtime: ToolRuntime[HospitalToolContext],
     department: str | None = None,

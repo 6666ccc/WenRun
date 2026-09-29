@@ -1,6 +1,6 @@
 <script setup>
-import { computed } from 'vue'
-import { progressStepLabel, progressSummary } from '../features/assistant/progress'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { formatElapsed, progressRows, progressStepLabel, progressSummary, stepElapsedMs } from '../features/assistant/progress'
 import UiIcon from './UiIcon.vue'
 
 const props = defineProps({
@@ -9,8 +9,27 @@ const props = defineProps({
 })
 
 const active = computed(() => props.status === 'pending' || props.status === 'streaming')
-const completed = computed(() => props.status === 'completed' || props.status === 'confirming')
 const summary = computed(() => progressSummary(props.status, props.steps))
+const rows = computed(() => progressRows(props.steps, props.status))
+const clock = ref(Date.now())
+let timer
+watch(active, (value) => {
+  clearInterval(timer)
+  clock.value = Date.now()
+  if (value) timer = setInterval(() => { clock.value = Date.now() }, 1000)
+}, { immediate: true })
+onBeforeUnmount(() => clearInterval(timer))
+const stateLabels = { running: '进行中', completed: '已完成', failed: '未完成', waiting: '待确认', skipped: '已跳过' }
+const requestLabel = computed(() => active.value ? '进行中' : props.status === 'confirming' ? '待确认' : props.status === 'completed' ? '已完成' : props.status === 'stopped' ? '已停止' : '未完成')
+const finishedCount = computed(() => rows.value.filter((step) => step.status === 'completed').length)
+const slow = computed(() => active.value && rows.value.some((step) => step.status === 'running' && stepElapsedMs(step, clock.value) >= 20000))
+const totalElapsed = computed(() => {
+  const timed = rows.value.filter((step) => Number.isFinite(step.receivedAt))
+  if (!timed.length) return null
+  const start = Math.min(...timed.map((step) => step.receivedAt))
+  const finish = active.value ? clock.value : Math.max(...timed.map((step) => step.receivedAt + (step.elapsedMs || 0)))
+  return formatElapsed(finish - start)
+})
 </script>
 
 <template>
@@ -18,30 +37,35 @@ const summary = computed(() => progressSummary(props.status, props.steps))
     <summary>
       <span class="agent-progress__signal" aria-hidden="true"><UiIcon name="activity" :size="16" /></span>
       <span class="agent-progress__summary">
-        <strong>{{ summary }}</strong>
-        <small>{{ active ? '处理进度会自动更新' : `处理过程 · ${steps.length} 步` }}</small>
+        <strong role="status" aria-live="polite" aria-atomic="true">{{ summary }}</strong>
+        <small>已完成 {{ finishedCount }} 项<span v-if="totalElapsed" aria-hidden="true"> · {{ totalElapsed }}</span></small>
       </span>
-      <span class="agent-progress__state">{{ active ? '进行中' : completed ? '已完成' : status === 'error' ? '未完成' : '已停止' }}</span>
+      <span class="agent-progress__state">{{ requestLabel }}</span>
     </summary>
     <ol class="agent-progress__steps" aria-label="助手处理步骤">
       <li
-        v-for="(step, index) in steps"
-        :key="`${index}-${step}`"
+        v-for="step in rows"
+        :key="step.id"
         :class="{
-          'is-current': active && index === steps.length - 1,
-          'is-done': !active || index < steps.length - 1,
+          'is-current': step.status === 'running',
+          'is-done': step.status === 'completed',
+          'is-failed': step.status === 'failed',
+          'is-child': Boolean(step.parentId),
         }"
       >
         <span class="agent-progress__node" aria-hidden="true" />
-        <span>{{ progressStepLabel(step) }}</span>
+        <span class="agent-progress__label">{{ progressStepLabel(step) }}</span>
+        <span class="agent-progress__duration" aria-hidden="true">{{ formatElapsed(stepElapsedMs(step, clock)) }}</span>
+        <span class="agent-progress__step-state">{{ stateLabels[step.status] }}</span>
       </li>
     </ol>
+    <p v-if="slow" class="agent-progress__notice">当前步骤耗时较长，您可以继续等待，也可以停止生成。</p>
   </details>
 </template>
 
 <style scoped>
 .agent-progress {
-  width: min(560px, 100%);
+  width: min(650px, 100%);
   margin: 0 0 14px;
   border: 1px solid rgba(15, 143, 130, .18);
   border-radius: 16px;
@@ -72,7 +96,7 @@ const summary = computed(() => progressSummary(props.status, props.steps))
 .agent-progress__summary { min-width: 0; }
 .agent-progress__summary strong, .agent-progress__summary small { display: block; }
 .agent-progress__summary strong { color: var(--color-text); font-size: 14px; line-height: 1.4; }
-.agent-progress__summary small { margin-top: 3px; color: var(--color-text-secondary); font-size: 11px; }
+.agent-progress__summary small { margin-top: 3px; color: var(--color-text-secondary); font-size: 12px; }
 .agent-progress__state {
   padding: 4px 8px; border-radius: 999px; background: var(--color-mint-050);
   color: var(--color-brand-700); font-size: 11px; font-weight: 750; white-space: nowrap;
@@ -87,6 +111,14 @@ const summary = computed(() => progressSummary(props.status, props.steps))
 .agent-progress__steps li.is-done .agent-progress__node { border-color: var(--color-brand-700); background: var(--color-brand-700); box-shadow: inset 0 0 0 2px #fff; }
 .agent-progress__steps li.is-current { color: var(--color-text); font-weight: 700; }
 .agent-progress__steps li.is-current .agent-progress__node { border-color: var(--color-brand-700); animation: agent-node 1.2s ease-in-out infinite; }
+.agent-progress__label { flex: 1; min-width: 0; }
+.agent-progress__duration { margin-left: 12px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agent-progress__step-state { width: 42px; margin-left: 10px; font-size: 11px; text-align: right; white-space: nowrap; }
+.agent-progress__steps li { padding-right: 0; gap: 4px; }
+.agent-progress__steps li.is-child { margin-left: 18px; }
+.agent-progress__steps li.is-failed { color: var(--color-danger); }
+.agent-progress__steps li.is-failed .agent-progress__node { border-color: var(--color-danger); }
+.agent-progress__notice { margin: 0; padding: 11px 16px; border-top: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
 @keyframes agent-signal { from { opacity: .8; transform: scale(.86); } to { opacity: 0; transform: scale(1.35); } }
 @keyframes agent-node { 50% { box-shadow: 0 0 0 5px rgba(15, 143, 130, .12); } }
 @media (max-width: 520px) {

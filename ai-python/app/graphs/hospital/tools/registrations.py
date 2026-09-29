@@ -2,6 +2,7 @@
 
 from langchain.tools import ToolRuntime, tool
 from loguru import logger
+from app.observability.progress import track_operation
 
 from app.graphs.hospital.tools.base import MAX_ROWS, UNAVAILABLE_MESSAGE
 from app.graphs.hospital.tools.context import HospitalToolContext
@@ -28,6 +29,7 @@ def _format_registration(item: Registration) -> str:
 
 
 @tool
+@track_operation("registrations")
 def list_my_registrations(runtime: ToolRuntime[HospitalToolContext]) -> str:
     """查询当前登录患者本人的挂号记录。患者问我挂了什么号、我的预约时调用。"""
     context = runtime.context

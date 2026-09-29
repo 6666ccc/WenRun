@@ -2,6 +2,7 @@
 
 from langchain.tools import ToolRuntime, tool
 from loguru import logger
+from app.observability.progress import track_operation
 
 from app.graphs.hospital.tools.base import MAX_ROWS, UNAVAILABLE_MESSAGE
 from app.graphs.hospital.tools.context import HospitalToolContext
@@ -38,6 +39,7 @@ def resolve_staff_id(
 
 
 @tool
+@track_operation("doctors")
 def list_doctors(
     runtime: ToolRuntime[HospitalToolContext],
     department: str | None = None,

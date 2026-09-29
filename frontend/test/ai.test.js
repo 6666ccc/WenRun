@@ -13,6 +13,28 @@ test('normalizeChatEvent returns the event unchanged', () => {
   assert.deepEqual(normalizeChatEvent(event), event)
 })
 
+test('structured progress reaches the UI without becoming answer text', async () => {
+  const steps = []
+  const step = { id: 'web:1', label: '检索公开医疗资料', status: 'running', elapsedMs: 0 }
+  const result = await consumeChatEvents([
+    { type: 'status', content: step.label, step },
+    { type: 'done', reply: '答复' },
+  ], { onStatus: (value) => steps.push(value) })
+  assert.deepEqual(steps, [step])
+  assert.equal(result.reply, '答复')
+})
+
+test('an interrupted stream does not mark a partial answer complete', async () => {
+  const chunks = []
+  let completed = false
+  await assert.rejects(consumeChatEvents([{ type: 'token', content: '已生成的健康建议' }], {
+    onToken: (value) => chunks.push(value),
+    onDone: () => { completed = true },
+  }), /流式响应意外结束/)
+  assert.deepEqual(chunks, ['已生成的健康建议'])
+  assert.equal(completed, false)
+})
+
 test('done event aggregates reply intent and sources', async () => {
   const result = await consumeChatEvents([
     { type: 'status', content: '正在检索相关资料…' },
