@@ -11,7 +11,7 @@ from loguru import logger
 # 部分下游模块导入时就会创建模型，必须先把本项目的环境变量读进来。
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-from app.api.routes import chat, health, metrics
+from app.api.routes import chat, health, knowledge, metrics
 from app.core.logging import (
     configure_logging,
     new_request_id,
@@ -27,13 +27,27 @@ configure_logging()
 async def lifespan(_: FastAPI):
     """服务启动时建立可恢复的会话图；关闭时释放检查点连接。"""
     async with memory_lifespan():
-        yield
+        worker = None
+        try:
+            from app.rag.lifecycle import get_rag_service
+
+            worker = get_rag_service()
+            worker.ensure_ready()
+            worker.start_worker()
+        except Exception:
+            logger.exception("rag_lifecycle_worker_not_started")
+        try:
+            yield
+        finally:
+            if worker is not None:
+                worker.stop_worker()
 
 
 def create_app() -> FastAPI:
     """创建温润 AI HTTP 服务。"""
     app = FastAPI(title="WenRun AI API", version="0.1.0", lifespan=lifespan)
     app.include_router(chat.router)
+    app.include_router(knowledge.router)
     app.include_router(health.router)
     app.include_router(metrics.router)
 

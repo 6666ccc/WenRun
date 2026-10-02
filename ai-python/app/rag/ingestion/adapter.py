@@ -33,8 +33,13 @@ class LangChainDocumentAdapter:
         total = len(chunks)
         result: list[Document] = []
         for index, chunk in enumerate(chunks):
+            document_metadata = {
+                key: value
+                for key, value in document.metadata.items()
+                if key != "page_furniture"
+            }
             metadata = {
-                **document.metadata,
+                **document_metadata,
                 **chunk.metadata,
                 "document_id": document.document_id,
                 "source_name": document.file_name,

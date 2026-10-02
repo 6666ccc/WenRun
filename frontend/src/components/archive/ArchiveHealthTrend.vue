@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import UiIcon from '../UiIcon.vue'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
@@ -137,7 +138,10 @@ onUnmounted(() => {
       <span class="trend-summary__time">{{ summary.latestTime }}</span>
     </div>
 
-    <p v-if="loading" class="trend-status">趋势加载中…</p>
+    <p v-if="loading" class="trend-status" role="status">
+      <span aria-hidden="true"><UiIcon name="loading" :size="18" /></span>
+      <span>趋势加载中…</span>
+    </p>
     <p v-else-if="error" class="archive-panel__error" role="alert">{{ error }}</p>
     <div v-show="hasChart" ref="chartEl" class="trend-chart" role="img" :aria-label="`${currentType?.metricName || '健康'}趋势图`" />
     <div v-if="!loading && !error && !records.length" class="trend-empty">
@@ -234,7 +238,8 @@ onUnmounted(() => {
   color: var(--color-text-muted);
 }
 .trend-chart { width: 100%; height: 380px; }
-.trend-status { margin: 0; color: var(--color-text-secondary); font-size: 13px; }
+.trend-status { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--color-brand-700); font-size: 13px; }
+.trend-status span:last-child { color: var(--color-text-secondary); }
 .trend-empty {
   height: 280px;
   display: flex;

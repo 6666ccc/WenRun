@@ -28,6 +28,19 @@ def to_rag_sources(documents: list[Document], start: int = 1) -> list[dict]:
     sources: list[dict] = []
     for index, document in enumerate(documents, start=start):
         metadata = document.metadata or {}
+        raw_pages = metadata.get("page_numbers") or metadata.get("pages")
+        if isinstance(raw_pages, (list, tuple, set)):
+            pages = [page for page in raw_pages if page not in (None, "")]
+        elif isinstance(raw_pages, str) and raw_pages.strip():
+            pages = [value.strip() for value in raw_pages.split(",") if value.strip()]
+        else:
+            page = metadata.get("page") or metadata.get("pageNumber")
+            pages = [page] if page not in (None, "") else []
+        section_path = metadata.get("section_path") or metadata.get("sectionPath")
+        if isinstance(section_path, str):
+            section_path = [part.strip() for part in section_path.split(">") if part.strip()]
+        elif not isinstance(section_path, (list, tuple)):
+            section_path = []
         sources.append(
             {
                 "id": f"S{index}",
@@ -35,8 +48,15 @@ def to_rag_sources(documents: list[Document], start: int = 1) -> list[dict]:
                 or metadata.get("documentId"),
                 "title": metadata.get("source_name") or metadata.get("originalName"),
                 "version": metadata.get("version"),
-                "page": metadata.get("page") or metadata.get("pageNumber"),
+                "build_id": metadata.get("build_id") or metadata.get("buildId"),
                 "chunk_id": metadata.get("chunk_id") or metadata.get("chunkId"),
+                "section": " > ".join(str(part) for part in section_path),
+                "section_path": list(section_path),
+                "pages": pages,
+                "page": pages[0] if pages else None,
+                "scope": metadata.get("scope", "public"),
+                "source_asset_id": metadata.get("source_asset_id")
+                or metadata.get("sourceAssetId"),
                 "updated_at": metadata.get("updated_at") or metadata.get("updatedAt"),
             }
         )

@@ -59,17 +59,65 @@ def is_active_document(metadata: dict, *, now: datetime | None = None) -> bool:
     return expires is None or expires > current
 
 
-def prepare_rag_documents(
-    documents: list[Document], *, now: datetime | None = None
-) -> tuple[list[Document], int]:
-    """返回可供回答的资料片段，以及因风险文本被丢弃的数量。"""
+def _is_governed(metadata: dict) -> bool:
+    """新发布流程写入的片段带有范围或构建号，必须再对发布登记。"""
+    scope = metadata.get("scope")
+    return bool(
+        metadata.get("build_id")
+        or metadata.get("source_asset_id")
+        or scope in {"public", "staff"}
+    )
 
+
+def _revision_key(metadata: dict) -> tuple[str, int] | None:
+    document_id = metadata.get("document_id")
+    version = metadata.get("version")
+    if isinstance(version, float) and version.is_integer():
+        version = int(version)
+    if isinstance(version, str) and version.isdigit():
+        version = int(version)
+    if not isinstance(document_id, str) or not document_id or not isinstance(version, int):
+        return None
+    return document_id, version
+
+
+def _published_keys(scopes: tuple[str, ...], now: datetime) -> set[tuple[str, int]] | None:
+    from app.rag.lifecycle import published_revision_keys
+
+    return published_revision_keys(scopes, now=now)
+
+
+def prepare_rag_documents(
+    documents: list[Document],
+    *,
+    now: datetime | None = None,
+    scopes: tuple[str, ...] = ("public",),
+    authority_keys: set[tuple[str, int]] | None = None,
+) -> tuple[list[Document], int]:
+    """返回可供回答的资料片段，以及因风险文本被丢弃的数量。
+
+    患者默认只看 public。带发布标记的片段还必须出现在当前生效的发布登记里。
+    登记不可用时，这些新片段一律不进入回答；没有该标记的旧索引仍按原规则保留。
+    """
+
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    governed = any(_is_governed(dict(document.metadata or {})) for document in documents)
+    keys = authority_keys
+    if governed and keys is None:
+        keys = _published_keys(scopes, current)
     safe: list[Document] = []
     rejected = 0
     for document in documents:
         metadata = dict(document.metadata or {})
-        if not is_active_document(metadata, now=now):
+        if not is_active_document(metadata, now=current):
             continue
+        scope = metadata.get("scope") or ""
+        if scope == "staff" and "staff" not in scopes:
+            continue
+        if _is_governed(metadata):
+            identity = _revision_key(metadata)
+            if keys is None or identity is None or identity not in keys:
+                continue
         content = sanitize_rag_text(document.page_content)
         if not content or has_prompt_injection_risk(content):
             rejected += 1

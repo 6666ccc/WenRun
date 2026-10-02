@@ -1,8 +1,0 @@
-FROM python:3.11-slim
-ENV LANG=C.UTF-8
-WORKDIR /app
-COPY pyproject.toml README.md ./
-COPY app app
-RUN pip install --no-cache-dir ".[ingest]"
-EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -25,7 +25,7 @@ onBeforeUnmount(() => window.clearTimeout(loadingTimer))
 <template>
   <div v-if="loading && !showLoading" class="shared-loading shared-loading--delay" aria-hidden="true" />
   <div v-else-if="loading" class="shared-loading" role="status" aria-live="polite">
-    <div class="shared-loading__spinner" aria-hidden="true" />
+    <span class="shared-loading__mark" aria-hidden="true"><UiIcon name="loading" :size="48" /></span>
     <span class="shared-loading__text">加载中…</span>
   </div>
   <div v-else-if="error" class="ui-state ui-state--error mb-md" role="alert">

@@ -25,7 +25,9 @@ from .errors import (
     DocumentCleaningError,
     DocumentParseError,
 )
+from .models import PreparedIngestion
 from .parsers import DocumentParser, DocumentSource, default_parser_for
+from .quality import assess_quality
 
 ParserResolver = Callable[[DocumentSource, str | None], DocumentParser]
 
@@ -89,7 +91,44 @@ class IngestionService:
         file_name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> list[Document]:
-        """处理一个文件；每一步出错都转换成对应阶段的可识别异常。"""
+        """处理一个文件；没有可检索片段时仍按切块失败返回。"""
+        prepared = self.prepare(
+            source,
+            document_id=document_id,
+            file_name=file_name,
+            metadata=metadata,
+        )
+        documents = prepared.to_documents()
+        if not documents:
+            _raise_logged(
+                ChunkingError,
+                f"failed to chunk {_file_name(source, file_name)}",
+                "document_chunking_failed document_id={} file_name={} parser={} document_type={} chunk_strategy={} error_type={}",
+                document_id,
+                _file_name(source, file_name),
+                prepared.parsed_document.parser,
+                prepared.document_type.value,
+                prepared.chunk_strategy,
+                "EmptyChunkSet",
+                cause=ValueError("chunking strategy returned no chunks"),
+            )
+        if not prepared.quality_report.can_publish:
+            codes = [
+                issue.code for issue in prepared.quality_report.issues if issue.blocking
+            ]
+            reason = ",".join(codes) or prepared.quality_report.status.value
+            raise ValueError(f"资料未通过发布前质量检查：{reason}")
+        return documents
+
+    def prepare(
+        self,
+        source: DocumentSource,
+        *,
+        document_id: str,
+        file_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> PreparedIngestion:
+        """解析并生成质量报告。没有检索片段时仍返回报告，供人工复核。"""
         started_at = perf_counter()
         safe_name = _file_name(source, file_name)
         selected_parser = self.parser
@@ -151,20 +190,13 @@ class IngestionService:
             )
 
         strategy_name = "unresolved"
+        chunks = []
         try:
             strategy = ChunkingRouter(self.tokenizer, self.config).select_strategy(
                 document_type
             )
             strategy_name = strategy.name
             chunks = strategy.split(cleaned)
-            if not chunks:
-                raise ValueError("chunking strategy returned no chunks")
-            documents = self.adapter.to_documents(
-                chunks,
-                document=cleaned,
-                document_type=document_type,
-                chunk_strategy=strategy.name,
-            )
         except Exception as exc:  # noqa: BLE001 - normalize tokenizer/chunker backends
             _raise_logged(
                 ChunkingError,
@@ -179,18 +211,27 @@ class IngestionService:
                 cause=exc,
             )
 
+        quality = assess_quality(parsed, cleaned, len(chunks), chunks)
         logger.info(
-            "document_ingestion_completed document_id={} file_name={} parser={} document_type={} element_count={} chunk_strategy={} chunk_count={} duration_ms={}",
+            "document_ingestion_completed document_id={} file_name={} parser={} document_type={} element_count={} chunk_strategy={} chunk_count={} quality={} duration_ms={}",
             document_id,
             safe_name,
             parsed.parser,
             document_type.value,
             len(cleaned.elements),
             strategy_name,
-            len(documents),
+            len(chunks),
+            quality.status.value,
             round((perf_counter() - started_at) * 1000),
         )
-        return documents
+        return PreparedIngestion(
+            parsed_document=parsed,
+            cleaned_document=cleaned,
+            chunks=chunks,
+            quality_report=quality,
+            document_type=document_type,
+            chunk_strategy=strategy_name,
+        )
 
     def process(
         self,

@@ -9,13 +9,13 @@ import {
   Cross,
   Eye,
   EyeOff,
-  HeartPulse,
   Lock,
   Phone,
   Pill,
   Stethoscope,
   UserRound,
 } from "@lucide/vue";
+import UiIcon from "../components/UiIcon.vue";
 import { useAuth } from "../stores";
 import { homePath } from "../utils/portal";
 import { register as registerApi } from "../api/modules/user";
@@ -120,7 +120,7 @@ onBeforeUnmount(() => window.clearTimeout(switchTimer));
 
         <section class="tone-panel" aria-label="温润医院">
           <div class="auth-brand" :class="phase">
-            <HeartPulse :size="22" aria-hidden="true" />
+            <UiIcon name="logo" :size="22" />
             <span><strong>温润</strong>医院</span>
           </div>
 

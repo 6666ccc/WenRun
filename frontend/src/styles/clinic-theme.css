@@ -210,7 +210,7 @@ select:focus-visible,
 .shared-status--paid, .shared-status--open { background: #e7f6ee; color: #17623e; }
 
 .shared-loading, .shared-empty { min-height: 180px; border: 1px dashed var(--color-border); border-radius: var(--radius-lg); background: rgba(255,255,255,.56); }
-.shared-loading__spinner { border-color: var(--color-mint-200); border-top-color: var(--color-brand-700); }
+.shared-loading__mark { color: var(--color-brand-700); }
 .shared-empty__icon { color: var(--color-brand-700); opacity: .46; }
 
 .ui-state {

@@ -197,11 +197,6 @@ a:hover { color: var(--c-brand-light); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 旋转 */
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 /* ============================================================
    Amber Line — 保留结构兼容，不再自动播放
    ============================================================ */
@@ -240,13 +235,9 @@ a:hover { color: var(--c-brand-light); }
   color: var(--c-sub);
   gap: var(--space-md);
 }
-.shared-loading__spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid var(--c-border);
-  border-top-color: var(--c-accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.shared-loading__mark {
+  display: flex;
+  color: var(--color-brand-700);
 }
 .shared-loading__text {
   font-size: 0.9rem;
@@ -781,7 +772,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .shared-loading__spinner,
+  .logo-loader,
   .chat-stream-cursor,
   .ai-typing span,
   .stagger > *,

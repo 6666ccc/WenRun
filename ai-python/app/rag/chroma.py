@@ -225,7 +225,11 @@ def delete_document_points(document_id: str, *, version: int | None = None) -> N
 
 
 def get_hospital_retriever():
-    """创建院内检索器：最多取 5 段相似且目前有效的资料。"""
+    """创建院内检索器：最多取 5 段相似且目前有效的资料。
+
+    这里只按向量状态和生效时间预筛。public/staff 范围以及发布登记
+    由 prepare_rag_documents 取回后复核，避免未发布或院内资料进入患者回答。
+    """
     client = get_chroma_client()
     embeddings = get_embeddings()
     ensure_collection(client, hospital_collection)

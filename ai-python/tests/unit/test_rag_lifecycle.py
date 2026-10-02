@@ -144,6 +144,37 @@ def test_prepare_rag_documents_drops_expired_and_prompt_injection_chunks():
     assert sanitize_rag_text("a\x00b") == "ab"
 
 
+def test_prepare_rag_documents_hides_staff_and_unreleased_revisions():
+    now = datetime(2026, 9, 13, tzinfo=UTC)
+    active = {
+        "status": "active",
+        "effective_from": (now - timedelta(days=1)).isoformat(),
+        "expires_at": (now + timedelta(days=1)).isoformat(),
+    }
+    documents = [
+        Document(
+            page_content="院内制度",
+            metadata={**active, "scope": "staff", "document_id": "staff-1", "version": 1, "build_id": "b1"},
+        ),
+        Document(
+            page_content="尚未发布",
+            metadata={**active, "scope": "public", "document_id": "public-1", "version": 2, "build_id": "b2"},
+        ),
+        Document(
+            page_content="已经发布",
+            metadata={**active, "scope": "public", "document_id": "public-1", "version": 1, "build_id": "b0"},
+        ),
+        Document(page_content="旧索引", metadata=active),
+    ]
+
+    safe, rejected = prepare_rag_documents(
+        documents, now=now, authority_keys={("public-1", 1)},
+    )
+
+    assert [item.page_content for item in safe] == ["已经发布", "旧索引"]
+    assert rejected == 0
+
+
 def test_retriever_filter_requires_active_and_effective_lifecycle_fields():
     payload = active_document_filter(datetime(2026, 9, 13, tzinfo=UTC))
     serialized = str(payload)

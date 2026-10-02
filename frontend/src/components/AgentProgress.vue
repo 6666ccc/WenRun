@@ -35,7 +35,7 @@ const totalElapsed = computed(() => {
 <template>
   <details class="agent-progress" :class="[`is-${status}`, { 'is-active': active }]" :open="active">
     <summary>
-      <span class="agent-progress__signal" aria-hidden="true"><UiIcon name="activity" :size="16" /></span>
+      <span class="agent-progress__signal" aria-hidden="true"><UiIcon name="loading" :size="20" /></span>
       <span class="agent-progress__summary">
         <strong role="status" aria-live="polite" aria-atomic="true">{{ summary }}</strong>
         <small>已完成 {{ finishedCount }} 项<span v-if="totalElapsed" aria-hidden="true"> · {{ totalElapsed }}</span></small>
@@ -89,9 +89,10 @@ const totalElapsed = computed(() => {
   width: 34px; height: 34px; display: grid; place-items: center;
   border-radius: 50%; background: var(--color-mint-100); color: var(--color-brand-700);
 }
-.agent-progress.is-active .agent-progress__signal::after {
-  content: ''; position: absolute; inset: -4px; border: 1px solid rgba(15, 143, 130, .28); border-radius: inherit;
-  animation: agent-signal 1.8s ease-out infinite;
+.agent-progress:not(.is-active) :deep(.logo-loader path) {
+  animation: none;
+  stroke-dashoffset: 0;
+  opacity: 1;
 }
 .agent-progress__summary { min-width: 0; }
 .agent-progress__summary strong, .agent-progress__summary small { display: block; }
@@ -119,13 +120,12 @@ const totalElapsed = computed(() => {
 .agent-progress__steps li.is-failed { color: var(--color-danger); }
 .agent-progress__steps li.is-failed .agent-progress__node { border-color: var(--color-danger); }
 .agent-progress__notice { margin: 0; padding: 11px 16px; border-top: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
-@keyframes agent-signal { from { opacity: .8; transform: scale(.86); } to { opacity: 0; transform: scale(1.35); } }
 @keyframes agent-node { 50% { box-shadow: 0 0 0 5px rgba(15, 143, 130, .12); } }
 @media (max-width: 520px) {
   .agent-progress summary { grid-template-columns: 32px minmax(0, 1fr); }
   .agent-progress__state { grid-column: 2; justify-self: start; margin-top: -4px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .agent-progress.is-active .agent-progress__signal::after, .agent-progress__steps li.is-current .agent-progress__node { animation: none; }
+  .agent-progress__steps li.is-current .agent-progress__node { animation: none; }
 }
 </style>

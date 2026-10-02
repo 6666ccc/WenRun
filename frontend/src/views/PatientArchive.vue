@@ -249,7 +249,7 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
   <div class="archive-page">
     <header class="archive-topbar">
       <RouterLink class="archive-brand" to="/home" aria-label="温润医院患者服务首页">
-        <span class="archive-brand__mark" aria-hidden="true"><UiIcon name="heart" :size="20" /></span>
+        <span class="archive-brand__mark" aria-hidden="true"><UiIcon name="logo" :size="20" /></span>
         <span>温润医院<small>WENRUN CARE</small></span>
       </RouterLink>
       <div class="archive-topbar__right">
