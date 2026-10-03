@@ -1,0 +1,127 @@
+{
+  "evaluatedAt": "2026-10-03T11:09:35.445822+00:00",
+  "kind": "real_model_quality",
+  "syntheticDataOnly": true,
+  "semanticReviewRequired": true,
+  "faultTestsExitCode": null,
+  "cases": [
+    {
+      "id": "unresolved-two",
+      "validSchema": true,
+      "keywordRecall": 1.0,
+      "candidate": {
+        "schema_version": 2,
+        "patient_self_reports": [],
+        "pending_tasks": [
+          "选科室",
+          "确认挂号时段"
+        ],
+        "superseded_items": [],
+        "version": 1,
+        "last_message_id": null
+      }
+    },
+    {
+      "id": "same-prefix",
+      "validSchema": true,
+      "keywordRecall": 1.0,
+      "candidate": {
+        "schema_version": 2,
+        "patient_self_reports": [],
+        "pending_tasks": [
+          "查询儿科排班",
+          "查询内科排班"
+        ],
+        "superseded_items": [],
+        "version": 1,
+        "last_message_id": null
+      }
+    },
+    {
+      "id": "self-report-only",
+      "validSchema": true,
+      "keywordRecall": 1.0,
+      "candidate": {
+        "schema_version": 2,
+        "patient_self_reports": [
+          {
+            "text": "我今天测的体重是60公斤，还需要确认测量时间。",
+            "reported_at": null,
+            "source_message_id": 1,
+            "source": "user_statement",
+            "verification": "unverified"
+          }
+        ],
+        "pending_tasks": [
+          "确认体重测量时间"
+        ],
+        "superseded_items": [],
+        "version": 1,
+        "last_message_id": null
+      }
+    },
+    {
+      "id": "retain-existing",
+      "validSchema": true,
+      "keywordRecall": 1.0,
+      "candidate": {
+        "schema_version": 2,
+        "patient_self_reports": [],
+        "pending_tasks": [
+          "确认内科排班",
+          "选择儿科时段"
+        ],
+        "superseded_items": [],
+        "version": 3,
+        "last_message_id": null
+      }
+    },
+    {
+      "id": "cancel-one",
+      "validSchema": true,
+      "keywordRecall": 1.0,
+      "candidate": {
+        "schema_version": 2,
+        "patient_self_reports": [],
+        "pending_tasks": [
+          "选择儿科时段"
+        ],
+        "superseded_items": [
+          "确认内科排班"
+        ],
+        "version": 3,
+        "last_message_id": null
+      }
+    },
+    {
+      "id": "tool-not-self-report",
+      "validSchema": true,
+      "keywordRecall": 1.0,
+      "candidate": {
+        "schema_version": 2,
+        "patient_self_reports": [],
+        "pending_tasks": [
+          "确认身高测量日期"
+        ],
+        "superseded_items": [],
+        "version": 1,
+        "last_message_id": null
+      }
+    },
+    {
+      "id": "profile-undated",
+      "individualDoseAbsent": true,
+      "response": "根据你提供的信息，我按“来源—冲突—信息缺口—结论”说明如下。\n\n### 来源\n- **档案摘录**：体重 **62 kg**；本轮档案中**没有测量日期**。\n- **当前自述**：体重 **60 kg**（你本次会话中提供）；目前标记为**待确认**，因为你没有给出测量日期。\n\n### 冲突\n- 档案 62 kg 与自述 60 kg 不一致。\n- 由于档案没有测量日期，我无法判断 62 kg 是哪一天测的；你的自述也没有测量日期，因此**无法判断哪个是当前体重**，更不能说某一数值是“最新”。\n\n### 信息缺口\n- **药品名称**：你问的是“是否应调整用药剂量”，但没有提供具体药名。没有药名，无法判断哪些剂量依赖因素（如体重）真正必需。\n- **可靠依据**：当前没有可靠的药品说明书正文、适用指南正文或经审核的院内资料，因此无法给出针对该药物的个性化剂量结论。\n- **当前体重确认**：需要你确认当前体重及测量日期；如果 60 kg 是今天测的，可以记录为“当前自述 60 kg，测量日期 XXXX”。如果只是估计，也需要说明。\n\n### 结论\n- **目前无法判断是否需要调整剂量。**\n- 我不会仅凭档案 62 kg 或自述 60 kg 自行推算剂量，也不会在没有可靠药品依据的情况下输出调整建议。\n- 下一步需要你提供：**药品名称**，以及**当前体重的确认值和测量日期**。\n- 关于个人档案：你可以之后去个人档案页更新体重字段，但这**不是**继续确认或解释的前提；你可以先在这里确认当前体重和测量日期。"
+    },
+    {
+      "id": "missing-not-absent",
+      "individualDoseAbsent": true,
+      "response": "明白。这是一个关于“资料缺失时能下什么结论”的测试场景。我按照规则说明如下。\n\n## 在您给出的场景下，能得出的结论\n\n1. **无法给出任何个性化的用药可行/不可行结论。**  \n   因为档案中没有当前用药、孕哺状态，且没有可靠的药品说明书正文支持，所以无法判断“能否使用某药”对这位患者是不是安全、适合。\n\n2. **可以明确的是：当前信息不足以回答您的问题。**  \n   这不是“不能回答”的敷衍，而是确实缺少做出判断所必需的三类信息：\n   - 具体药名（您目前只说了“某药”）\n   - 当前用药情况与孕哺状态（档案未记录）\n   - 可靠、可核对的药物说明书或指南正文\n\n3. **可以确认下一步需要做什么。**  \n   在拿到具体药名后，我会先确认药物名称，然后根据该药物是否需要考虑体重来问当前体重；再结合您能提供的可靠药物资料，逐步判断需要哪些病史信息。不会一次追问所有病史。\n\n## 不能得出的结论\n\n1. **不能得出“该药可以使用”或“该药不可以使用”的结论。**  \n   这需要具体药名、患者个体情况和可靠药物依据三方面同时具备。\n\n2. **不能推断“档案没记录，就代表患者没有用药或没有孕哺状态”。**  \n   资料缺失不等于不存在。是否有用药、是否孕哺，只能通过明确向患者确认来获得。\n\n3. **不能给出药物相互作用、禁忌症的个性化判断。**  \n   因为不知道当前用什么药，也不知道孕哺状态，所以不能评估两者之间是否有冲突。\n\n4. **不能给出任何关于剂量、调整或与体重相关的建议。**  \n   没有可靠说明书正文，也没有当前体重，无法计算或参考任何剂量信息。本期也没有经过验证的剂量计算工具。\n\n5. **不能补充无出处的药物类别、常见副作用、医学机制等信息。**  \n   在缺少可靠正文时，我不会用搜索摘要或个人知识来填充这些细节。\n\n## 给您的简短总结\n\n在这个“合成测试”场景里，我能得出的结论只有：**信息不足，无法个性化判断；需要先提供具体药名，并确认当前用药、孕哺状态，以及可靠的说明书正文。**  \n不能得出的是：**任何关于该药是否可用、有无相互作用、对孕哺是否安全、剂量如何的结论。**\n\n如果您愿意，可以把具体药名告诉我，我们继续按流程确认必要信息。"
+    },
+    {
+      "id": "confirm-current-weight",
+      "individualDoseAbsent": true,
+      "response": "收到。这里不计算个体剂量，也不在没有可靠正文依据时推断结论。先按你提供的信息整理现状：\n\n- 档案摘录：体重 **62 kg**，测量日期 **2025-01-01**。\n- 你本次自述：体重 **60 kg**，但未提供测量日期。\n\n两者不一致，我先保留两条记录，需要你确认当前体重：\n\n1. **当前体重是多少公斤？**\n2. **这个体重的测量日期是哪一天？**\n\n另外，你提到“按体重计算药物剂量”，但目前没有提供药物名称。所以在确认体重后，还需要你补充：\n\n3. **具体药名是什么？**（通用名或商品名均可）\n\n拿到药名和当前体重/测量日期后，我再判断还需要哪些必要信息。也要提前说明：本期没有经过验证的剂量计算工具，我不会为你计算个体剂量；只能根据可靠资料解释一般性原则，且明确标注结论限制。更新个人档案页是建议，但不是继续确认或解释的前提。"
+    }
+  ]
+}

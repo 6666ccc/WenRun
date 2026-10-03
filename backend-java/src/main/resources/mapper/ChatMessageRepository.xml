@@ -14,6 +14,19 @@
         <result column="create_time" property="createTime"/>
     </resultMap>
 
+    <select id="selectMaxId" resultType="java.lang.Long">
+        SELECT COALESCE(MAX(id), 0) FROM chat_messages
+        WHERE conversation_id = #{conversationId} AND user_id = #{userId}
+    </select>
+
+    <select id="selectAfterId" resultMap="BaseResultMap">
+        SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
+        FROM chat_messages
+        WHERE conversation_id = #{conversationId} AND user_id = #{userId}
+          AND id > #{afterId} AND id &lt;= #{upperId}
+        ORDER BY id ASC LIMIT #{limit}
+    </select>
+
     <select id="selectByConversationIdAndUserId" resultMap="BaseResultMap">
         SELECT id, conversation_id, user_id, client_request_id, role, content, metadata_json, create_time
         FROM chat_messages

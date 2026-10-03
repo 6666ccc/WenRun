@@ -13,15 +13,21 @@ from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.budgeted import BudgetedChatModel
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # 图中的各个 Agent 复用同一模型配置；这里只创建客户端，不代表已发起聊天。
-model = init_chat_model(
-    model=os.environ["DASHSCOPE_CHAT_MODEL"],
-    model_provider="openai",
-    api_key=os.environ["DASHSCOPE_API_KEY"],
-    base_url=os.environ["DASHSCOPE_BASE_URL"],
-    temperature=0.2,
+model = BudgetedChatModel(
+    delegate=init_chat_model(
+        model=os.environ["DASHSCOPE_CHAT_MODEL"],
+        model_provider="openai",
+        api_key=os.environ["DASHSCOPE_API_KEY"],
+        base_url=os.environ["DASHSCOPE_BASE_URL"],
+        temperature=0.2,
+        max_retries=0,
+        timeout=60,
+    )
 )
 
 
@@ -44,8 +50,10 @@ class RecoveryMessage(ApiModel):
 
     id: int | None = None
     role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=10_000)
+    content: str = Field(min_length=1)
+    client_request_id: str | None = Field(default=None, alias="clientRequestId")
     create_time: datetime | None = Field(default=None, alias="createTime")
+    metadata_json: str | None = Field(default=None, alias="metadataJson")
 
 
 class LongTermMemory(ApiModel):
@@ -58,19 +66,43 @@ class LongTermMemory(ApiModel):
     content: str = Field(min_length=1, max_length=500)
     status: Literal["active"] = "active"
     update_time: datetime | None = Field(default=None, alias="updateTime")
+    expire_time: datetime | None = Field(default=None, alias="expireTime")
 
 
 class ChatRequest(ApiModel):
     """/stream 的请求体：用户消息、模式开关，以及可选的恢复资料。"""
 
     message: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def reject_oversized_message(cls, value: object) -> object:
+        if isinstance(value, str) and len(value) > 2000:
+            from app.observability.context_metrics import record_event
+
+            record_event("oversizedUserMessageCount")
+            raise ValueError("消息超过2000字，请缩短或分段发送")
+        return value
+
     conversation_id: str = Field(alias="conversationId", min_length=1, max_length=64)
-    memory_enabled: bool = Field(default=True, alias="memoryEnabled")  # 是否尝试使用带检查点的图
+    memory_enabled: bool = Field(
+        default=True, alias="memoryEnabled"
+    )  # 是否尝试使用带检查点的图
+    preferences_enabled: bool = Field(default=True, alias="preferencesEnabled")
+    client_request_id: str | None = Field(
+        default=None, alias="clientRequestId", max_length=64
+    )
+    current_message_id: int | None = Field(default=None, alias="currentMessageId")
+    recovery_summary: dict | None = Field(default=None, alias="recoverySummary")
+    recovery_upper_id: int = Field(default=0, alias="recoveryUpperId", ge=0)
+    execution_id: str | None = Field(default=None, alias="executionId", max_length=64)
     fast_mode: bool = Field(default=False, alias="fastMode")  # 快速图只有公开搜索工具
     user_context: UserContext = Field(default_factory=UserContext, alias="userContext")
     recovery_messages: list[RecoveryMessage] = Field(
         # 检查点丢失时，Java 保存的最近消息可供有限恢复；不是本轮新消息。
-        default_factory=list, alias="recoveryMessages", max_length=24
+        default_factory=list,
+        alias="recoveryMessages",
+        max_length=200,
     )
     long_term_memories: list[LongTermMemory] = Field(
         default_factory=list, alias="longTermMemories", max_length=20
@@ -82,6 +114,9 @@ class ChatResumeRequest(ApiModel):
 
     conversation_id: str = Field(alias="conversationId", min_length=1, max_length=64)
     decision: Literal["approve", "reject"]
+    client_request_id: str | None = Field(
+        default=None, alias="clientRequestId", max_length=128
+    )
     interrupt_id: str | None = Field(default=None, alias="interruptId", max_length=128)
     user_context: UserContext = Field(default_factory=UserContext, alias="userContext")
 

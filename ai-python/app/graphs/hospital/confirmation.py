@@ -13,15 +13,59 @@ Decision = Literal["approve", "reject"]
 
 # 只收极短、无歧义的口语确认/否决；带条件或追加信息的句子交给旁路聊天，
 # 绝不让“确认一下李医生是男的吗”这类句子误提交挂号。
-_APPROVE_WORDS = frozenset({
-    "好", "好的", "好呀", "好啊", "行", "可以", "可以的", "是", "是的", "对", "对的",
-    "确认", "确定", "同意", "没问题", "就这个", "就它", "挂吧", "退吧", "办吧", "ok", "yes",
-})
-_REJECT_WORDS = frozenset({
-    "不", "不用", "不用了", "不要", "不要了", "取消", "算了", "先不", "先不用", "先不要",
-    "先不挂", "先不退", "先不办", "不挂", "不挂了", "不退", "不退了", "再想想", "no", "cancel",
-})
-_FILLER_WORDS = frozenset({"嗯", "谢谢", "谢谢你", "谢谢您", "麻烦了", "吧", "了", "啊", "呀"})
+_APPROVE_WORDS = frozenset(
+    {
+        "好",
+        "好的",
+        "好呀",
+        "好啊",
+        "行",
+        "可以",
+        "可以的",
+        "是",
+        "是的",
+        "对",
+        "对的",
+        "确认",
+        "确定",
+        "同意",
+        "没问题",
+        "就这个",
+        "就它",
+        "挂吧",
+        "退吧",
+        "办吧",
+        "ok",
+        "yes",
+    }
+)
+_REJECT_WORDS = frozenset(
+    {
+        "不",
+        "不用",
+        "不用了",
+        "不要",
+        "不要了",
+        "取消",
+        "算了",
+        "先不",
+        "先不用",
+        "先不要",
+        "先不挂",
+        "先不退",
+        "先不办",
+        "不挂",
+        "不挂了",
+        "不退",
+        "不退了",
+        "再想想",
+        "no",
+        "cancel",
+    }
+)
+_FILLER_WORDS = frozenset(
+    {"嗯", "谢谢", "谢谢你", "谢谢您", "麻烦了", "吧", "了", "啊", "呀"}
+)
 _TRAILING_PARTICLES = ("吧", "了", "啊", "呀", "呢")
 _SPLIT_PATTERN = re.compile(r"[,，。.!！~～、;；\s]+")
 _MAX_DECISION_LENGTH = 12
@@ -89,8 +133,22 @@ def resume_command(
     if target_id not in ids:
         return None, "AI_RESUME_STALE", "请重新发起挂号"
 
+    target = next(item for item in usable if item["id"] == target_id)
+    preference = target.get("kind") in {"memory_create", "memory_update"}
+    if preference and decision == "approve" and not target.get("_preference_snapshot"):
+        return (
+            None,
+            "AI_RESUME_STALE",
+            "旧偏好卡片缺少确认快照，请重新提出保存请求并确认",
+        )
+
     resume_map = {
         item["id"]: (decision if item["id"] == target_id else "reject")
         for item in usable
     }
+    if preference and decision == "approve":
+        resume_map[target_id] = {
+            "decision": decision,
+            "snapshot": target["_preference_snapshot"],
+        }
     return Command(resume=resume_map), None, None

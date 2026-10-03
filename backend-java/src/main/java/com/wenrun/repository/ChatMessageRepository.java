@@ -8,6 +8,11 @@ import java.util.List;
 
 @Mapper
 public interface ChatMessageRepository {
+        Long selectMaxId(@Param("conversationId") String conversationId, @Param("userId") Long userId);
+
+        List<ChatMessage> selectAfterId(@Param("conversationId") String conversationId,
+                        @Param("userId") Long userId, @Param("afterId") long afterId,
+                        @Param("upperId") long upperId, @Param("limit") int limit);
         List<ChatMessage> selectByConversationIdAndUserId(
                         @Param("conversationId") String conversationId,
                         @Param("userId") Long userId);

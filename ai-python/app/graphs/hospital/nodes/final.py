@@ -8,10 +8,15 @@
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from loguru import logger
 
+from app.graphs.hospital.reply_sections import (
+    compose_reply_sections,
+    uses_reply_sections,
+)
 from app.graphs.hospital.state import State
-from app.graphs.hospital.reply_sections import compose_reply_sections, uses_reply_sections
-from app.models.chat import model
+from app.models.chat import model as shared_model
 from app.observability.agent_output import log_agent_output
+
+model = shared_model.model_copy(update={"purpose": "final"})
 
 FINAL_SYSTEM_PROMPT = """你是温润诊所患者端的回复汇总助手。
 你的任务是把多个内部助手已经生成的内容整理成一条自然、简洁、连贯的中文回复。
@@ -56,17 +61,19 @@ def _summarize_replies(replies: list[tuple[str, str]]) -> str:
 
     sections = "\n\n".join(section_blocks)
     chunks: list[str] = []
-    for chunk in model.stream([
-        # 把汇总规则放在 SystemMessage，模型分片仍可立即转发到 SSE。
-        SystemMessage(content=FINAL_SYSTEM_PROMPT),
-        HumanMessage(
-            content=(
-                "请将以下内部回复整理成一条面向患者的最终回复。"
-                "严格保留其中的事实、风险提醒和引用来源：\n\n"
-                f"{sections}"
-            )
-        ),
-    ]):
+    for chunk in model.stream(
+        [
+            # 把汇总规则放在 SystemMessage，模型分片仍可立即转发到 SSE。
+            SystemMessage(content=FINAL_SYSTEM_PROMPT),
+            HumanMessage(
+                content=(
+                    "请将以下内部回复整理成一条面向患者的最终回复。"
+                    "严格保留其中的事实、风险提醒和引用来源：\n\n"
+                    f"{sections}"
+                )
+            ),
+        ]
+    ):
         content = getattr(chunk, "content", "")
         if not isinstance(content, str) or not content:
             continue
@@ -101,5 +108,12 @@ def final_node(state: State) -> dict:
 
     return {
         "final_reply": final_reply,
-        "messages": [AIMessage(content=final_reply)],
+        "messages": [
+            AIMessage(
+                content=final_reply,
+                id=f"{state['client_request_id']}:assistant"
+                if state.get("client_request_id")
+                else None,
+            )
+        ],
     }

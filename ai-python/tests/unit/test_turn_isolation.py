@@ -25,20 +25,22 @@ CONFIG = {"configurable": {"thread_id": "isolation-thread"}}
 
 class _StubRetriever:
     def invoke(self, query):
-        return [Document(
-            page_content="多休息多喝水",
-            metadata={
-                "source_name": "院内资料",
-                "page": 1,
-                "document_id": "guide",
-                "version": 1,
-                "chunk_id": "guide-1",
-                "status": "active",
-                "effective_from": "2020-01-01T00:00:00+00:00",
-                "expires_at": None,
-                "updated_at": "2026-09-13T00:00:00+00:00",
-            },
-        )]
+        return [
+            Document(
+                page_content="多休息多喝水",
+                metadata={
+                    "source_name": "院内资料",
+                    "page": 1,
+                    "document_id": "guide",
+                    "version": 1,
+                    "chunk_id": "guide-1",
+                    "status": "active",
+                    "effective_from": "2020-01-01T00:00:00+00:00",
+                    "expires_at": None,
+                    "updated_at": "2026-09-13T00:00:00+00:00",
+                },
+            )
+        ]
 
 
 class _StubAgent:
@@ -68,10 +70,17 @@ def _stub_nodes(monkeypatch, intents):
     pending = iter(intents)
     monkeypatch.setattr(
         begin_module,
+        "_route_locally",
+        lambda _: begin_module.LocalRouteResult(accepted=False),
+    )
+    monkeypatch.setattr(
+        begin_module,
         "_classify",
         lambda messages: json.dumps({"selected_agents": next(pending)}),
     )
-    monkeypatch.setattr(knowledge_module, "get_hospital_retriever", lambda: _StubRetriever())
+    monkeypatch.setattr(
+        knowledge_module, "get_hospital_retriever", lambda: _StubRetriever()
+    )
     monkeypatch.setattr(
         knowledge_module,
         "model",
@@ -88,14 +97,20 @@ def test_second_turn_does_not_reuse_previous_turn_replies(monkeypatch):
     graph = graphs.build_graph(checkpointer=InMemorySaver())
 
     first = graph.invoke(
-        {"messages": [HumanMessage(content="感冒吃什么药")], "conversation_id": "isolation-thread"},
+        {
+            "messages": [HumanMessage(content="感冒吃什么药")],
+            "conversation_id": "isolation-thread",
+        },
         context=CONTEXT,
         config=CONFIG,
     )
     assert first["final_reply"] == "感冒建议：多喝水"
 
     second = graph.invoke(
-        {"messages": [HumanMessage(content="谢谢你啊")], "conversation_id": "isolation-thread"},
+        {
+            "messages": [HumanMessage(content="谢谢你啊")],
+            "conversation_id": "isolation-thread",
+        },
         context=CONTEXT,
         config=CONFIG,
     )
@@ -112,42 +127,91 @@ def test_checkpointer_accumulates_history_across_turns(monkeypatch):
     graph = graphs.build_graph(checkpointer=InMemorySaver())
 
     graph.invoke(
-        {"messages": [HumanMessage(content="你好")], "conversation_id": "isolation-thread"},
+        {
+            "messages": [HumanMessage(content="你好")],
+            "conversation_id": "isolation-thread",
+        },
         context=CONTEXT,
         config=CONFIG,
     )
     second = graph.invoke(
-        {"messages": [HumanMessage(content="谢谢")], "conversation_id": "isolation-thread"},
+        {
+            "messages": [HumanMessage(content="谢谢")],
+            "conversation_id": "isolation-thread",
+        },
         context=CONTEXT,
         config=CONFIG,
     )
 
     contents = [message.content for message in second["messages"]]
-    assert contents == ["你好", "不客气，还有需要随时说。", "谢谢", "不客气，还有需要随时说。"]
+    assert contents == [
+        "你好",
+        "不客气，还有需要随时说。",
+        "谢谢",
+        "不客气，还有需要随时说。",
+    ]
 
 
-def test_long_conversation_gets_compressed_into_summary(monkeypatch):
+def test_long_conversation_compacts_at_next_start_after_commit(monkeypatch):
     _stub_nodes(monkeypatch, [["chat"]] * 8)
     monkeypatch.setattr(
         "app.graphs.hospital.nodes.summarize.model",
-        type("M", (), {"invoke": staticmethod(lambda messages: AIMessage(content='''{
-            "patient_self_reports":[], "preferences":[], "verified_business_facts":[],
-            "pending_tasks":[], "superseded_items":[], "version":1
-        }'''))})(),
+        type(
+            "M",
+            (),
+            {
+                "invoke": staticmethod(
+                    lambda messages: AIMessage(
+                        content=json.dumps(
+                            {
+                                "schema_version": 2,
+                                "patient_self_reports": [],
+                                "pending_tasks": [],
+                                "superseded_items": [],
+                                "version": 1,
+                            }
+                        )
+                    )
+                )
+            },
+        )(),
     )
-    graph = graphs.build_graph(checkpointer=InMemorySaver())
+    commits = []
 
-    state = {}
+    class Client:
+        def commit_conversation_summary(self, *args, **kwargs):
+            commits.append(kwargs)
+            return {
+                "version": kwargs["expected_version"] + 1,
+                "lastMessageId": kwargs["covered_ids"][-1],
+            }
+
+    monkeypatch.setattr("app.graphs.hospital.nodes.summarize.JavaToolClient", Client)
+    graph = graphs.build_graph(checkpointer=InMemorySaver())
+    context = HospitalToolContext(
+        "delegated", conversation_id="isolation-thread", execution_id="owner"
+    )
     for index in range(8):
         state = graph.invoke(
             {
-                "messages": [HumanMessage(content=f"你好{index}")],
+                "messages": [
+                    HumanMessage(
+                        content=f"你好{index}",
+                        id=f"r{index}:user",
+                        additional_kwargs={"db_id": index * 2 + 1},
+                    )
+                ],
+                "client_request_id": f"r{index}",
                 "conversation_id": "isolation-thread",
+                "message_id_map": {f"r{i}:assistant": i * 2 + 2 for i in range(index)},
             },
-            context=CONTEXT,
+            context=context,
             config=CONFIG,
         )
-
-    assert state["summary"]["version"] >= 2
-    # 压缩后消息数被压回窗口附近，不再随轮次线性增长。
+        if index == 6:
+            assert (
+                len(state["messages"]) == 14
+            )  # trigger round is not compacted at its end
+    assert commits
+    assert state["summary"]["version"] >= 1
     assert len(state["messages"]) <= 8

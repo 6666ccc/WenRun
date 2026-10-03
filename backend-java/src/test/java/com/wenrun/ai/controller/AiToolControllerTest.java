@@ -46,10 +46,12 @@ class AiToolControllerTest {
     private final RegistrationService registrationService = mock(RegistrationService.class);
     private final AiPatientMemoryService memoryService = mock(AiPatientMemoryService.class);
     private final ChatMessageRepository chatMessageRepository = mock(ChatMessageRepository.class);
+    private final com.wenrun.repository.AiConversationRepository conversationRepository =
+            mock(com.wenrun.repository.AiConversationRepository.class);
     private final PatientClinicalContextService clinicalContextService = mock(PatientClinicalContextService.class);
     private final AiToolController controller =
             new AiToolController(deptService, scheduleService, staffService, registrationService,
-                    memoryService, chatMessageRepository, clinicalContextService);
+                    memoryService, chatMessageRepository, conversationRepository, clinicalContextService);
 
     @AfterEach
     void clearContext() {
@@ -316,6 +318,9 @@ class AiToolControllerTest {
         body.setSourceConversationId("conversation-1");
         body.setSourceMessageId(999L);
 
+        com.wenrun.entity.AiConversation conversation = new com.wenrun.entity.AiConversation();
+        conversation.setPatientId(11L);
+        when(conversationRepository.selectByUserIdAndConversationId(7L, body.getSourceConversationId())).thenReturn(conversation);
         controller.createMyMemory(body);
 
         assertEquals(42L, body.getSourceMessageId());

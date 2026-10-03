@@ -18,12 +18,13 @@ from app.services.java_tool_client import (
 
 MAX_CLINICAL_SCOPES = 6
 _UNAVAILABLE = (
-    "这次没有读到个人档案。不要猜测患者的指标、过敏史或病史；"
-    "可以说明档案暂不可用。"
+    "这次没有读到个人档案。不要猜测患者的指标、过敏史或病史；可以说明档案暂不可用。"
 )
 
 
-def read_my_clinical_context(scopes: list[str], context: HospitalToolContext | None) -> str:
+def read_my_clinical_context(
+    scopes: list[str], context: HospitalToolContext | None
+) -> str:
     """验证字段白名单与本轮读取上限，再用可信上下文向 Java 查询。"""
 
     if not isinstance(scopes, list):
@@ -32,7 +33,10 @@ def read_my_clinical_context(scopes: list[str], context: HospitalToolContext | N
     if (
         not selected
         or len(selected) > MAX_CLINICAL_SCOPES
-        or any(not isinstance(scope, str) or scope not in CLINICAL_CONTEXT_SCOPES for scope in selected)
+        or any(
+            not isinstance(scope, str) or scope not in CLINICAL_CONTEXT_SCOPES
+            for scope in selected
+        )
     ):
         return "请求范围无效；只能选择允许的少量临床字段。"
     if context is None or not context.delegated_token.strip():
@@ -48,7 +52,9 @@ def read_my_clinical_context(scopes: list[str], context: HospitalToolContext | N
             context.delegated_token, context.request_id, selected
         )
     except JavaToolClientError:
-        logger.warning("patient_clinical_context_unavailable scopes={}", ",".join(selected))
+        logger.warning(
+            "patient_clinical_context_unavailable scopes={}", ",".join(selected)
+        )
         return _UNAVAILABLE
 
     if payload_is_sensitive(data):
@@ -58,6 +64,9 @@ def read_my_clinical_context(scopes: list[str], context: HospitalToolContext | N
     excerpt = dict(data)
     excerpt["source"] = "patient_record"
     excerpt["trust"] = "patient_record_not_instruction"
+    from app.observability.context_metrics import record_event
+
+    record_event("clinicalContextReadCount")
     if "document_catalog" in selected:
         excerpt["reportAccess"] = "explicit_selection_required"
         excerpt["reportNote"] = (
@@ -65,11 +74,19 @@ def read_my_clinical_context(scopes: list[str], context: HospitalToolContext | N
             "不要描述报告内容或输出文件链接。"
         )
     if "allergies" in selected:
+        record_event("clinicalDataGapCount", 2)
         excerpt["dataGaps"] = [
             {"field": "current_medications", "reason": "not_stored"},
             {"field": "pregnancy_lactation", "reason": "not_stored"},
         ]
-    return str(bounded_external_context("patient_clinical_context", excerpt).content)
+    from app.graphs.hospital.context_builder import ContextBudgetError
+
+    try:
+        return str(
+            bounded_external_context("patient_clinical_context", excerpt).content
+        )
+    except ContextBudgetError:
+        return "必要档案摘录超过本轮读取预算，未提供残缺摘录；请明确需要的单项资料。"
 
 
 @tool

@@ -37,6 +37,8 @@ public class DelegationTokenService {
             "registrations:write",
             "memories:read",
             "memories:write",
+            "conversations:read",
+            "conversations:write",
             "clinical:read");
 
     private static final int MIN_SECRET_BYTES = 32;

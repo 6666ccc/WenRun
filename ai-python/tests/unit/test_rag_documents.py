@@ -3,7 +3,9 @@ from langchain_core.documents import Document
 from app.rag.documents import format_rag_context, to_rag_sources
 
 DOCS = [
-    Document(page_content="多休息多喝水", metadata={"source_name": "院内资料", "page": 3}),
+    Document(
+        page_content="多休息多喝水", metadata={"source_name": "院内资料", "page": 3}
+    ),
     Document(page_content="必要时就医", metadata={"document_id": "doc-9"}),
 ]
 
@@ -17,14 +19,38 @@ def test_format_rag_context_labels_each_block():
 
 
 def test_to_rag_sources_extracts_metadata():
-    assert to_rag_sources(DOCS) == [
+    assert [
         {
-            "id": "S1", "document_id": None, "title": "院内资料",
-            "version": None, "page": 3, "chunk_id": None, "updated_at": None,
+            key: source[key]
+            for key in (
+                "id",
+                "document_id",
+                "title",
+                "version",
+                "page",
+                "chunk_id",
+                "updated_at",
+            )
+        }
+        for source in to_rag_sources(DOCS)
+    ] == [
+        {
+            "id": "S1",
+            "document_id": None,
+            "title": "院内资料",
+            "version": None,
+            "page": 3,
+            "chunk_id": None,
+            "updated_at": None,
         },
         {
-            "id": "S2", "document_id": "doc-9", "title": None,
-            "version": None, "page": None, "chunk_id": None, "updated_at": None,
+            "id": "S2",
+            "document_id": "doc-9",
+            "title": None,
+            "version": None,
+            "page": None,
+            "chunk_id": None,
+            "updated_at": None,
         },
     ]
 

@@ -12,6 +12,8 @@ public class AiConversation {
     private Long patientId;
     private String status;
     private Long version;
+    private String summaryJson;
+    private Long summaryVersion;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private LocalDateTime deletedTime;

@@ -9,6 +9,8 @@
         <result column="patient_id" property="patientId"/>
         <result column="status" property="status"/>
         <result column="version" property="version"/>
+        <result column="summary_json" property="summaryJson"/>
+        <result column="summary_version" property="summaryVersion"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="deleted_time" property="deletedTime"/>
@@ -27,7 +29,7 @@
     </insert>
 
     <select id="selectByUserIdAndConversationId" resultMap="BaseResultMap">
-        SELECT user_id, conversation_id, patient_id, status, version,
+        SELECT user_id, conversation_id, patient_id, status, version, summary_json, summary_version,
                create_time, update_time, deleted_time
         FROM ai_conversations
         WHERE user_id = #{userId}
@@ -40,11 +42,22 @@
     <update id="softDeleteByUserIdAndConversationId">
         UPDATE ai_conversations
         SET status = 'deleted',
+            summary_json = NULL,
+            summary_version = 0,
             deleted_time = CURRENT_TIMESTAMP,
             version = version + 1
         WHERE user_id = #{userId}
           AND conversation_id = #{conversationId}
           AND deleted_time IS NULL
+    </update>
+
+    <update id="commitSummary">
+        UPDATE ai_conversations
+        SET summary_json = #{summaryJson}, summary_version = summary_version + 1,
+            update_time = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId} AND conversation_id = #{conversationId}
+          AND status = 'active' AND deleted_time IS NULL
+          AND summary_version = #{expectedVersion}
     </update>
 
     <select id="selectSummariesByUserId" resultType="com.wenrun.ai.vo.AiConversationVO">

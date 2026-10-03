@@ -38,6 +38,9 @@ class HospitalToolContext:
     #: 只有会话带 checkpointer 且不是快速模式时才为 True。为 False 时不挂载写工具，
     #: 否则 interrupt() 会静默失效：工具不执行，final_reply 为空，整轮对话变成 500。
     writes_enabled: bool = False
+    execution_id: str | None = None
     #: 本轮已读的临床字段集合；多次工具调用也不能无限扩大档案读取范围。
-    clinical_scopes_read: set[str] = field(default_factory=set, compare=False, repr=False)
+    clinical_scopes_read: set[str] = field(
+        default_factory=set, compare=False, repr=False
+    )
     clinical_read_lock: Lock = field(default_factory=Lock, compare=False, repr=False)

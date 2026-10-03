@@ -333,6 +333,8 @@ CREATE TABLE IF NOT EXISTS ai_conversations (
   patient_id       BIGINT       NOT NULL COMMENT '当前会话讨论的患者ID，对应 patient.id；会话内不可切换',
   status           VARCHAR(24)  NOT NULL DEFAULT 'active' COMMENT 'active',
   version          BIGINT       NOT NULL DEFAULT 0 COMMENT '会话状态乐观版本',
+  summary_json     JSON         NULL COMMENT '内部恢复摘要，不是已验证临床事实',
+  summary_version  BIGINT       NOT NULL DEFAULT 0 COMMENT '摘要提交条件版本',
   create_time      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   update_time      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   deleted_time     DATETIME     NULL COMMENT '软删除时间',

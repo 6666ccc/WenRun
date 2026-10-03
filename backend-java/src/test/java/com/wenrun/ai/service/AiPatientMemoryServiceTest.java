@@ -15,6 +15,8 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 
 class AiPatientMemoryServiceTest {
     private final AiPatientMemoryRepository repository = mock(AiPatientMemoryRepository.class);
@@ -85,6 +87,41 @@ class AiPatientMemoryServiceTest {
         service.listActive(12L, 5);
 
         verify(repository).selectActiveByPatientId(12L, 5);
+    }
+
+    @Test
+    void sameSubjectRequiresShowingExistingValueAgain() {
+        AiPatientMemory current = new AiPatientMemory();
+        current.setType("communication_preference"); current.setContent("请用简短中文");
+        current.setSourceMessageId(100L);
+        when(repository.selectAllActiveByPatientId(12L)).thenReturn(List.of(current));
+        BusinessException conflict = assertThrows(BusinessException.class,
+                () -> service.createConfirmed(12L, request("communication_preference", "请用详细中文", null)));
+        assertEquals(409, conflict.getCode());
+        verify(repository).lockPatient(12L);
+        verify(repository, never()).insert(any());
+    }
+
+    @Test
+    void replayedCreateReturnsSameRecordWithoutDuplicateInsert() {
+        AiPatientMemory current = new AiPatientMemory();
+        current.setType("communication_preference"); current.setContent("请用简短中文");
+        current.setSourceMessageId(101L);
+        when(repository.selectAllActiveByPatientId(12L)).thenReturn(List.of(current));
+        assertEquals(current, service.createConfirmed(12L, request("communication_preference", "请用简短中文", null)));
+        verify(repository, never()).insert(any());
+    }
+
+    @Test
+    void staleConfirmationCannotOverwriteNewerPreference() {
+        AiPatientMemory current = new AiPatientMemory();
+        current.setVersion(3); current.setStatus("active");
+        current.setSourceConversationId("conversation-1"); current.setSourceMessageId(101L);
+        when(repository.selectLatestForUpdate(12L, "m")).thenReturn(current);
+        BusinessException conflict = assertThrows(BusinessException.class,
+                () -> service.update(12L, "m", request("communication_preference", "回复详细", 2)));
+        assertEquals(409, conflict.getCode());
+        verify(repository, never()).insert(any());
     }
 
     private AiMemoryWriteRequest request(String type, String content, Integer version) {

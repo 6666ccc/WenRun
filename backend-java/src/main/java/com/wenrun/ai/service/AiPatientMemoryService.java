@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 @Service
@@ -25,7 +26,8 @@ public class AiPatientMemoryService {
     private static final Pattern FORBIDDEN_CLINICAL_FACT = Pattern.compile(
             "(?i)(症状|诊断|确诊|处方|检验|化验|检查结果|过敏|药物|服药|服用|用药|剂量"
                     + "|胸痛|腹痛|头痛|发热|发烧|咳嗽|呼吸困难|出血|呕吐|腹泻|头晕"
-                    + "|高血压|糖尿病)|\\d+(?:\\.\\d+)?\\s*(mg|毫克|ml|毫升)"
+                    + "|高血压|糖尿病|身高|体重|血压|血糖|心率|BMI|height|weight|diagnosis|medication)"
+                    + "|\\d+(?:\\.\\d+)?\\s*(mg|毫克|ml|毫升|kg|公斤|千克|cm|厘米|斤)"
     );
 
     private final AiPatientMemoryRepository repository;
@@ -45,6 +47,14 @@ public class AiPatientMemoryService {
     @Transactional
     public AiPatientMemory createConfirmed(Long patientId, AiMemoryWriteRequest request) {
         validate(patientId, request);
+        repository.lockPatient(patientId);
+        for (AiPatientMemory current : repository.selectAllActiveByPatientId(patientId)) {
+            if (!subject(current.getType(), current.getContent()).equals(subject(request.getType(), request.getContent()))) continue;
+            if (Objects.equals(current.getSourceMessageId(), request.getSourceMessageId())
+                    && Objects.equals(current.getContent(), request.getContent().trim())
+                    && Objects.equals(current.getExpireTime(), request.getExpireTime())) return current;
+            throw new BusinessException(409, "这项偏好已有记录，请刷新后确认旧值与新值");
+        }
         AiPatientMemory memory = new AiPatientMemory();
         memory.setMemoryId(UUID.randomUUID().toString());
         memory.setPatientId(patientId);
@@ -62,6 +72,8 @@ public class AiPatientMemoryService {
 
     @Transactional
     public AiPatientMemory update(Long patientId, String memoryId, AiMemoryWriteRequest request) {
+        requirePatient(patientId);
+        repository.lockPatient(patientId);
         AiPatientMemory current = requireCurrent(patientId, memoryId);
         if (request != null) {
             // Browser edits may change the preference, but cannot rewrite the
@@ -140,5 +152,13 @@ public class AiPatientMemoryService {
         if (patientId == null) {
             throw new BusinessException(ResultCode.FORBIDDEN, "当前账号还没有绑定患者档案");
         }
+    }
+
+    private static String subject(String type, String content) {
+        String[][] groups = {{"时段", "上午", "下午", "晚上", "早上"}, {"语言", "中文", "英文", "英语"},
+                {"简短", "详细", "简洁", "长篇"}, {"字体", "大字"}};
+        for (int index = 0; index < groups.length; index++)
+            for (String word : groups[index]) if (content.contains(word)) return type + ":" + index;
+        return type + ":" + content.trim();
     }
 }

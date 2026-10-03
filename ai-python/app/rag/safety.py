@@ -76,12 +76,18 @@ def _revision_key(metadata: dict) -> tuple[str, int] | None:
         version = int(version)
     if isinstance(version, str) and version.isdigit():
         version = int(version)
-    if not isinstance(document_id, str) or not document_id or not isinstance(version, int):
+    if (
+        not isinstance(document_id, str)
+        or not document_id
+        or not isinstance(version, int)
+    ):
         return None
     return document_id, version
 
 
-def _published_keys(scopes: tuple[str, ...], now: datetime) -> set[tuple[str, int]] | None:
+def _published_keys(
+    scopes: tuple[str, ...], now: datetime
+) -> set[tuple[str, int]] | None:
     from app.rag.lifecycle import published_revision_keys
 
     return published_revision_keys(scopes, now=now)
@@ -101,7 +107,9 @@ def prepare_rag_documents(
     """
 
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    governed = any(_is_governed(dict(document.metadata or {})) for document in documents)
+    governed = any(
+        _is_governed(dict(document.metadata or {})) for document in documents
+    )
     keys = authority_keys
     if governed and keys is None:
         keys = _published_keys(scopes, current)
@@ -123,5 +131,8 @@ def prepare_rag_documents(
             rejected += 1
             continue
         metadata["safety_schema"] = RAG_SAFETY_SCHEMA_VERSION
+        metadata["source_text_truncated"] = (
+            len(document.page_content.strip()) > MAX_RAG_CHUNK_CHARS
+        )
         safe.append(Document(page_content=content, metadata=metadata))
     return safe, rejected

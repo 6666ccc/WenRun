@@ -110,7 +110,10 @@ def test_fast_node_ignores_hospital_knowledge_tool_calls(monkeypatch):
 
     assert result["rag_sources"] == []
     second_turn = scripted.seen_messages[1]
-    assert any("没有名为 search_hospital_knowledge" in str(message.content) for message in second_turn)
+    assert any(
+        "没有名为 search_hospital_knowledge" in str(message.content)
+        for message in second_turn
+    )
 
 
 class _StubTool:
@@ -156,7 +159,7 @@ def test_fast_graph_has_no_routing_or_summarizing_hop():
     nodes = set(graphs.build_fast_graph().get_graph().nodes)
 
     assert "fast_node" in nodes
-    assert "summarize_node" in nodes
+    assert "compact_node" in nodes
     # 快速模式的全部意义就是不走这三个节点。
     assert "begin_node" not in nodes
     assert "final_node" not in nodes
@@ -180,7 +183,10 @@ def test_fast_node_never_mounts_clinical_tool_for_personal_question(monkeypatch)
     monkeypatch.setattr(fast_mod, "model", scripted)
 
     result = fast_mod.fast_node(
-        {"messages": [HumanMessage(content="我这个血压正常吗")], "conversation_id": "c1"}
+        {
+            "messages": [HumanMessage(content="我这个血压正常吗")],
+            "conversation_id": "c1",
+        }
     )
 
     assert "关闭快速模式" in result["final_reply"]

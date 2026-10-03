@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from collections import Counter, deque
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from threading import Lock
@@ -17,6 +18,13 @@ from loguru import logger
 
 PROMPT_VERSION = "hospital-agent-v3"
 CONTEXT_SCHEMA_VERSION = "context-v2"
+_EVENT_COUNTS: Counter[str] = Counter()
+_CONTEXT_SAMPLES: dict[tuple[str, str], deque[int]] = {}
+_TRUNCATION_COUNTS: Counter[str] = Counter()
+_PURPOSE_CALLS: Counter[str] = Counter()
+_BUDGET_HITS: Counter[str] = Counter()
+_MEMORY_COUNTS: Counter[str] = Counter()
+_LATENCIES: dict[str, deque[int]] = {}
 
 
 @dataclass
@@ -82,13 +90,18 @@ class ContextTrace:
         logger.info(
             "本轮请求统计 请求模式={} 执行节点={} 首个文字耗时={} 毫秒 总耗时={} 毫秒 检索片段数={} 错误代码={} | context_trace",
             {"normal": "普通模式", "fast": "快速模式"}.get(self.mode, self.mode),
-            [f"{node_labels.get(node, node)}（{node}）" for node in payload["node_names"]],
+            [
+                f"{node_labels.get(node, node)}（{node}）"
+                for node in payload["node_names"]
+            ],
             payload["first_token_ms"],
             payload["total_ms"],
             payload["rag_count"],
             payload["error_code"],
         )
-        logger.info("context_trace {}", json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        logger.info(
+            "context_trace {}", json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        )
         _record_snapshot(payload)
         if self._token is not None:
             _CURRENT_TRACE.reset(self._token)
@@ -112,10 +125,19 @@ def _record_snapshot(payload: dict) -> None:
     global _COMPLETED
     with _METRICS_LOCK:
         _COMPLETED += 1
-        _RECENT_REQUESTS.append({
-            key: payload.get(key) for key in
-            ("request_id", "mode", "first_token_ms", "total_ms", "error_code", "stage_timings")
-        })
+        _RECENT_REQUESTS.append(
+            {
+                key: payload.get(key)
+                for key in (
+                    "request_id",
+                    "mode",
+                    "first_token_ms",
+                    "total_ms",
+                    "error_code",
+                    "stage_timings",
+                )
+            }
+        )
         _MODE_COUNTS[str(payload["mode"])] += 1
         if payload.get("error_code"):
             _ERROR_COUNTS[str(payload["error_code"])] += 1
@@ -150,6 +172,31 @@ def context_metrics_snapshot() -> dict:
             "scope": "current_process",
             "containsPatientText": False,
             "recentRequests": list(_RECENT_REQUESTS),
+            "eventCounts": dict(_EVENT_COUNTS),
+            "latencyMs": {
+                name: {"mean": round(sum(values) / len(values), 2), "p95": _p95(values)}
+                for name, values in _LATENCIES.items()
+                if values
+            },
+            "estimatedTokensByPurposeSegment": {
+                f"{purpose}.{segment}": {
+                    "mean": round(sum(values) / len(values), 2),
+                    "p95": _p95(values),
+                }
+                for (purpose, segment), values in _CONTEXT_SAMPLES.items()
+                if values
+            },
+            "truncationCount": dict(_TRUNCATION_COUNTS),
+            "estimatedBudgetHitRate": {
+                purpose: _BUDGET_HITS[purpose] / calls
+                for purpose, calls in _PURPOSE_CALLS.items()
+                if calls
+            },
+            "memoryInjectedByPurpose": {
+                purpose: _MEMORY_COUNTS[purpose] / calls
+                for purpose, calls in _PURPOSE_CALLS.items()
+                if calls
+            },
         }
 
 
@@ -185,18 +232,37 @@ def record_context(
     recent_tokens: int,
     memory_count: int,
     summary_version: int | None,
+    segments: dict[str, int] | None = None,
+    truncated_segments=None,
+    budget: int | None = None,
 ) -> None:
     """记录送入模型的摘要、最近消息用量及实际选中的偏好条数。"""
+    values = segments or {"memory": data_tokens, "history": recent_tokens}
+    purpose = (
+        purpose
+        if purpose
+        in {"route", "plan", "chat", "knowledge", "tools", "fast", "summary", "final"}
+        else "other"
+    )
+    with _METRICS_LOCK:
+        _PURPOSE_CALLS[purpose] += 1
+        _MEMORY_COUNTS[purpose] += memory_count
+        for segment, count in values.items():
+            _CONTEXT_SAMPLES.setdefault((purpose, segment), deque(maxlen=500)).append(
+                count
+            )
+        for segment in truncated_segments or ():
+            _TRUNCATION_COUNTS[f"{purpose}.{segment}"] += 1
+        if budget and sum(values.values()) >= budget * 0.95:
+            _BUDGET_HITS[purpose] += 1
     trace = current_context_trace()
     if trace is None:
         return
     trace.node_names.add(purpose)
-    trace.input_tokens_by_source["summary_memory"] = max(
-        trace.input_tokens_by_source.get("summary_memory", 0), data_tokens
-    )
-    trace.input_tokens_by_source["recent"] = max(
-        trace.input_tokens_by_source.get("recent", 0), recent_tokens
-    )
+    for segment, count in values.items():
+        trace.input_tokens_by_source[f"{purpose}.{segment}"] = (
+            trace.input_tokens_by_source.get(f"{purpose}.{segment}", 0) + count
+        )
     trace.memory_count = max(trace.memory_count, memory_count)
     if summary_version is not None:
         trace.summary_version = summary_version
@@ -228,3 +294,21 @@ def record_summary(version: int) -> None:
     if trace is not None:
         trace.node_names.add("summary")
         trace.summary_version = version
+
+
+def record_event(name: str, count: int = 1) -> None:
+    """Names are code-defined event categories; no patient values or identifiers."""
+    with _METRICS_LOCK:
+        _EVENT_COUNTS[name] += count
+
+
+@contextmanager
+def measure_context_operation(name: str):
+    started = perf_counter()
+    try:
+        yield
+    finally:
+        with _METRICS_LOCK:
+            _LATENCIES.setdefault(name, deque(maxlen=500)).append(
+                round((perf_counter() - started) * 1000)
+            )

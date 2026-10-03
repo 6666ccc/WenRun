@@ -7,6 +7,7 @@
 
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Literal
 
 from langchain_core.messages import (
@@ -15,15 +16,16 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_core.messages.utils import count_tokens_approximately
 from loguru import logger
 
 from app.core.config import get_settings
-from app.graphs.hospital.sensitive import payload_is_sensitive
 from app.graphs.hospital.state import ConversationSummary, State
+from app.graphs.hospital.tokens import estimate_tokens
 from app.observability.context_metrics import record_context
 
-ContextPurpose = Literal["route", "chat", "knowledge", "tools", "fast"]
+ContextPurpose = Literal[
+    "route", "plan", "chat", "knowledge", "tools", "fast", "summary", "final"
+]
 
 
 def coerce_summary(value: object) -> ConversationSummary | None:
@@ -32,7 +34,12 @@ def coerce_summary(value: object) -> ConversationSummary | None:
         return value
     if isinstance(value, dict):
         try:
-            return ConversationSummary.model_validate(value)
+            migrated = dict(value)
+            if migrated.get("schema_version") != 2:
+                migrated.pop("preferences", None)
+                migrated.pop("verified_business_facts", None)
+                migrated["schema_version"] = 2
+            return ConversationSummary.model_validate(migrated)
         except ValueError:
             return None
     if isinstance(value, str) and value.strip():
@@ -56,15 +63,24 @@ def untrusted_context_message(label: str, payload: object) -> HumanMessage:
 def bounded_external_context(label: str, payload: object) -> HumanMessage:
     """Bound RAG/tool reference data separately from recent conversation context."""
 
+    if label == "patient_clinical_context":
+        from app.graphs.hospital.sensitive import payload_is_sensitive
+
+        if payload_is_sensitive(payload):
+            payload = {"unavailable": "档案摘录含不允许的敏感字段，未提供"}
     message = untrusted_context_message(label, payload)
-    return _bounded_tail([message], get_settings().context_external_tokens)[0]
+    if estimate_tokens(message) > get_settings().context_external_tokens:
+        raise ContextBudgetError("外部资料超过预算，无法安全保留完整证据")
+    return message
 
 
 def bounded_system_message(content: str) -> SystemMessage:
     """Keep trusted policy text inside its reserved system-token allocation."""
 
     message = SystemMessage(content=content)
-    return _bounded_tail([message], get_settings().context_system_tokens)[0]
+    if estimate_tokens(message) > get_settings().context_system_tokens:
+        raise ContextBudgetError("系统规则超过预算，不能静默截断")
+    return message
 
 
 def bounded_system_text(content: str) -> str:
@@ -81,35 +97,9 @@ def _bounded_tail(messages: Iterable[BaseMessage], budget: int) -> list[BaseMess
     ]
     kept: list[BaseMessage] = []
     for message in reversed(candidates):
-        if count_tokens_approximately([message, *kept]) <= budget:
+        if estimate_tokens([message, *kept]) <= budget:
             kept.insert(0, message)
             continue
-        # 最新消息必须保留；太长就截断内容，不能静默丢掉整轮问题。
-        if not kept:
-            content = getattr(message, "content", "")
-            if isinstance(content, str):
-                low, high, best = 0, len(content), ""
-                while low <= high:
-                    middle = (low + high) // 2
-                    # 首尾都保留：患者常在句尾补充最关键的症状或确认条件。
-                    head = (middle * 3) // 5
-                    tail = middle - head
-                    truncated = (
-                        content
-                        if middle == len(content)
-                        else (
-                            content[:head]
-                            + "\n…[中间内容因上下文预算截断]…\n"
-                            + content[-tail:]
-                        )
-                    )
-                    candidate = message.model_copy(update={"content": truncated})
-                    if count_tokens_approximately([candidate]) <= budget:
-                        best = truncated
-                        low = middle + 1
-                    else:
-                        high = middle - 1
-                kept.insert(0, message.model_copy(update={"content": best}))
         break
     return kept
 
@@ -117,6 +107,9 @@ def _bounded_tail(messages: Iterable[BaseMessage], budget: int) -> list[BaseMess
 # 不同助手只拿与职责有关的偏好；意图路由不需要任何长期偏好。
 _MEMORY_TYPES: dict[ContextPurpose, frozenset[str]] = {
     "route": frozenset(),
+    "plan": frozenset(),
+    "summary": frozenset(),
+    "final": frozenset(),
     "chat": frozenset({"communication_preference", "accessibility_need"}),
     "knowledge": frozenset({"communication_preference"}),
     "tools": frozenset(
@@ -167,6 +160,18 @@ def _active_memories(state: State, purpose: ContextPurpose) -> list[dict]:
     for item in state.get("long_term_memories") or []:
         if not isinstance(item, dict) or item.get("status", "active") != "active":
             continue
+        expiry = item.get("expireTime") or item.get("expire_time")
+        if expiry:
+            from app.graphs.hospital.tools.context import CLINIC_TZ
+
+            try:
+                date = datetime.fromisoformat(str(expiry))
+                if date.replace(tzinfo=date.tzinfo or CLINIC_TZ).astimezone(
+                    UTC
+                ) <= datetime.now(UTC):
+                    continue
+            except ValueError:
+                continue
         memory_type = item.get("type")
         content = item.get("content")
         if (
@@ -174,6 +179,10 @@ def _active_memories(state: State, purpose: ContextPurpose) -> list[dict]:
             or not isinstance(content, str)
             or not content.strip()
         ):
+            continue
+        from app.graphs.hospital.tools.memory import CLINICAL
+
+        if CLINICAL.search(content):
             continue
         if not _memory_allowed(purpose, memory_type, content, latest):
             continue
@@ -198,7 +207,9 @@ def _active_memories(state: State, purpose: ContextPurpose) -> list[dict]:
                 },
             )
         )
-    ranked.sort(key=lambda item: item[0], reverse=True)
+    ranked.sort(
+        key=lambda item: (item[0], str(item[1].get("updatedAt") or "")), reverse=True
+    )
     limit = 5 if purpose == "tools" else 2
     selected: list[dict] = []
     communication_count = 0
@@ -218,7 +229,7 @@ def _project_summary(
 ) -> dict | None:
     """只把该助手需要的摘要字段交给它，例如工具助手不读症状自述。"""
 
-    if purpose == "route" and summary.pending_tasks:
+    if purpose in {"route", "plan", "chat", "fast", "tools"} and summary.pending_tasks:
         return {
             "source": "conversation_summary",
             "trust": "conversation_summary_not_clinical_record",
@@ -232,18 +243,14 @@ def _project_summary(
                 item.model_dump(exclude_none=True)
                 for item in summary.patient_self_reports
             ],
+            "pending_tasks": summary.pending_tasks,
         }
-    if purpose == "tools":
-        payload: dict = {}
-        if summary.pending_tasks:
-            payload["pending_tasks"] = summary.pending_tasks
-        if summary.verified_business_facts:
-            payload["verified_business_facts"] = summary.verified_business_facts
-        if not payload:
-            return None
-        payload["source"] = "conversation_summary"
-        payload["trust"] = "conversation_summary_not_clinical_record"
-        return payload
+    if purpose == "knowledge" and summary.pending_tasks:
+        return {
+            "source": "conversation_summary",
+            "pending_tasks": summary.pending_tasks,
+            "trust": "conversation_summary_not_clinical_record",
+        }
     return None
 
 
@@ -294,7 +301,6 @@ def build_context(
     purpose: ContextPurpose,
     task_goal: str | None = None,
     upstream_results: dict[str, str] | None = None,
-    extra_untrusted: list[tuple[str, object]] | None = None,
 ) -> list[BaseMessage]:
     """按本次用途，从对话里挑出该看的资料和最近聊天，裁到长度上限内，交给大模型当输入。它不负责回答患者。
     五个参数分别是：
@@ -310,39 +316,42 @@ def build_context(
     summary = coerce_summary(state.get("summary"))
     memories = _active_memories(state, purpose)
     if memories:
-        data_messages.append(
-            untrusted_context_message("long_term_preferences", memories)
-        )
+        memory_message = untrusted_context_message("long_term_preferences", memories)
+        memory_message.additional_kwargs["memory_count"] = len(memories)
+        data_messages.append(memory_message)
     projected = _project_summary(summary, purpose) if summary is not None else None
     if projected is not None:
         data_messages.append(
             untrusted_context_message("conversation_summary", projected)
         )
-    # 本轮额外资料排在旧偏好后面；预算紧时优先保留较新的本轮资料。
-    for label, payload in extra_untrusted or []:
-        if payload_is_sensitive(payload):
-            logger.warning(
-                "untrusted_context_blocked label={} reason=sensitive_content", label
-            )
-            continue
-        data_messages.append(untrusted_context_message(label, payload))
-
     bounded_data = _bounded_tail(data_messages, settings.context_summary_tokens)
-    recent = _bounded_tail(state.get("messages") or [], settings.context_recent_tokens)
-    result = [*bounded_data, *recent]
-    total = count_tokens_approximately(result)
-    context_budget = min(
-        settings.context_total_tokens,
-        settings.context_summary_tokens + settings.context_recent_tokens,
+    original = list(state.get("messages") or [])
+    latest_index = next(
+        (
+            index
+            for index in range(len(original) - 1, -1, -1)
+            if isinstance(original[index], HumanMessage)
+        ),
+        None,
     )
-    if total > context_budget:
-        result = _bounded_tail(result, context_budget)
-        total = count_tokens_approximately(result)
+    latest = original[latest_index] if latest_index is not None else None
+    history = [
+        message for index, message in enumerate(original) if index != latest_index
+    ]
+    recent = _bounded_tail(
+        history, max(0, settings.context_recent_tokens - estimate_tokens(latest or ""))
+    )
+    if latest is not None:
+        recent.append(latest)
+    result = [*bounded_data, *recent]
+    total = estimate_tokens(result)
+    # Final input is bounded at the model boundary; do not silently truncate
+    # the latest patient message here to satisfy a history-only allocation.
     # 本轮子任务放在最近消息之后，不会和较早的历史一起被截掉。
     focus = task_focus_messages(task_goal, upstream_results)
     if focus:
         result = [*result, *focus]
-        total = count_tokens_approximately(result)
+        total = estimate_tokens(result)
     purpose_labels = {
         "route": "意图识别或任务规划",
         "chat": "闲聊回答",
@@ -354,15 +363,117 @@ def build_context(
         "对话上下文已准备 用途={} 总 token 数={} 附加资料 token 数={} 最近消息 token 数={} 记忆条数={} | context_built",
         purpose_labels.get(purpose, purpose),
         total,
-        count_tokens_approximately(bounded_data),
-        count_tokens_approximately(recent),
+        estimate_tokens(bounded_data),
+        estimate_tokens(recent),
         len(memories),
     )
+    # Only the actual provider-call boundary records input use. Building context
+    # for routing, summarization or an Agent is not itself a model call.
+    return result
+
+
+class ContextBudgetError(ValueError):
+    """Necessary inputs cannot safely fit. Do not replay tools to recover."""
+
+
+def assemble_messages(
+    messages: list[BaseMessage],
+    *,
+    tools=None,
+    purpose="chat",
+    budget_scale: float = 1.0,
+) -> list[BaseMessage]:
+    """Budget the final input, keeping policy, latest patient text and tool pairs.
+
+    Optional messages are selected whole; JSON/clinical evidence is never cut
+    into a different meaning. The estimate is intentionally not a hard tokenizer.
+    """
+    settings = get_settings()
+    budget = int(settings.context_total_tokens * budget_scale)
+    protected: set[int] = set()
+    system = []
+    latest = None
+    for index, message in enumerate(messages):
+        if isinstance(message, SystemMessage):
+            protected.add(index)
+            system.append(message)
+        if isinstance(message, HumanMessage) and not message.additional_kwargs.get(
+            "context_source"
+        ):
+            latest = index
+    if latest is not None:
+        protected.add(latest)
+        if estimate_tokens(messages[latest]) > settings.context_total_tokens:
+            raise ContextBudgetError("消息过长，请缩短或分段发送")
+    # Preserve this Agent loop's complete tool-call/result pairs. They are not
+    # ordinary cross-turn history and cannot be filtered like old ToolMessages.
+    for index, message in enumerate(messages):
+        if getattr(message, "tool_calls", None) or isinstance(message, ToolMessage):
+            protected.add(index)
+    if estimate_tokens(system) > settings.context_system_tokens:
+        raise ContextBudgetError("系统规则超过预算，不能静默截断")
+    selected = set(protected)
+    needed = [message for index, message in enumerate(messages) if index in selected]
+    if estimate_tokens(needed, tools=tools) > budget:
+        raise ContextBudgetError("必要上下文超过预算，请缩短问题或稍后重试")
+    priority = {
+        "current_subtask": 5,
+        "upstream_result": 5,
+        "rag_context": 4,
+        "hospital_rag": 4,
+        "authoritative_medical_source": 4,
+        "patient_clinical_context": 4,
+        "conversation_summary": 3,
+        "long_term_preferences": 3,
+    }
+    optional = sorted(
+        (index for index in range(len(messages)) if index not in selected),
+        key=lambda index: (
+            priority.get(messages[index].additional_kwargs.get("context_source"), 1),
+            index,
+        ),
+        reverse=True,
+    )
+    for index in optional:
+        trial = [
+            message for i, message in enumerate(messages) if i in selected or i == index
+        ]
+        if estimate_tokens(trial, tools=tools) <= budget:
+            selected.add(index)
+    result = [message for index, message in enumerate(messages) if index in selected]
+    segments: dict[str, int] = {"tool_schema": estimate_tokens(tools) if tools else 0}
+    truncated: set[str] = set()
+    for index, message in enumerate(messages):
+        label = message.additional_kwargs.get("context_source", "")
+        segment = (
+            "system"
+            if isinstance(message, SystemMessage)
+            else "latest"
+            if index == latest
+            else "tool_pairs"
+            if index in protected
+            else "focus"
+            if label in {"current_subtask", "upstream_result"}
+            else "memory"
+            if label in {"conversation_summary", "long_term_preferences"}
+            else "external"
+            if label
+            else "history"
+        )
+        if index in selected:
+            segments[segment] = segments.get(segment, 0) + estimate_tokens(message)
+        else:
+            truncated.add(segment)
     record_context(
         purpose=purpose,
-        data_tokens=count_tokens_approximately(bounded_data),
-        recent_tokens=count_tokens_approximately(recent),
-        memory_count=len(memories),
-        summary_version=summary.version if summary is not None else None,
+        segments=segments,
+        truncated_segments=truncated,
+        data_tokens=segments.get("memory", 0),
+        recent_tokens=segments.get("history", 0),
+        memory_count=sum(
+            message.additional_kwargs.get("memory_count", 0) for message in result
+        ),
+        summary_version=None,
+        budget=budget,
     )
     return result

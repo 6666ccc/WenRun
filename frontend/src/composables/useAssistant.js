@@ -54,6 +54,10 @@ function createRuntime(key) {
   const streamStatus = ref(null)
   const sessionError = ref(null)
   const fastMode = ref(readFastMode(key))
+  const preferencesEnabled = ref(localStorage.getItem(`wenrun_preferences:${key}`) !== 'false')
+  watch(preferencesEnabled, (value) => {
+    if (!destroyed) localStorage.setItem(`wenrun_preferences:${key}`, String(value))
+  })
   const activeRequestId = ref(null)
   const requests = new Map()
   let contextPromise = null
@@ -79,6 +83,7 @@ function createRuntime(key) {
     streamStatus,
     sessionError,
     fastMode,
+    preferencesEnabled,
     activeRequestId,
     requests,
     get destroyed() { return destroyed },
@@ -377,6 +382,7 @@ export function useAssistant(user) {
           conversationId,
           clientRequestId: requestId,
           fastMode: runtime.fastMode.value,
+          preferencesEnabled: runtime.preferencesEnabled.value,
           patientId: user.value?.activePatientId || user.value?.patientId,
         },
         createStreamHandlers(runtime, conversationId, requestId),
@@ -491,6 +497,8 @@ export function useAssistant(user) {
     streamStatus: runtime.streamStatus,
     sessionError: runtime.sessionError,
     fastMode: runtime.fastMode,
+    preferencesEnabled: runtime.preferencesEnabled,
+    togglePreferences: () => { runtime.preferencesEnabled.value = !runtime.preferencesEnabled.value },
     toggleFastMode: () => { runtime.fastMode.value = !runtime.fastMode.value },
     sendMessage,
     retryMessage,

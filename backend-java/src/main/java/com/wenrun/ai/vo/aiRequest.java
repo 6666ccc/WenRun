@@ -14,7 +14,7 @@ import java.util.List;
 public class aiRequest {
 
     @NotBlank(message = "消息不能为空")
-    @Size(max = 2000, message = "消息长度不能超过 2000 个字符")
+    @Size(max = 2000, message = "消息过长，请缩短到 2000 个字符以内或分段发送")
     @ToString.Exclude
     private String message;
 
@@ -29,6 +29,17 @@ public class aiRequest {
      * 是否允许 Python AI 服务使用会话记忆；未传时由 Python 服务使用默认值。
      */
     private Boolean memoryEnabled;
+    /** Only controls L3 retrieval/injection, never checkpoints or HITL. */
+    private Boolean preferencesEnabled = true;
+
+    @JsonIgnore
+    private Long currentMessageId;
+    @JsonIgnore
+    private Long recoveryUpperId;
+    @JsonIgnore
+    private java.util.Map<String, Object> recoverySummary;
+    @JsonIgnore
+    private String executionId;
 
     /**
      * 是否使用快速模式：跳过意图路由，由单个全能 Agent 直接作答。未传时按 false 处理。

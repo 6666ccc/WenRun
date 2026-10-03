@@ -2,6 +2,9 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.wenrun.repository.AiPatientMemoryRepository">
+    <select id="lockPatient" resultType="java.lang.Long">
+        SELECT id FROM patient WHERE id = #{patientId} FOR UPDATE
+    </select>
     <resultMap id="BaseResultMap" type="com.wenrun.entity.AiPatientMemory">
         <id column="id" property="id"/>
         <result column="memory_id" property="memoryId"/>
@@ -39,6 +42,13 @@
           AND (expire_time IS NULL OR expire_time &gt; CURRENT_TIMESTAMP)
         ORDER BY update_time DESC, id DESC
         LIMIT #{limit}
+    </select>
+
+    <select id="selectAllActiveByPatientId" resultMap="BaseResultMap">
+        SELECT <include refid="Columns"/> FROM ai_patient_memories
+        WHERE patient_id = #{patientId} AND status = 'active' AND deleted_time IS NULL
+          AND (expire_time IS NULL OR expire_time &gt; CURRENT_TIMESTAMP)
+        ORDER BY update_time DESC, id DESC
     </select>
 
     <select id="selectLatestByPatientId" resultMap="BaseResultMap">

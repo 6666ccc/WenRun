@@ -41,16 +41,22 @@ def _install_stub_nodes(monkeypatch, *, agents, plan, interrupt_in_tool=False):
     def tool_node(state, runtime):
         order.append(f"tool:{state.get('knowledge_reply')}")
         if interrupt_in_tool:
-            decision = interrupt({"kind": "registration_create", "prompt": "确认？", "detail": {}})
+            decision = interrupt(
+                {"kind": "registration_create", "prompt": "确认？", "detail": {}}
+            )
             order.append(f"tool-resumed:{decision}")
         return {"tools_reply": "已挂号"}
 
     def final_node(state):
         final_calls.append(dict(state))
         reply = " | ".join(
-            text for text in (
-                state.get("knowledge_reply"), state.get("chat_reply"), state.get("tools_reply")
-            ) if text
+            text
+            for text in (
+                state.get("knowledge_reply"),
+                state.get("chat_reply"),
+                state.get("tools_reply"),
+            )
+            if text
         )
         return {"final_reply": reply, "messages": [AIMessage(content=reply)]}
 
@@ -63,7 +69,7 @@ def _install_stub_nodes(monkeypatch, *, agents, plan, interrupt_in_tool=False):
         "final_node": final_node,
     }.items():
         monkeypatch.setattr(graphs, name, node)
-    monkeypatch.setattr(graphs, "summarize_node", lambda state: {})
+    monkeypatch.setattr(graphs, "compact_node", lambda state: {})
     return order, final_calls
 
 
@@ -86,11 +92,13 @@ def test_single_intent_skips_planner_and_runs_only_that_node(monkeypatch):
 
 
 def test_dependent_tool_waits_for_knowledge_and_final_runs_once(monkeypatch):
-    plan = {"tasks": [
-        {"agent": "knowledge", "goal": "k", "depends_on": []},
-        {"agent": "chat", "goal": "c", "depends_on": []},
-        {"agent": "tools", "goal": "t", "depends_on": ["knowledge"]},
-    ]}
+    plan = {
+        "tasks": [
+            {"agent": "knowledge", "goal": "k", "depends_on": []},
+            {"agent": "chat", "goal": "c", "depends_on": []},
+            {"agent": "tools", "goal": "t", "depends_on": ["knowledge"]},
+        ]
+    }
     order, final_calls = _install_stub_nodes(
         monkeypatch, agents=["knowledge", "chat", "tools"], plan=plan
     )
@@ -106,11 +114,15 @@ def test_dependent_tool_waits_for_knowledge_and_final_runs_once(monkeypatch):
 
 
 def test_independent_tasks_fan_out_in_parallel(monkeypatch):
-    plan = {"tasks": [
-        {"agent": "knowledge", "goal": "k", "depends_on": []},
-        {"agent": "tools", "goal": "t", "depends_on": []},
-    ]}
-    order, final_calls = _install_stub_nodes(monkeypatch, agents=["knowledge", "tools"], plan=plan)
+    plan = {
+        "tasks": [
+            {"agent": "knowledge", "goal": "k", "depends_on": []},
+            {"agent": "tools", "goal": "t", "depends_on": []},
+        ]
+    }
+    order, final_calls = _install_stub_nodes(
+        monkeypatch, agents=["knowledge", "tools"], plan=plan
+    )
 
     _run(graphs.build_graph())
 
@@ -121,7 +133,9 @@ def test_independent_tasks_fan_out_in_parallel(monkeypatch):
 
 
 def test_planner_failure_falls_back_to_parallel_dispatch(monkeypatch):
-    order, final_calls = _install_stub_nodes(monkeypatch, agents=["knowledge", "tools"], plan=None)
+    order, final_calls = _install_stub_nodes(
+        monkeypatch, agents=["knowledge", "tools"], plan=None
+    )
 
     _run(graphs.build_graph())
 
@@ -130,13 +144,18 @@ def test_planner_failure_falls_back_to_parallel_dispatch(monkeypatch):
 
 
 def test_interrupt_inside_dependent_tool_resumes_and_finalizes_once(monkeypatch):
-    plan = {"tasks": [
-        {"agent": "knowledge", "goal": "k", "depends_on": []},
-        {"agent": "chat", "goal": "c", "depends_on": []},
-        {"agent": "tools", "goal": "t", "depends_on": ["knowledge"]},
-    ]}
+    plan = {
+        "tasks": [
+            {"agent": "knowledge", "goal": "k", "depends_on": []},
+            {"agent": "chat", "goal": "c", "depends_on": []},
+            {"agent": "tools", "goal": "t", "depends_on": ["knowledge"]},
+        ]
+    }
     order, final_calls = _install_stub_nodes(
-        monkeypatch, agents=["knowledge", "chat", "tools"], plan=plan, interrupt_in_tool=True
+        monkeypatch,
+        agents=["knowledge", "chat", "tools"],
+        plan=plan,
+        interrupt_in_tool=True,
     )
     graph = graphs.build_graph(checkpointer=InMemorySaver())
     config = {"configurable": {"thread_id": "t-interrupt"}}
@@ -149,7 +168,9 @@ def test_interrupt_inside_dependent_tool_resumes_and_finalizes_once(monkeypatch)
     assert final_calls == []
 
     resumed = graph.invoke(
-        Command(resume={snapshot.interrupts[0].id: "approve"}), context=CONTEXT, config=config
+        Command(resume={snapshot.interrupts[0].id: "approve"}),
+        context=CONTEXT,
+        config=config,
     )
 
     assert order[-2:] == ["tool:呼吸内科", "tool-resumed:approve"]

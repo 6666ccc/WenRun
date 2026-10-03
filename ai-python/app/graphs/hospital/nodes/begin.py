@@ -14,6 +14,8 @@
 本文件后半是第三步专用的提示词和结果校验，阅读主流程时可以先跳过。
 """
 
+import re
+
 from langchain_core.messages import BaseMessage, HumanMessage
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -23,8 +25,10 @@ from app.graphs.hospital.memory import reset_turn_fields
 from app.graphs.hospital.state import AgentName, State
 from app.intent import LocalRouteResult, route_locally
 from app.intent.metrics import record_route
-from app.models.chat import model
+from app.models.chat import model as shared_model
 from app.observability.agent_output import log_agent_output
+
+model = shared_model.model_copy(update={"purpose": "route"})
 
 
 def begin_node(state: State) -> dict:
@@ -96,12 +100,32 @@ def begin_node(state: State) -> dict:
     if local.safety_flags and "knowledge" not in selected_agents:
         selected_agents.insert(0, "knowledge")
 
+    # Clinical profile reads belong to knowledge, even if a generic classifier
+    # confuses "查询档案" with hospital administration. Explicit memory writes
+    # remain on the confirmation tool path so clinical content can be rejected.
+    from app.graphs.hospital.nodes.knowledge import necessary_clinical_scopes
+
+    if not re.search(
+        r"记住|记下|保存.*偏好|更新.*偏好", user_text
+    ) and necessary_clinical_scopes(user_text):
+        if re.search(r"挂号|预约|号源|排班|退号|科室|医生", user_text):
+            if "knowledge" not in selected_agents:
+                selected_agents.insert(0, "knowledge")
+        else:
+            selected_agents = ["knowledge"]
+        router_fallback = out_of_scope = False
+        router_response = None
+        route_metadata["clinical_profile_route_guard"] = True
+
     logger.info(
         "意图路由完成 会话={} 阶段={} 选中助手={} 升级原因={} 命中规则={} "
         "安全标记={} 标签分数={} | intent_route",
         state.get("conversation_id"),
         _describe_route_code(route_metadata.get("stage"), _ROUTE_STAGE_LABELS),
-        [f"{_AGENT_LABELS_ZH.get(agent, agent)}（{agent}）" for agent in selected_agents],
+        [
+            f"{_AGENT_LABELS_ZH.get(agent, agent)}（{agent}）"
+            for agent in selected_agents
+        ],
         _describe_route_code(
             route_metadata.get("escalation_reason"), _ESCALATION_REASON_LABELS
         ),
@@ -131,7 +155,11 @@ def _route_locally(text: str) -> LocalRouteResult:
 
 _FOLLOWUP_AGENTS: frozenset[str] = frozenset({"tools", "knowledge"})
 _FOLLOWUP_REPLY_FIELDS: tuple[str, ...] = ("tools_reply", "knowledge_reply")
-_AGENT_LABELS_ZH = {"knowledge": "医疗知识助手", "chat": "闲聊助手", "tools": "医院业务助手"}
+_AGENT_LABELS_ZH = {
+    "knowledge": "医疗知识助手",
+    "chat": "闲聊助手",
+    "tools": "医院业务助手",
+}
 _INTENT_LABELS_ZH = {"knowledge": "医疗知识", "chat": "闲聊", "tools": "医院业务"}
 _ROUTE_STAGE_LABELS = {
     "rules": "规则直接命中",
@@ -180,7 +208,9 @@ _SAFETY_LABELS = {
 }
 
 
-def _describe_route_codes(values: list[str] | None, labels: dict[str, str]) -> list[str]:
+def _describe_route_codes(
+    values: list[str] | None, labels: dict[str, str]
+) -> list[str]:
     return [f"{labels.get(value, value)}（{value}）" for value in values or []]
 
 

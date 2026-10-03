@@ -8,13 +8,21 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    RemoveMessage,
+)
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from loguru import logger
+from redis.exceptions import RedisError
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response, StreamingResponse
 
@@ -31,20 +39,28 @@ from app.graphs.hospital.checkpointing import (
 )
 from app.graphs.hospital.confirmation import decision_from_text
 from app.graphs.hospital.confirmation import resume_command as _resume_command
+from app.graphs.hospital.context_builder import ContextBudgetError, coerce_summary
 from app.graphs.hospital.graphs import fast_graph, graph
 from app.graphs.hospital.identity import thread_id_for
-from app.graphs.hospital.rehydration import build_rehydrated_messages
+from app.graphs.hospital.rehydration import (
+    build_rehydrated_messages,
+    fetch_recovery_messages,
+)
+from app.graphs.hospital.reply_sections import (
+    compose_reply_sections,
+    uses_reply_sections,
+)
 from app.graphs.hospital.tools.context import HospitalToolContext
 from app.models.chat import ChatRequest, ChatResponse, ChatResumeRequest
 from app.observability.context_metrics import begin_context_trace
 from app.observability.progress import public_progress
-from app.graphs.hospital.reply_sections import compose_reply_sections, uses_reply_sections
 from app.rag.ingest import (
     deactivate_document,
     delete_document,
     get_document_versions,
     ingest_file,
 )
+from app.services.java_tool_client import JavaToolClientError
 
 router = APIRouter(
     prefix="/v1/chat",
@@ -69,11 +85,32 @@ async def chat_stream(
     config = _graph_config(request.conversation_id, delegation)
     # 同一用户的同一会话可能已有历史，也可能正停在 HITL 确认卡片上。
     has_checkpointer = getattr(graph_instance, "checkpointer", None) is not None
-    snapshot = await _checkpoint_snapshot(graph_instance, config)
+    try:
+        snapshot = await _checkpoint_snapshot(graph_instance, config)
+    except (RedisError, OSError, TimeoutError):
+        from app.observability.context_metrics import record_event
+
+        record_event("checkpointReadFailures")
+        graph_instance = fast_graph if request.fast_mode else graph
+        has_checkpointer = writes_enabled = False
+        snapshot = None
+    snapshot_values = getattr(snapshot, "values", None) or {}
+    if (
+        snapshot_values
+        and snapshot_values.get("patient_id") is not None
+        and snapshot_values.get("patient_id") != delegation.identity.patient_id
+    ):
+        raise HTTPException(
+            status_code=409, detail="会话患者与当前档案不一致，请新建会话"
+        )
     checkpoint_hit = _checkpoint_has_messages(snapshot)
     if has_checkpointer:
         pending = _confirmations_from_snapshot(snapshot)
         if pending:
+            if snapshot_values.get("patient_id") is None:
+                raise HTTPException(
+                    status_code=409, detail="旧确认卡片缺少患者关联，请重新发起并确认"
+                )
             # 挂起期间的新消息由专门分支处理，避免把原本暂停的图当作新一轮运行。
             return _pending_turn_response(
                 request, delegation, graph_instance, config, snapshot, pending
@@ -81,9 +118,64 @@ async def chat_stream(
 
     graph_input = _initial_state(request, delegation)
     rehydrated = False
-    if has_checkpointer and not checkpoint_hit and request.recovery_messages:
-        # Redis 中没有可用历史时，才用 Java 保存的有限消息补齐上下文。
+    cached = getattr(snapshot, "values", None) or {}
+    cached_summary = coerce_summary(cached.get("summary"))
+    durable_summary = coerce_summary(request.recovery_summary)
+    summary_mismatch = (cached_summary.version if cached_summary else 0) != (
+        durable_summary.version if durable_summary else 0
+    ) or (cached_summary.last_message_id if cached_summary else None) != (
+        durable_summary.last_message_id if durable_summary else None
+    )
+    graph_input["message_id_map"] = {
+        **(cached.get("message_id_map") or {}),
+        **graph_input["message_id_map"],
+    }
+    unstable_messages = any(
+        not getattr(message, "id", "")
+        or (
+            not message.additional_kwargs.get("db_id")
+            and message.id not in graph_input["message_id_map"]
+        )
+        for message in cached.get("messages", [])
+    )
+    cached_ids = {
+        message.additional_kwargs.get("db_id")
+        or graph_input["message_id_map"].get(message.id)
+        for message in cached.get("messages", [])
+    }
+    watermark = durable_summary.last_message_id if durable_summary else 0
+    missing_database_messages = any(
+        item.id and item.id > (watermark or 0) and item.id not in cached_ids
+        for item in request.recovery_messages
+    )
+    if request.memory_enabled and (
+        not checkpoint_hit
+        or summary_mismatch
+        or unstable_messages
+        or cached.get("patient_id") is None
+        or missing_database_messages
+        or cached.get("requires_recovery")
+    ):
+        try:
+            request.recovery_messages = await run_in_threadpool(
+                fetch_recovery_messages,
+                request,
+                _runtime_context(
+                    request.conversation_id,
+                    delegation,
+                    writes_enabled=False,
+                    execution_id=request.execution_id,
+                ),
+            )
+        except (JavaToolClientError, ValueError):
+            raise HTTPException(
+                status_code=503, detail="未完成完整会话恢复，请稍后重试"
+            ) from None
         graph_input = _recovery_state(request, delegation)
+        if has_checkpointer and cached.get("messages"):
+            graph_input["messages"] = [
+                RemoveMessage(id=REMOVE_ALL_MESSAGES)
+            ] + graph_input["messages"]
         rehydrated = True
         logger.info(
             "chat_checkpoint_rehydrated conversation_id={} message_count={}",
@@ -95,7 +187,10 @@ async def chat_stream(
             graph_instance=graph_instance,
             graph_input=graph_input,
             context=_runtime_context(
-                request.conversation_id, delegation, writes_enabled=writes_enabled
+                request.conversation_id,
+                delegation,
+                writes_enabled=writes_enabled,
+                execution_id=request.execution_id,
             ),
             config=config,
             conversation_id=request.conversation_id,
@@ -106,6 +201,7 @@ async def chat_stream(
             rehydrated=rehydrated,
         )
     )
+
 
 def _assert_request_identity(
     request: ChatRequest | ChatResumeRequest, delegation: DelegationContext
@@ -126,6 +222,7 @@ def _assert_request_identity(
             status_code=403, detail="delegated patient identity mismatch"
         )
 
+
 def _graph_for(memory_enabled: bool, fast_mode: bool):
     """选择普通/快速图；希望保留历史时优先用带检查点的图。"""
 
@@ -134,6 +231,7 @@ def _graph_for(memory_enabled: bool, fast_mode: bool):
         if memory_graph is not None:
             return memory_graph
     return fast_graph if fast_mode else graph
+
 
 def _writes_enabled(graph_instance: Any, fast_mode: bool) -> bool:
     """仅普通模式且图可保存中断进度时，才向 Agent 提供写工具。
@@ -145,6 +243,7 @@ def _writes_enabled(graph_instance: Any, fast_mode: bool) -> bool:
     if fast_mode:
         return False
     return getattr(graph_instance, "checkpointer", None) is not None
+
 
 def _graph_config(
     conversation_id: str | ChatRequest,
@@ -160,6 +259,7 @@ def _graph_config(
         }
     }
 
+
 async def _checkpoint_snapshot(
     graph_instance: Any, config: dict[str, Any]
 ) -> Any | None:
@@ -169,11 +269,13 @@ async def _checkpoint_snapshot(
         return None
     return await graph_instance.aget_state(config)
 
+
 def _checkpoint_has_messages(snapshot: Any | None) -> bool:
     """判断这份 checkpoint 里是否已经有可恢复的对话消息。"""
 
     values = getattr(snapshot, "values", None)
     return isinstance(values, dict) and bool(values.get("messages"))
+
 
 def _confirmations_from_snapshot(snapshot: Any | None) -> list[dict[str, Any]]:
     """从状态快照里抽出待确认卡片需要的中断编号、类型、提示和详情。"""
@@ -190,9 +292,11 @@ def _confirmations_from_snapshot(snapshot: Any | None) -> list[dict[str, Any]]:
                 "kind": value.get("kind"),
                 "prompt": value.get("prompt"),
                 "detail": value.get("detail") or {},
+                "_preference_snapshot": value.get("_preference_snapshot"),
             }
         )
     return found
+
 
 def _initial_state(
     request: ChatRequest, delegation: DelegationContext
@@ -200,15 +304,34 @@ def _initial_state(
     """构造本轮图输入：只带当前用户消息、会话号和已验证患者身份。"""
 
     return {
-        "messages": [HumanMessage(content=request.message)],
+        "messages": [
+            HumanMessage(
+                content=request.message,
+                id=f"{request.client_request_id}:user"
+                if request.client_request_id
+                else None,
+                additional_kwargs={"db_id": request.current_message_id},
+            )
+        ],
+        "client_request_id": request.client_request_id,
+        "message_id_map": {
+            f"{item.client_request_id}:{item.role}"
+            if item.client_request_id
+            else f"db:{item.id}": item.id
+            for item in request.recovery_messages
+            if item.id is not None
+        },
+        "durable_summary_version": (request.recovery_summary or {}).get("version", 0),
+        "requires_recovery": False,
         "conversation_id": request.conversation_id,
         "patient_id": delegation.identity.patient_id,
         "long_term_memories": [
             item.model_dump(by_alias=True) for item in request.long_term_memories
         ]
-        if request.memory_enabled
+        if request.preferences_enabled
         else [],
     }
+
 
 def _recovery_state(
     request: ChatRequest, delegation: DelegationContext
@@ -216,23 +339,32 @@ def _recovery_state(
     """checkpoint 为空时，用 Java 提供的有限历史补上本轮消息后再开跑。"""
 
     return {
+        **_initial_state(request, delegation),
+        "summary": coerce_summary(request.recovery_summary).model_dump()
+        if coerce_summary(request.recovery_summary)
+        else None,
         "messages": build_rehydrated_messages(
-            request.recovery_messages, request.message
+            request.recovery_messages,
+            request.message,
+            current_message_id=request.current_message_id,
+            client_request_id=request.client_request_id,
         ),
         "conversation_id": request.conversation_id,
         "patient_id": delegation.identity.patient_id,
         "long_term_memories": [
             item.model_dump(by_alias=True) for item in request.long_term_memories
         ]
-        if request.memory_enabled
+        if request.preferences_enabled
         else [],
     }
+
 
 def _runtime_context(
     conversation_id: str,
     delegation: DelegationContext,
     *,
     writes_enabled: bool,
+    execution_id: str | None = None,
 ) -> HospitalToolContext:
     """委托令牌与追踪号只在本次请求内有效，绝不进入持久化 State。"""
 
@@ -243,7 +375,9 @@ def _runtime_context(
         patient_id=delegation.identity.patient_id,
         conversation_id=conversation_id,
         writes_enabled=writes_enabled,
+        execution_id=execution_id,
     )
+
 
 def _event_stream(events: AsyncIterator[str]) -> StreamingResponse:
     """把事件迭代器包成不被代理缓冲的 SSE 响应。"""
@@ -256,6 +390,7 @@ def _event_stream(events: AsyncIterator[str]) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
 
 async def _chat_events(
     *,
@@ -288,9 +423,18 @@ async def _chat_events(
         rehydrated=rehydrated,
     )
     first_token_at: float | None = None
-    yield _sse({"type": "status", "content": "已收到您的问题", "step": {
-        "id": "request", "label": "已收到您的问题", "status": "completed", "elapsedMs": 0,
-    }})
+    yield _sse(
+        {
+            "type": "status",
+            "content": "已收到您的问题",
+            "step": {
+                "id": "request",
+                "label": "已收到您的问题",
+                "status": "completed",
+                "elapsedMs": 0,
+            },
+        }
+    )
     graph_state: dict[str, Any] = {}
     streamed_reply = False
     selected_agents: list[str] = []
@@ -311,9 +455,14 @@ async def _chat_events(
         if first_token_at is None:
             first_token_at = perf_counter()
             trace.first_token_ms = round((first_token_at - started_at) * 1000)
-            logger.info("chat_stream_first_token conversation_id={} elapsed_ms={}", conversation_id, trace.first_token_ms)
+            logger.info(
+                "chat_stream_first_token conversation_id={} elapsed_ms={}",
+                conversation_id,
+                trace.first_token_ms,
+            )
         streamed_reply = True
         return _sse({"type": "token", "content": content})
+
     try:
         # 图在后台持续运行；每来一个片段，就更新最终状态或向客户端推送正文。
         async for part in _stream_graph(graph_instance, graph_input, context, config):
@@ -333,19 +482,36 @@ async def _chat_events(
                 for node, update in updates.items():
                     if not isinstance(update, dict) or node == "__interrupt__":
                         continue
-                    graph_state.update({key: value for key, value in update.items() if key != "messages"})
+                    graph_state.update(
+                        {
+                            key: value
+                            for key, value in update.items()
+                            if key != "messages"
+                        }
+                    )
                     if node not in {"knowledge_node", "tool_node", "final_node"}:
                         continue
                     if node == "knowledge_node":
                         for source in new_sources(update.get("rag_sources") or []):
                             yield _sse({"type": "citation", "sources": [source]})
                     if not fast_mode and uses_reply_sections(graph_state):
-                        text = compose_reply_sections(graph_state, ready_prefix=node != "final_node")
-                        if text.startswith(section_text) and len(text) > len(section_text):
-                            yield visible_token(text[len(section_text):])
+                        text = compose_reply_sections(
+                            graph_state, ready_prefix=node != "final_node"
+                        )
+                        if text.startswith(section_text) and len(text) > len(
+                            section_text
+                        ):
+                            yield visible_token(text[len(section_text) :])
                             section_text = text
-                    elif not streamed_reply and len(graph_state.get("selected_agents") or []) == 1:
-                        field = {"knowledge_node": "knowledge_reply", "tool_node": "tools_reply", "final_node": "final_reply"}[node]
+                    elif (
+                        not streamed_reply
+                        and len(graph_state.get("selected_agents") or []) == 1
+                    ):
+                        field = {
+                            "knowledge_node": "knowledge_reply",
+                            "tool_node": "tools_reply",
+                            "final_node": "final_reply",
+                        }[node]
                         text = update.get(field)
                         if isinstance(text, str) and text:
                             yield visible_token(text)
@@ -399,6 +565,12 @@ async def _chat_events(
             return
 
         response = _response_from_state(conversation_id, graph_state)
+    except ContextBudgetError as exc:
+        yield _sse(
+            {"type": "error", "code": "AI_CONTEXT_BUDGET_EXCEEDED", "message": str(exc)}
+        )
+        trace.finish(error_code="AI_CONTEXT_BUDGET_EXCEEDED")
+        return
     except HTTPException as exc:
         yield _sse(
             {
@@ -458,9 +630,11 @@ async def _chat_events(
     )
     trace.finish()
 
+
 def _sse(event: dict[str, Any]) -> str:
     """编码一条兼容浏览器的服务器发送事件，同时保留中文文本。"""
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
 
 async def _stream_graph(
     graph_instance: Any,
@@ -481,6 +655,7 @@ async def _stream_graph(
         if isinstance(part, dict):
             yield part
 
+
 def _merge_stream_state(state: dict[str, Any], part: dict[str, Any]) -> None:
     """从根图的 v2 values 事件中保留最新图状态。"""
 
@@ -492,12 +667,14 @@ def _merge_stream_state(state: dict[str, Any], part: dict[str, Any]) -> None:
     if isinstance(data, dict):
         state.update(data)
 
+
 # 单意图时直接对患者输出正文的根图节点。tool_node 的回复由嵌套 Agent 生成，
 # 只在子图命名空间里产生分片，因此不在此列。
 _SOLE_AGENT_STREAM_NODES = {
     "chat": "chat_node",
     "knowledge": "knowledge_node",
 }
+
 
 def _stream_visible_nodes(
     selected_agents: list[str], fast_mode: bool = False
@@ -520,6 +697,7 @@ def _stream_visible_nodes(
             return {node}
     return {"final_node"}
 
+
 def _is_streamable_message(message_chunk: object) -> bool:
     """只放行带正文的助手分片，工具调用和空消息不发给患者。"""
 
@@ -532,6 +710,7 @@ def _is_streamable_message(message_chunk: object) -> bool:
             getattr(message_chunk, "invalid_tool_calls", None),
         )
     ) and bool(_text_from_message_chunk(message_chunk).strip())
+
 
 def _text_from_message_chunk(message_chunk: object) -> str:
     """从 LangChain 字符串或内容块消息片段中提取文本。"""
@@ -553,6 +732,7 @@ def _text_from_message_chunk(message_chunk: object) -> str:
             text_parts.append(value)
     return "".join(text_parts)
 
+
 async def _pending_confirmations(
     graph_instance: Any, config: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -562,6 +742,7 @@ async def _pending_confirmations(
         return []
     snapshot = await graph_instance.aget_state(config)
     return _confirmations_from_snapshot(snapshot)
+
 
 def _response_from_state(conversation_id: str, result: dict[str, Any]) -> ChatResponse:
     """把图状态里的最终回复、所选 Agent 和资料来源收成接口响应。"""
@@ -589,6 +770,7 @@ def _response_from_state(conversation_id: str, result: dict[str, Any]) -> ChatRe
         sources=sources,
     )
 
+
 async def _confirmation_stream(
     conversation_id: str, pending: list[dict[str, Any]]
 ) -> AsyncIterator[str]:
@@ -605,6 +787,7 @@ async def _confirmation_stream(
             "interruptId": confirmation.get("id"),
         }
     )
+
 
 def _pending_turn_response(
     request: ChatRequest,
@@ -649,6 +832,10 @@ def _pending_turn_response(
             decision,
             pending[0].get("id"),
         )
+        if request.client_request_id:
+            command = replace(
+                command, update={"client_request_id": request.client_request_id}
+            )
         return _event_stream(
             _chat_events(
                 graph_instance=graph_instance,
@@ -691,7 +878,9 @@ def _pending_turn_response(
         )
     )
 
+
 _SIDE_REPLY_STATE_FIELDS = ("summary", "patient_id")
+
 
 def _side_reply_state(
     request: ChatRequest, delegation: DelegationContext, snapshot: Any | None
@@ -716,10 +905,12 @@ def _side_reply_state(
             state.setdefault(field, values[field])
     return state
 
+
 async def _sse_error(code: str, message: str) -> AsyncIterator[str]:
     """产出一条错误 SSE，供无法继续跑图时直接返回给前端。"""
 
     yield _sse({"type": "error", "code": code, "message": message})
+
 
 @router.post("/resume")
 async def chat_resume(
@@ -735,7 +926,21 @@ async def chat_resume(
         raise HTTPException(status_code=409, detail="会话已过期，请重新发起办理")
 
     config = _graph_config(request.conversation_id, delegation)
-    pending = await _pending_confirmations(graph_instance, config)
+    try:
+        snapshot = await _checkpoint_snapshot(graph_instance, config)
+    except (RedisError, OSError, TimeoutError) as exc:
+        raise HTTPException(
+            status_code=503, detail="确认状态暂时不可用，请稍后重试"
+        ) from exc
+    pending = _confirmations_from_snapshot(snapshot)
+    if (
+        pending
+        and (getattr(snapshot, "values", None) or {}).get("patient_id")
+        != delegation.identity.patient_id
+    ):
+        raise HTTPException(
+            status_code=409, detail="确认卡片的患者关联不匹配，请重新发起并确认"
+        )
     logger.info(
         "chat_resume_pending conversation_id={} pending_count={} ids={} kinds={} interrupt_id={}",
         request.conversation_id,
@@ -747,6 +952,10 @@ async def chat_resume(
     command, error_code, error_message = _resume_command(
         request.decision, request.interrupt_id, pending
     )
+    if command is not None and request.client_request_id:
+        command = replace(
+            command, update={"client_request_id": request.client_request_id}
+        )
     # 只续跑仍存在且匹配的中断；旧卡片或错误编号不能触发新的写操作。
     if command is None:
         trace = begin_context_trace(
@@ -780,6 +989,7 @@ async def chat_resume(
             rehydrated=False,
         )
     )
+
 
 @router.post("/documents", status_code=status.HTTP_201_CREATED)
 async def upload_knowledge_document(
@@ -824,6 +1034,7 @@ async def upload_knowledge_document(
             status_code=500, detail="文档写入知识库失败，请稍后再试"
         ) from exc
 
+
 @router.get("/documents/{document_id}")
 async def inspect_knowledge_document(document_id: str) -> dict[str, Any]:
     """查询一份知识文档的各版本；不存在则返回 404。"""
@@ -832,6 +1043,7 @@ async def inspect_knowledge_document(document_id: str) -> dict[str, Any]:
     if not versions:
         raise HTTPException(status_code=404, detail="知识文档不存在")
     return {"documentId": document_id, "versions": versions}
+
 
 @router.post("/documents/{document_id}/deactivate")
 async def deactivate_knowledge_document(document_id: str) -> dict[str, Any]:
@@ -847,6 +1059,7 @@ async def deactivate_knowledge_document(document_id: str) -> dict[str, Any]:
     if count == 0:
         raise HTTPException(status_code=404, detail="没有可停用的知识文档")
     return {"documentId": document_id, "status": "inactive", "versions": count}
+
 
 @router.post("/documents/{document_id}/rebuild", status_code=status.HTTP_201_CREATED)
 async def rebuild_knowledge_document(
@@ -886,6 +1099,7 @@ async def rebuild_knowledge_document(
         )
         raise HTTPException(status_code=500, detail="知识文档重建失败") from exc
 
+
 @router.delete("/documents/{document_id}")
 async def delete_knowledge_document(document_id: str) -> dict[str, Any]:
     """从知识库删除一份文档的全部版本。"""
@@ -896,6 +1110,7 @@ async def delete_knowledge_document(document_id: str) -> dict[str, Any]:
         logger.exception("knowledge_document_delete_failed document_id={}", document_id)
         raise HTTPException(status_code=500, detail="知识文档删除失败") from exc
     return {"documentId": document_id, "deletedVersions": count}
+
 
 @router.delete("/memory/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation_memory(

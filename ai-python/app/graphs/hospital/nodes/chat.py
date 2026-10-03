@@ -13,8 +13,10 @@ from app.graphs.hospital.tools.context import (
     clinic_now,
     format_clinic_clock,
 )
-from app.models.chat import model
+from app.models.chat import model as shared_model
 from app.observability.agent_output import log_agent_output
+
+model = shared_model.model_copy(update={"purpose": "chat"})
 
 CHAT_SYSTEM_PROMPT = """你是温润诊所的患者端闲聊助手。用简短、尊重、有温度的中文直接回复患者。
 
@@ -58,7 +60,9 @@ def build_chat_system_prompt(now: datetime) -> str:
     return CHAT_SYSTEM_PROMPT + f"\n\n当前时间：{format_clinic_clock(now)}。"
 
 
-def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None) -> dict:
+def chat_node(
+    state: State, runtime: Runtime[HospitalToolContext] | None = None
+) -> dict:
     """只处理闲聊部分；回复暂存为 chat_reply，交给 final_node 统一输出。"""
     ##任务一：看起始节点是否把 chat 写进 selected_agents
     selected = state.get("selected_agents") or []
@@ -76,10 +80,14 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
     chunks: list[str] = []
     now = runtime.context.now if runtime is not None else clinic_now()
     try:
-        for chunk in model.stream([
-            bounded_system_message(build_chat_system_prompt(now)),
-            *build_context(state, purpose="chat", task_goal=task_goal(state, "chat")),
-        ]):
+        for chunk in model.stream(
+            [
+                bounded_system_message(build_chat_system_prompt(now)),
+                *build_context(
+                    state, purpose="chat", task_goal=task_goal(state, "chat")
+                ),
+            ]
+        ):
             content = getattr(chunk, "content", "")
             if not isinstance(content, str) or not content:
                 continue
@@ -91,5 +99,3 @@ def chat_node(state: State, runtime: Runtime[HospitalToolContext] | None = None)
     reply = "".join(chunks) or CHAT_MODEL_FALLBACK
     log_agent_output("chat_agent", reply, phase="answer")
     return {"chat_reply": reply}
-
-

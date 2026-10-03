@@ -1,14 +1,14 @@
 """把对话节点连成两张图：普通图处理意图和医院业务，快速图直接答复。
 
-普通图：识别意图 →（多意图时规划）→ 知识/闲聊/工具 → 汇总 → 历史摘要。
-快速图：快速回答 → 历史摘要。图可以带检查点运行，也可以无状态运行。
+普通图：开头压缩并确认持久化 → 识别意图 →（多意图时规划）→ 知识/闲聊/工具 → 汇总。
+快速图：开头压缩并确认持久化 → 快速回答。图可以带检查点运行，也可以无状态运行。
 """
 
 from inspect import signature
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.runtime import Runtime
 from langgraph.graph import END, START, StateGraph
+from langgraph.runtime import Runtime
 
 from app.graphs.hospital.nodes.begin import begin_node
 from app.graphs.hospital.nodes.chat import chat_node
@@ -16,7 +16,7 @@ from app.graphs.hospital.nodes.fast import fast_node
 from app.graphs.hospital.nodes.final import final_node
 from app.graphs.hospital.nodes.knowledge import knowledge_node
 from app.graphs.hospital.nodes.plan import depends_on, plan_node, ready_agents
-from app.graphs.hospital.nodes.summarize import summarize_node
+from app.graphs.hospital.nodes.summarize import compact_node
 from app.graphs.hospital.nodes.tool import tool_node
 from app.graphs.hospital.state import AgentName, State
 from app.graphs.hospital.tools.context import HospitalToolContext
@@ -48,7 +48,11 @@ def _nodes_for(agents: list[str]) -> list[str]:
 def _after_begin(state: State) -> list[str]:
     """单意图直达对应节点（零额外开销）；多意图先进 plan_node 拆子目标与依赖。"""
 
-    selected = [agent for agent in (state.get("selected_agents") or []) if agent in NODE_BY_AGENT]
+    selected = [
+        agent
+        for agent in (state.get("selected_agents") or [])
+        if agent in NODE_BY_AGENT
+    ]
     if len(selected) >= 2:
         return ["plan_node"]
     return _nodes_for(selected) or ["chat_node"]
@@ -83,16 +87,22 @@ def _workflow() -> StateGraph:
     # defer=True：chat_node 与 knowledge→tool 接力链可能落在不同 superstep，
     # 汇总必须等所有分支都结束后只执行一次。
     workflow.add_node("final_node", _observed(final_node, "final"), defer=True)
-    workflow.add_node("summarize_node", summarize_node)
+    workflow.add_node("compact_node", _observed(compact_node, "summary"))
 
-    workflow.add_edge(START, "begin_node")
-    workflow.add_conditional_edges("begin_node", _after_begin, ["plan_node", *sorted(REPLY_NODES)])
-    workflow.add_conditional_edges("plan_node", _dispatch_ready, [*sorted(REPLY_NODES), "final_node"])
-    workflow.add_conditional_edges("knowledge_node", _after_knowledge, ["tool_node", "final_node"])
+    workflow.add_edge(START, "compact_node")
+    workflow.add_edge("compact_node", "begin_node")
+    workflow.add_conditional_edges(
+        "begin_node", _after_begin, ["plan_node", *sorted(REPLY_NODES)]
+    )
+    workflow.add_conditional_edges(
+        "plan_node", _dispatch_ready, [*sorted(REPLY_NODES), "final_node"]
+    )
+    workflow.add_conditional_edges(
+        "knowledge_node", _after_knowledge, ["tool_node", "final_node"]
+    )
     workflow.add_edge("chat_node", "final_node")
     workflow.add_edge("tool_node", "final_node")
-    workflow.add_edge("final_node", "summarize_node")
-    workflow.add_edge("summarize_node", END)
+    workflow.add_edge("final_node", END)
     return workflow
 
 
@@ -107,11 +117,11 @@ def _fast_workflow() -> StateGraph:
 
     workflow = StateGraph(State, context_schema=HospitalToolContext)
     workflow.add_node("fast_node", _observed(fast_node, "fast"))
-    workflow.add_node("summarize_node", summarize_node)
+    workflow.add_node("compact_node", _observed(compact_node, "summary"))
 
-    workflow.add_edge(START, "fast_node")
-    workflow.add_edge("fast_node", "summarize_node")
-    workflow.add_edge("summarize_node", END)
+    workflow.add_edge(START, "compact_node")
+    workflow.add_edge("compact_node", "fast_node")
+    workflow.add_edge("fast_node", END)
     return workflow
 
 

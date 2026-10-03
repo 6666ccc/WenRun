@@ -8,7 +8,13 @@
 from typing import Literal
 
 from langgraph.graph import MessagesState
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.graphs.hospital.sensitive import cleaned_memory_text
 
@@ -22,6 +28,7 @@ class PatientSelfReport(BaseModel):
 
     text: str = Field(min_length=1, max_length=500)
     reported_at: str | None = None
+    source_message_id: int | None = Field(default=None, ge=1)
     source: Literal["user_statement"] = "user_statement"
     verification: Literal["unverified"] = "unverified"
 
@@ -36,7 +43,10 @@ class PatientSelfReport(BaseModel):
             text = cleaned_memory_text(str(raw)) if raw is not None else None
             return {
                 "text": text or "已省略",
-                "reported_at": reported if isinstance(reported, str) and reported.strip() else None,
+                "reported_at": reported
+                if isinstance(reported, str) and reported.strip()
+                else None,
+                "source_message_id": value.get("source_message_id"),
                 "source": "user_statement",
                 "verification": "unverified",
             }
@@ -48,12 +58,14 @@ class ConversationSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    patient_self_reports: list[PatientSelfReport] = Field(default_factory=list, max_length=20)
-    preferences: list[str] = Field(default_factory=list, max_length=20)
-    verified_business_facts: list[str] = Field(default_factory=list, max_length=20)
-    pending_tasks: list[str] = Field(default_factory=list, max_length=20)
-    superseded_items: list[str] = Field(default_factory=list, max_length=30)
+    schema_version: Literal[2] = 2
+    patient_self_reports: list[PatientSelfReport] = Field(
+        default_factory=list, max_length=200
+    )
+    pending_tasks: list[str] = Field(default_factory=list, max_length=200)
+    superseded_items: list[str] = Field(default_factory=list, max_length=200)
     version: int = Field(default=1, ge=1)
+    last_message_id: int | None = Field(default=None, ge=1)
 
     @field_validator("patient_self_reports", mode="before")
     @classmethod
@@ -64,18 +76,13 @@ class ConversationSummary(BaseModel):
             return value
         kept: list[dict] = []
         for item in value:
-            try:
-                report = PatientSelfReport.model_validate(item)
-            except ValidationError:
-                continue
+            report = PatientSelfReport.model_validate(item)
             if report.text == "已省略":
                 continue
             kept.append(report.model_dump())
         return kept
 
     @field_validator(
-        "preferences",
-        "verified_business_facts",
         "pending_tasks",
         "superseded_items",
         mode="before",
@@ -89,16 +96,23 @@ class ConversationSummary(BaseModel):
         cleaned: list[str] = []
         for item in value:
             if not isinstance(item, str):
-                continue
+                raise ValueError("会话未解决事项必须是文本")  # noqa: TRY004 - Pydantic converts this to ValidationError
             text = cleaned_memory_text(item)
             if text is not None:
+                if len(text) > 500:
+                    raise ValueError("会话未解决事项超过500字")
                 cleaned.append(text)
         return cleaned
+
 
 class State(MessagesState):
     """一次对话在图中流转时使用的公共记录本。"""
 
     conversation_id: str  # 前端会话 ID；checkpointer key 还必须拼入已验证 user ID
+    client_request_id: str | None
+    message_id_map: dict[str, int]
+    durable_summary_version: int
+    requires_recovery: bool
     patient_id: int | None  # 患者id
     selected_agents: list[AgentName]  # 本轮要启动的助手，由 begin_node 写入，可多选
     intent_route: dict | None  # 级联层、分数、规则、升级原因与版本，供日志/评测追踪

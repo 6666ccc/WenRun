@@ -31,7 +31,11 @@ def _response(**overrides):
 def configure(monkeypatch):
     def setup(payload=None, *, key="test-key", status=200, error=None):
         settings = Settings(
-            _env_file=None, intent_backend="jev", tokendance_api_key=key
+            _env_file=None,
+            intent_backend="jev",
+            tokendance_api_key=key,
+            intent_jev_base_url="https://tokendance.space/gateway/typesafe/v1",
+            intent_jev_model="bocha-jev-v1",
         )
         monkeypatch.setattr(jev_classifier, "get_settings", lambda: settings)
         monkeypatch.setattr(cascade, "get_settings", lambda: settings)

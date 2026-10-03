@@ -114,7 +114,9 @@ def test_upload_knowledge_document_returns_bad_request_for_invalid_file(monkeypa
     response = client.post(
         "/v1/chat/documents",
         headers={"X-Api-Key": "test-key"},
-        files={"file": ("untrusted.exe", b"not a document", "application/octet-stream")},
+        files={
+            "file": ("untrusted.exe", b"not a document", "application/octet-stream")
+        },
     )
 
     assert response.status_code == 400
@@ -128,7 +130,9 @@ def test_knowledge_document_lifecycle_endpoints(monkeypatch):
     monkeypatch.setattr(
         chat_route,
         "get_document_versions",
-        lambda document_id: [{"document_id": document_id, "version": 2, "status": "active"}],
+        lambda document_id: [
+            {"document_id": document_id, "version": 2, "status": "active"}
+        ],
     )
     monkeypatch.setattr(
         chat_route,
@@ -144,9 +148,7 @@ def test_knowledge_document_lifecycle_endpoints(monkeypatch):
     headers = {"X-Api-Key": "test-key"}
 
     inspected = client.get("/v1/chat/documents/doc-1", headers=headers)
-    deactivated = client.post(
-        "/v1/chat/documents/doc-1/deactivate", headers=headers
-    )
+    deactivated = client.post("/v1/chat/documents/doc-1/deactivate", headers=headers)
     deleted = client.delete("/v1/chat/documents/doc-1", headers=headers)
 
     assert inspected.status_code == 200
@@ -254,7 +256,9 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     captured: dict = {}
 
     class FakeGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["state"] = state
             captured["context"] = context
             yield {
@@ -282,7 +286,10 @@ def test_chat_stream_uses_frontend_sse_contract(monkeypatch):
     assert response.headers["content-type"].startswith("text/event-stream")
     events = _sse_events(response)
     assert [event["type"] for event in events] == [
-        "status", "citation", "token", "done"
+        "status",
+        "citation",
+        "token",
+        "done",
     ]
     assert events[-1]["conversationId"] == "demo"
     assert events[-1]["reply"] == "已生成回复"
@@ -300,7 +307,9 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
     captured: dict = {}
 
     class FakeGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["state"] = state
             captured["stream_mode"] = stream_mode
             captured["subgraphs"] = subgraphs
@@ -312,15 +321,24 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
             # 路由输出绝不能发送到浏览器。
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content='{"selected_agents":["chat"]}'), {"langgraph_node": "begin_node"}),
+                "data": (
+                    AIMessageChunk(content='{"selected_agents":["chat"]}'),
+                    {"langgraph_node": "begin_node"},
+                ),
             }
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content="你好"), {"langgraph_node": "chat_node"}),
+                "data": (
+                    AIMessageChunk(content="你好"),
+                    {"langgraph_node": "chat_node"},
+                ),
             }
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content="，有什么可以帮您？"), {"langgraph_node": "chat_node"}),
+                "data": (
+                    AIMessageChunk(content="，有什么可以帮您？"),
+                    {"langgraph_node": "chat_node"},
+                ),
             }
             yield {
                 "type": "values",
@@ -344,11 +362,10 @@ def test_chat_stream_forwards_visible_graph_message_chunks(monkeypatch):
 
     assert response.status_code == 200
     events = _sse_events(response)
-    assert [event["type"] for event in events] == [
-        "status", "token", "token", "done"
-    ]
+    assert [event["type"] for event in events] == ["status", "token", "token", "done"]
     assert [event["content"] for event in events if event["type"] == "token"] == [
-        "你好", "，有什么可以帮您？"
+        "你好",
+        "，有什么可以帮您？",
     ]
     assert events[-1]["reply"] == "你好，有什么可以帮您？"
     assert captured["stream_mode"] == ["messages", "values", "updates", "custom"]
@@ -360,7 +377,9 @@ def test_chat_stream_hides_knowledge_internals_when_final_node_summarizes(monkey
     headers = _chat_auth_headers(monkeypatch)
 
     class FakeGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             yield {
                 "type": "values",
                 "data": {"selected_agents": ["knowledge", "tools"]},
@@ -368,16 +387,25 @@ def test_chat_stream_hides_knowledge_internals_when_final_node_summarizes(monkey
             # 工具输出绝不能作为面向患者的文本发送。
             yield {
                 "type": "messages",
-                "data": (ToolMessage(content="RAW_SEARCH_RESULT", tool_call_id="call-1"), {"langgraph_node": "knowledge_node"}),
+                "data": (
+                    ToolMessage(content="RAW_SEARCH_RESULT", tool_call_id="call-1"),
+                    {"langgraph_node": "knowledge_node"},
+                ),
             }
             # 多意图时 final_node 会重写正文，此前各节点的输出都属于内部内容。
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content="内部检索摘要"), {"langgraph_node": "knowledge_node"}),
+                "data": (
+                    AIMessageChunk(content="内部检索摘要"),
+                    {"langgraph_node": "knowledge_node"},
+                ),
             }
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content="最终面向患者的答案"), {"langgraph_node": "final_node"}),
+                "data": (
+                    AIMessageChunk(content="最终面向患者的答案"),
+                    {"langgraph_node": "final_node"},
+                ),
             }
             yield {
                 "type": "values",
@@ -418,11 +446,15 @@ def test_chat_stream_hides_knowledge_internals_when_final_node_summarizes(monkey
     assert events[-1]["reply"] == "最终面向患者的答案"
 
 
-def test_chat_stream_forwards_knowledge_node_when_knowledge_is_the_sole_agent(monkeypatch):
+def test_chat_stream_forwards_knowledge_node_when_knowledge_is_the_sole_agent(
+    monkeypatch,
+):
     headers = _chat_auth_headers(monkeypatch)
 
     class FakeGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             yield {
                 "type": "values",
                 "data": {"selected_agents": ["knowledge"]},
@@ -431,15 +463,24 @@ def test_chat_stream_forwards_knowledge_node_when_knowledge_is_the_sole_agent(mo
             yield {
                 "type": "messages",
                 "ns": ("knowledge_node:1",),
-                "data": (AIMessageChunk(content="嵌套内部草稿"), {"langgraph_node": "model"}),
+                "data": (
+                    AIMessageChunk(content="嵌套内部草稿"),
+                    {"langgraph_node": "model"},
+                ),
             }
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content="院内资料显示，"), {"langgraph_node": "knowledge_node"}),
+                "data": (
+                    AIMessageChunk(content="院内资料显示，"),
+                    {"langgraph_node": "knowledge_node"},
+                ),
             }
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content="请多休息。"), {"langgraph_node": "knowledge_node"}),
+                "data": (
+                    AIMessageChunk(content="请多休息。"),
+                    {"langgraph_node": "knowledge_node"},
+                ),
             }
             yield {
                 "type": "values",
@@ -496,7 +537,9 @@ def test_graph_config_uses_user_scoped_conversation_id_as_thread_id():
     assert chat_route._graph_config(request, delegation) == {
         "configurable": {"thread_id": "user:1:conversation:conv-42"}
     }
-    assert chat_route.thread_id_for(2, "conv-42") != chat_route.thread_id_for(1, "conv-42")
+    assert chat_route.thread_id_for(2, "conv-42") != chat_route.thread_id_for(
+        1, "conv-42"
+    )
 
 
 def test_chat_stream_prefers_memory_graph(monkeypatch):
@@ -506,12 +549,16 @@ def test_chat_stream_prefers_memory_graph(monkeypatch):
     captured: dict = {}
 
     class MemoryGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["config"] = config
             yield {"type": "values", "data": {"final_reply": "记忆图回复"}}
 
     class StatelessGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["used_stateless"] = True
             yield {"type": "values", "data": {"final_reply": "无记忆回复"}}
 
@@ -540,12 +587,16 @@ def test_chat_stream_falls_back_to_stateless_graph_when_memory_disabled(monkeypa
     from app.graphs.hospital import checkpointing
 
     class MemoryGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             raise AssertionError("memoryEnabled=false 时不得使用记忆图")
             yield  # pragma: no cover
 
     class StatelessGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             yield {"type": "values", "data": {"final_reply": "无记忆回复"}}
 
     monkeypatch.setattr(chat_route, "graph", StatelessGraph())
@@ -609,17 +660,27 @@ def test_chat_stream_uses_fast_graph_when_fast_mode_enabled(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
 
     class NormalGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             raise AssertionError("fastMode=true 时不得使用正常图")
             yield  # pragma: no cover
 
     class FastGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             yield {
                 "type": "messages",
-                "data": (AIMessageChunk(content="快速回复"), {"langgraph_node": "fast_node"}),
+                "data": (
+                    AIMessageChunk(content="快速回复"),
+                    {"langgraph_node": "fast_node"},
+                ),
             }
-            yield {"type": "values", "data": {"final_reply": "快速回复", "rag_sources": []}}
+            yield {
+                "type": "values",
+                "data": {"final_reply": "快速回复", "rag_sources": []},
+            }
 
     monkeypatch.setattr(chat_route, "graph", NormalGraph())
     monkeypatch.setattr(chat_route, "fast_graph", FastGraph())
@@ -649,7 +710,9 @@ def test_chat_stream_fast_mode_suppresses_knowledge_status_from_leftover_agents(
     headers = _chat_auth_headers(monkeypatch)
 
     class FastGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             # 模拟上一轮正常模式留下的 knowledge；fast_node 清空前也可能先看到。
             yield {
                 "type": "values",
@@ -700,11 +763,15 @@ def test_chat_stream_defaults_to_normal_graph(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
 
     class NormalGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             yield {"type": "values", "data": {"final_reply": "正常回复"}}
 
     class FastGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             raise AssertionError("未传 fastMode 时不得使用快速图")
             yield  # pragma: no cover
 
@@ -714,7 +781,11 @@ def test_chat_stream_defaults_to_normal_graph(monkeypatch):
     response = client.post(
         "/v1/chat/stream",
         headers=headers,
-        json={"message": "你好", "conversationId": "fast-default", "memoryEnabled": False},
+        json={
+            "message": "你好",
+            "conversationId": "fast-default",
+            "memoryEnabled": False,
+        },
     )
 
     assert _sse_events(response)[-1]["reply"] == "正常回复"
@@ -727,12 +798,16 @@ def test_chat_stream_prefers_fast_memory_graph(monkeypatch):
     captured: dict = {}
 
     class FastMemoryGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["config"] = config
             yield {"type": "values", "data": {"final_reply": "快速记忆回复"}}
 
     class FastStatelessGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["used_stateless"] = True
             yield {"type": "values", "data": {"final_reply": "快速无记忆回复"}}
 
@@ -765,7 +840,9 @@ def test_chat_stream_emits_confirm_event_when_graph_pauses_for_approval(monkeypa
         checkpointer = object()
         paused = False
 
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             assert context.writes_enabled is True
             assert context.conversation_id == "conversation-1"
             yield {"type": "values", "data": {"selected_agents": ["tools"]}}
@@ -775,16 +852,19 @@ def test_chat_stream_emits_confirm_event_when_graph_pauses_for_approval(monkeypa
         async def aget_state(self, config):
             if not self.paused:
                 return SimpleNamespace(interrupts=(), values={})
-            return SimpleNamespace(interrupts=(
-                SimpleNamespace(
-                    id="int-1",
-                    value={
-                        "kind": "registration_create",
-                        "prompt": "请确认是否为您挂 2026-09-04 下午 内科 张伟 的号",
-                        "detail": {"scheduleId": 9, "staffName": "张伟"},
-                    },
+            return SimpleNamespace(
+                values={"patient_id": 12},
+                interrupts=(
+                    SimpleNamespace(
+                        id="int-1",
+                        value={
+                            "kind": "registration_create",
+                            "prompt": "请确认是否为您挂 2026-09-04 下午 内科 张伟 的号",
+                            "detail": {"scheduleId": 9, "staffName": "张伟"},
+                        },
+                    ),
                 ),
-            ))
+            )
 
     monkeypatch.setattr(chat_route, "graph", PausedGraph())
     client = TestClient(create_app())
@@ -812,16 +892,25 @@ def test_chat_stream_keeps_writes_disabled_without_a_checkpointer(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
 
     class StatelessGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             assert context.writes_enabled is False
-            yield {"type": "values", "data": {"final_reply": "已生成回复", "selected_agents": ["tools"]}}
+            yield {
+                "type": "values",
+                "data": {"final_reply": "已生成回复", "selected_agents": ["tools"]},
+            }
 
     monkeypatch.setattr(chat_route, "graph", StatelessGraph())
     client = TestClient(create_app())
     response = client.post(
         "/v1/chat/stream",
         headers=headers,
-        json={"message": "帮我挂号", "conversationId": "conversation-2", "memoryEnabled": False},
+        json={
+            "message": "帮我挂号",
+            "conversationId": "conversation-2",
+            "memoryEnabled": False,
+        },
     )
 
     assert [event["type"] for event in _sse_events(response)][-1] == "done"
@@ -837,7 +926,9 @@ def test_chat_resume_forwards_decision_into_the_graph(monkeypatch):
         def __init__(self):
             self._resumed = False
 
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["input"] = state
             captured["thread_id"] = config["configurable"]["thread_id"]
             self._resumed = True
@@ -849,16 +940,23 @@ def test_chat_resume_forwards_decision_into_the_graph(monkeypatch):
         async def aget_state(self, config):
             if self._resumed:
                 return SimpleNamespace(interrupts=())
-            return SimpleNamespace(interrupts=(
-                SimpleNamespace(id="int-1", value={"kind": "registration_create"}),
-            ))
+            return SimpleNamespace(
+                values={"patient_id": 12},
+                interrupts=(
+                    SimpleNamespace(id="int-1", value={"kind": "registration_create"}),
+                ),
+            )
 
     monkeypatch.setattr(chat_route, "graph", ResumedGraph())
     client = TestClient(create_app())
     response = client.post(
         "/v1/chat/resume",
         headers=headers,
-        json={"conversationId": "conversation-1", "decision": "approve"},
+        json={
+            "conversationId": "conversation-1",
+            "decision": "approve",
+            "clientRequestId": "resume-request",
+        },
     )
 
     assert response.status_code == 200
@@ -867,6 +965,7 @@ def test_chat_resume_forwards_decision_into_the_graph(monkeypatch):
     assert events[-1]["reply"] == "挂号已办好。"
     assert captured["thread_id"] == "user:1:conversation:conversation-1"
     assert captured["input"].resume == {"int-1": "approve"}
+    assert captured["input"].update == {"client_request_id": "resume-request"}
 
 
 def test_chat_resume_rejects_unknown_decision(monkeypatch):
@@ -892,7 +991,9 @@ def test_chat_resume_rejects_other_pending_interrupts(monkeypatch):
         def __init__(self):
             self._resumed = False
 
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["input"] = state
             self._resumed = True
             yield {
@@ -903,10 +1004,13 @@ def test_chat_resume_rejects_other_pending_interrupts(monkeypatch):
         async def aget_state(self, config):
             if self._resumed:
                 return SimpleNamespace(interrupts=())
-            return SimpleNamespace(interrupts=(
-                SimpleNamespace(id="int-1", value={"kind": "registration_create"}),
-                SimpleNamespace(id="int-2", value={"kind": "registration_cancel"}),
-            ))
+            return SimpleNamespace(
+                values={"patient_id": 12},
+                interrupts=(
+                    SimpleNamespace(id="int-1", value={"kind": "registration_create"}),
+                    SimpleNamespace(id="int-2", value={"kind": "registration_cancel"}),
+                ),
+            )
 
     monkeypatch.setattr(chat_route, "graph", ResumedGraph())
     client = TestClient(create_app())
@@ -926,7 +1030,9 @@ def test_chat_resume_rejects_other_pending_interrupts(monkeypatch):
     assert captured["input"].resume == {"int-1": "approve", "int-2": "reject"}
 
 
-def test_chat_resume_errors_without_running_graph_when_multiple_interrupts_lack_id(monkeypatch):
+def test_chat_resume_errors_without_running_graph_when_multiple_interrupts_lack_id(
+    monkeypatch,
+):
     headers = _chat_auth_headers(monkeypatch)
     captured: dict = {"astream": 0, "deleted": []}
 
@@ -937,15 +1043,23 @@ def test_chat_resume_errors_without_running_graph_when_multiple_interrupts_lack_
     class ConflictedGraph:
         checkpointer = object()
 
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["astream"] += 1
-            yield {"type": "values", "data": {"final_reply": "不应执行", "selected_agents": ["tools"]}}
+            yield {
+                "type": "values",
+                "data": {"final_reply": "不应执行", "selected_agents": ["tools"]},
+            }
 
         async def aget_state(self, config):
-            return SimpleNamespace(interrupts=(
-                SimpleNamespace(id="int-1", value={"kind": "registration_create"}),
-                SimpleNamespace(id="int-2", value={"kind": "registration_cancel"}),
-            ))
+            return SimpleNamespace(
+                values={"patient_id": 12},
+                interrupts=(
+                    SimpleNamespace(id="int-1", value={"kind": "registration_create"}),
+                    SimpleNamespace(id="int-2", value={"kind": "registration_cancel"}),
+                ),
+            )
 
     monkeypatch.setattr(chat_route, "graph", ConflictedGraph())
     monkeypatch.setattr(chat_route, "get_checkpointer", lambda: FakeSaver())
@@ -997,11 +1111,17 @@ class _PendingGraph:
         yield {"type": "values", "data": {"selected_agents": ["chat"]}}
         yield {
             "type": "messages",
-            "data": (AIMessageChunk(content="张伟医生是主任医师。"), {"langgraph_node": "chat_node"}),
+            "data": (
+                AIMessageChunk(content="张伟医生是主任医师。"),
+                {"langgraph_node": "chat_node"},
+            ),
         }
         yield {
             "type": "values",
-            "data": {"final_reply": "张伟医生是主任医师。", "selected_agents": ["chat"]},
+            "data": {
+                "final_reply": "张伟医生是主任医师。",
+                "selected_agents": ["chat"],
+            },
         }
 
     async def aget_state(self, config):
@@ -1019,6 +1139,7 @@ class _PendingGraph:
                 ),
             ),
             values={
+                "patient_id": 12,
                 "messages": [
                     HumanMessage(content="帮我挂明天张伟的号"),
                     AIMessage(content="好的，请确认。"),
@@ -1028,7 +1149,9 @@ class _PendingGraph:
         )
 
 
-def test_chat_stream_answers_side_question_and_reissues_pending_confirmation(monkeypatch):
+def test_chat_stream_answers_side_question_and_reissues_pending_confirmation(
+    monkeypatch,
+):
     """卡片挂起期间患者仍可提问：先答，再把原卡片交还，且不能动挂起的 thread。"""
 
     headers = _chat_auth_headers(monkeypatch)
@@ -1049,7 +1172,9 @@ def test_chat_stream_answers_side_question_and_reissues_pending_confirmation(mon
     # 旁路回答带上 checkpoint 里的历史与摘要，但禁用写工具，避免出现第二张卡片。
     side_state = captured["inputs"][0]
     assert [message.content for message in side_state["messages"]] == [
-        "帮我挂明天张伟的号", "好的，请确认。", "张伟医生是什么职称？",
+        "帮我挂明天张伟的号",
+        "好的，请确认。",
+        "张伟医生是什么职称？",
     ]
     assert side_state["summary"] == {"patient_self_reports": ["咳嗽三天"], "version": 1}
     assert captured["contexts"][0].writes_enabled is False
@@ -1093,7 +1218,9 @@ def test_chat_stream_treats_short_refusal_as_rejection_while_pending(monkeypatch
     assert command.resume == {"int-old": "reject"}
 
 
-def test_chat_stream_rehydrates_empty_checkpoint_from_authoritative_history(monkeypatch):
+def test_chat_stream_rehydrates_empty_checkpoint_from_authoritative_history(
+    monkeypatch,
+):
     headers = _chat_auth_headers(monkeypatch)
     captured: dict = {}
 
@@ -1103,9 +1230,14 @@ def test_chat_stream_rehydrates_empty_checkpoint_from_authoritative_history(monk
         async def aget_state(self, config):
             return SimpleNamespace(values={}, interrupts=())
 
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["messages"] = state["messages"]
-            yield {"type": "values", "data": {"final_reply": "恢复成功", "selected_agents": ["chat"]}}
+            yield {
+                "type": "values",
+                "data": {"final_reply": "恢复成功", "selected_agents": ["chat"]},
+            }
 
     monkeypatch.setattr(chat_route, "graph", RecoveryGraph())
     client = TestClient(create_app())
@@ -1141,11 +1273,28 @@ def test_chat_stream_does_not_duplicate_recovery_history_on_checkpoint_hit(monke
         checkpointer = object()
 
         async def aget_state(self, config):
-            return SimpleNamespace(values={"messages": [HumanMessage(content="checkpoint history")]}, interrupts=())
+            return SimpleNamespace(
+                values={
+                    "patient_id": 12,
+                    "messages": [
+                        HumanMessage(
+                            content="checkpoint history",
+                            id="db:1",
+                            additional_kwargs={"db_id": 1},
+                        )
+                    ],
+                },
+                interrupts=(),
+            )
 
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["messages"] = state["messages"]
-            yield {"type": "values", "data": {"final_reply": "正常续聊", "selected_agents": ["chat"]}}
+            yield {
+                "type": "values",
+                "data": {"final_reply": "正常续聊", "selected_agents": ["chat"]},
+            }
 
     monkeypatch.setattr(chat_route, "graph", ExistingGraph())
     client = TestClient(create_app())
@@ -1163,14 +1312,117 @@ def test_chat_stream_does_not_duplicate_recovery_history_on_checkpoint_hit(monke
     assert [message.content for message in captured["messages"]] == ["继续"]
 
 
+def test_database_gap_replaces_cache_with_complete_recovery(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    captured = {}
+
+    class CachedGraph:
+        checkpointer = object()
+
+        async def aget_state(self, config):
+            return SimpleNamespace(
+                values={
+                    "patient_id": 12,
+                    "messages": [
+                        HumanMessage(
+                            content="旧缓存", id="db:1", additional_kwargs={"db_id": 1}
+                        )
+                    ],
+                },
+                interrupts=(),
+            )
+
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
+            captured["messages"] = state["messages"]
+            yield {
+                "type": "values",
+                "data": {"final_reply": "恢复完成", "selected_agents": ["chat"]},
+            }
+
+    monkeypatch.setattr(chat_route, "graph", CachedGraph())
+    response = TestClient(create_app()).post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={
+            "message": "继续",
+            "conversationId": "gap",
+            "recoveryMessages": [
+                {"id": 1, "role": "user", "content": "原消息"},
+                {"id": 2, "role": "assistant", "content": "确认中断前答复"},
+                {"id": 3, "role": "user", "content": "尚未回答的旁路问题"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    from langgraph.graph.message import REMOVE_ALL_MESSAGES
+
+    assert captured["messages"][0].id == REMOVE_ALL_MESSAGES
+    assert [message.content for message in captured["messages"][1:]] == [
+        "原消息",
+        "确认中断前答复",
+        "尚未回答的旁路问题",
+        "继续",
+    ]
+
+
+def test_resume_unavailable_checkpoint_is_explicit_and_never_runs_graph(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+
+    class UnavailableGraph:
+        checkpointer = object()
+
+        async def aget_state(self, config):
+            raise chat_route.RedisError("unavailable")
+
+    monkeypatch.setattr(chat_route, "graph", UnavailableGraph())
+    response = TestClient(create_app()).post(
+        "/v1/chat/resume",
+        headers=headers,
+        json={"conversationId": "c", "decision": "approve"},
+    )
+    assert response.status_code == 503
+    assert "确认状态暂时不可用" in response.json()["detail"]
+
+
+def test_resume_different_patient_cannot_approve_pending_card(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+
+    class ForeignGraph:
+        checkpointer = object()
+
+        async def aget_state(self, config):
+            return SimpleNamespace(
+                values={"patient_id": 99},
+                interrupts=(
+                    SimpleNamespace(id="foreign", value={"kind": "memory_create"}),
+                ),
+            )
+
+    monkeypatch.setattr(chat_route, "graph", ForeignGraph())
+    response = TestClient(create_app()).post(
+        "/v1/chat/resume",
+        headers=headers,
+        json={"conversationId": "c", "decision": "approve"},
+    )
+    assert response.status_code == 409
+    assert "患者关联不匹配" in response.json()["detail"]
+
+
 def test_chat_stream_places_confirmed_long_term_preferences_in_state(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
     captured: dict = {}
 
     class FakeGraph:
-        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+        async def astream(
+            self, state, *, context, config, stream_mode, subgraphs, version
+        ):
             captured["memories"] = state.get("long_term_memories")
-            yield {"type": "values", "data": {"final_reply": "好的", "selected_agents": ["chat"]}}
+            yield {
+                "type": "values",
+                "data": {"final_reply": "好的", "selected_agents": ["chat"]},
+            }
 
     monkeypatch.setattr(chat_route, "graph", FakeGraph())
     response = TestClient(create_app()).post(
@@ -1179,15 +1431,16 @@ def test_chat_stream_places_confirmed_long_term_preferences_in_state(monkeypatch
         json={
             "message": "你好",
             "conversationId": "new-conversation",
-            "longTermMemories": [{
-                "memoryId": "memory-1",
-                "type": "communication_preference",
-                "content": "回复简短",
-                "status": "active",
-            }],
+            "longTermMemories": [
+                {
+                    "memoryId": "memory-1",
+                    "type": "communication_preference",
+                    "content": "回复简短",
+                    "status": "active",
+                }
+            ],
         },
     )
 
     assert response.status_code == 200
     assert captured["memories"][0]["content"] == "回复简短"
-

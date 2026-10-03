@@ -22,6 +22,15 @@ public class InMemoryConversationExecutionLock implements ConversationExecutionL
         if (owners.putIfAbsent(key, ownerToken) != null) {
             return Optional.empty();
         }
-        return Optional.of(() -> owners.remove(key, ownerToken));
+        return Optional.of(new Handle() {
+            public String executionId() { return ownerToken; }
+            public boolean isValid() { return ownerToken.equals(owners.get(key)); }
+            public void close() { owners.remove(key, ownerToken); }
+        });
+    }
+
+    @Override
+    public boolean ownsExecution(Long userId, String conversationId, String executionId) {
+        return executionId != null && executionId.equals(owners.get(userId + ":" + conversationId));
     }
 }

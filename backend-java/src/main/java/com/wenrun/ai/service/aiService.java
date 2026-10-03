@@ -202,6 +202,12 @@ public class aiService {
         payload.put("memoryEnabled", request.getMemoryEnabled() == null
                 ? Boolean.TRUE : request.getMemoryEnabled());
         payload.put("fastMode", request.getFastMode() != null && request.getFastMode());
+        payload.put("preferencesEnabled", !Boolean.FALSE.equals(request.getPreferencesEnabled()));
+        payload.put("clientRequestId", request.getClientRequestId());
+        payload.put("currentMessageId", request.getCurrentMessageId());
+        payload.put("executionId", request.getExecutionId());
+        payload.put("recoveryUpperId", request.getRecoveryUpperId() == null ? 0 : request.getRecoveryUpperId());
+        if (request.getRecoverySummary() != null) payload.put("recoverySummary", request.getRecoverySummary());
         if (!Boolean.FALSE.equals(request.getMemoryEnabled())
                 && request.getRecoveryMessages() != null && !request.getRecoveryMessages().isEmpty()) {
             List<Map<String, Object>> recoveryMessages = request.getRecoveryMessages().stream()
@@ -211,7 +217,9 @@ public class aiService {
                         item.put("id", message.getId());
                         item.put("role", message.getRole());
                         item.put("content", message.getContent());
+                        item.put("clientRequestId", message.getClientRequestId());
                         item.put("createTime", message.getCreateTime());
+                        item.put("metadataJson", message.getMetadataJson());
                         return item;
                     })
                     .toList();
@@ -219,7 +227,7 @@ public class aiService {
                 payload.put("recoveryMessages", recoveryMessages);
             }
         }
-        if (request.getLongTermMemories() != null && !request.getLongTermMemories().isEmpty()) {
+        if (!Boolean.FALSE.equals(request.getPreferencesEnabled()) && request.getLongTermMemories() != null && !request.getLongTermMemories().isEmpty()) {
             List<Map<String, Object>> memories = request.getLongTermMemories().stream()
                     .limit(20)
                     .map(memory -> {
@@ -229,6 +237,7 @@ public class aiService {
                         item.put("content", memory.getContent());
                         item.put("status", memory.getStatus());
                         item.put("updateTime", memory.getUpdateTime());
+                        item.put("expireTime", memory.getExpireTime());
                         return item;
                     })
                     .toList();
@@ -250,6 +259,7 @@ public class aiService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("conversationId", request.getConversationId().trim());
         payload.put("decision", decision);
+        payload.put("clientRequestId", request.getClientRequestId());
         if (StringUtils.hasText(request.getInterruptId())) {
             payload.put("interruptId", request.getInterruptId().trim());
         }

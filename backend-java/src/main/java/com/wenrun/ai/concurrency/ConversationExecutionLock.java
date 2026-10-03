@@ -11,8 +11,11 @@ import java.util.Optional;
 public interface ConversationExecutionLock {
 
     Optional<Handle> tryAcquire(Long userId, String conversationId);
+    default boolean ownsExecution(Long userId, String conversationId, String executionId) { return false; }
 
     interface Handle extends AutoCloseable {
+        default String executionId() { return null; }
+        default boolean isValid() { return true; }
         @Override
         void close();
     }

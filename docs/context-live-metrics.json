@@ -1,0 +1,533 @@
+{
+  "completed": 12,
+  "modeCounts": {
+    "normal": 12
+  },
+  "errorCounts": {},
+  "p95TotalMs": 20766,
+  "p95FirstTokenMs": 20366,
+  "inputTokenTotalsBySource": {
+    "chat.latest": 340,
+    "chat.system": 6020,
+    "chat.tool_schema": 0,
+    "route.latest": 381,
+    "route.system": 15081,
+    "route.tool_schema": 0,
+    "chat.history": 1431,
+    "route.history": 1431,
+    "chat.memory": 288,
+    "route.memory": 288,
+    "summary.latest": 309,
+    "summary.system": 678,
+    "summary.tool_schema": 0,
+    "tools.latest": 61,
+    "tools.system": 2566,
+    "tools.tool_schema": 1570
+  },
+  "scope": "current_process",
+  "containsPatientText": false,
+  "recentRequests": [
+    {
+      "request_id": "f3f2cb1a-ad61-48a9-bbcc-e132ee52f7bb",
+      "mode": "normal",
+      "first_token_ms": 8156,
+      "total_ms": 8508,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 51
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 5716,
+          "offsetMs": 59
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 2435,
+          "offsetMs": 5784
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 8223
+        }
+      ]
+    },
+    {
+      "request_id": "f5ab096b-f854-47e2-b82e-78578f04c97c",
+      "mode": "normal",
+      "first_token_ms": 13419,
+      "total_ms": 13766,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 166
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 8945,
+          "offsetMs": 171
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 4332,
+          "offsetMs": 9123
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 13459
+        }
+      ]
+    },
+    {
+      "request_id": "941c3996-7f49-43c8-af02-2d408a15051e",
+      "mode": "normal",
+      "first_token_ms": 9831,
+      "total_ms": 10204,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 174
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 7079,
+          "offsetMs": 180
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 2568,
+          "offsetMs": 7303
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 9882
+        }
+      ]
+    },
+    {
+      "request_id": "7224778b-cfef-4073-b9ae-15b491fa4b01",
+      "mode": "normal",
+      "first_token_ms": 17232,
+      "total_ms": 17656,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 175
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 14111,
+          "offsetMs": 178
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 2977,
+          "offsetMs": 14300
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 2,
+          "offsetMs": 17289
+        }
+      ]
+    },
+    {
+      "request_id": "d6f91171-05d0-4e9b-8b48-ee4a8576b977",
+      "mode": "normal",
+      "first_token_ms": 5997,
+      "total_ms": 6817,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 196
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 3443,
+          "offsetMs": 202
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 2377,
+          "offsetMs": 3658
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 2,
+          "offsetMs": 6045
+        }
+      ]
+    },
+    {
+      "request_id": "f296f9e5-1dc1-4abe-b352-e898d03bf79a",
+      "mode": "normal",
+      "first_token_ms": 10537,
+      "total_ms": 10957,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 226
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 7912,
+          "offsetMs": 232
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 2433,
+          "offsetMs": 8150
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 10596
+        }
+      ]
+    },
+    {
+      "request_id": "7fb16890-4475-4e8b-a348-b65b148454c7",
+      "mode": "normal",
+      "first_token_ms": 20366,
+      "total_ms": 20766,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 194
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 18279,
+          "offsetMs": 199
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 1912,
+          "offsetMs": 18489
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 20406
+        }
+      ]
+    },
+    {
+      "request_id": "229e60da-89f2-4b87-adff-e954d366c918",
+      "mode": "normal",
+      "first_token_ms": 12251,
+      "total_ms": 12662,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 2072,
+          "offsetMs": 263
+        },
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 2880,
+          "offsetMs": 262
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 5088,
+          "offsetMs": 3163
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 4027,
+          "offsetMs": 8260
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 12295
+        }
+      ]
+    },
+    {
+      "request_id": "9c7c10ee-1bf7-430f-8c6b-31647959cbbd",
+      "mode": "normal",
+      "first_token_ms": 10273,
+      "total_ms": 10717,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 231
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 7718,
+          "offsetMs": 236
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 2378,
+          "offsetMs": 7964
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 10350
+        }
+      ]
+    },
+    {
+      "request_id": "3343cb23-78b3-4cdc-a63f-cc2277995878",
+      "mode": "normal",
+      "first_token_ms": 13270,
+      "total_ms": 13815,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 53
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 6632,
+          "offsetMs": 59
+        },
+        {
+          "key": "chat",
+          "status": "completed",
+          "elapsedMs": 6792,
+          "offsetMs": 6701
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 13501
+        }
+      ]
+    },
+    {
+      "request_id": "9f4d184a-c1b5-4568-941b-4ee37a6eb16b",
+      "mode": "normal",
+      "first_token_ms": 10597,
+      "total_ms": 10922,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 52
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 6306,
+          "offsetMs": 60
+        },
+        {
+          "key": "business",
+          "status": "completed",
+          "elapsedMs": 4221,
+          "offsetMs": 6374
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 0,
+          "offsetMs": 10601
+        }
+      ]
+    },
+    {
+      "request_id": "4553dac5-eb7a-431f-8a0b-07648744caa1",
+      "mode": "normal",
+      "first_token_ms": 3437,
+      "total_ms": 3762,
+      "error_code": null,
+      "stage_timings": [
+        {
+          "key": "summary",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 37
+        },
+        {
+          "key": "route",
+          "status": "completed",
+          "elapsedMs": 2,
+          "offsetMs": 42
+        },
+        {
+          "key": "business",
+          "status": "completed",
+          "elapsedMs": 3384,
+          "offsetMs": 49
+        },
+        {
+          "key": "final",
+          "status": "completed",
+          "elapsedMs": 1,
+          "offsetMs": 3441
+        }
+      ]
+    }
+  ],
+  "eventCounts": {
+    "summaryRuns": 1,
+    "summaryCommitCount": 1,
+    "recoveryCount.mysql_messages": 1,
+    "recoveryCount.mysql_summary": 1,
+    "recoveryBatches": 1
+  },
+  "latencyMs": {
+    "recoveryLatencyMs": {
+      "mean": 175.75,
+      "p95": 703
+    },
+    "summaryLatencyMs": {
+      "mean": 2071.0,
+      "p95": 2071
+    },
+    "summaryCommitLatencyMs": {
+      "mean": 804.0,
+      "p95": 804
+    }
+  },
+  "estimatedTokensByPurposeSegment": {
+    "route.tool_schema": {
+      "mean": 0.0,
+      "p95": 0
+    },
+    "route.system": {
+      "mean": 1371.0,
+      "p95": 1371
+    },
+    "route.latest": {
+      "mean": 34.64,
+      "p95": 46
+    },
+    "chat.tool_schema": {
+      "mean": 0.0,
+      "p95": 0
+    },
+    "chat.system": {
+      "mean": 602.0,
+      "p95": 602
+    },
+    "chat.latest": {
+      "mean": 34.0,
+      "p95": 46
+    },
+    "route.history": {
+      "mean": 159.0,
+      "p95": 277
+    },
+    "chat.history": {
+      "mean": 159.0,
+      "p95": 277
+    },
+    "summary.tool_schema": {
+      "mean": 0.0,
+      "p95": 0
+    },
+    "summary.system": {
+      "mean": 678.0,
+      "p95": 678
+    },
+    "summary.latest": {
+      "mean": 309.0,
+      "p95": 309
+    },
+    "route.memory": {
+      "mean": 96.0,
+      "p95": 96
+    },
+    "chat.memory": {
+      "mean": 96.0,
+      "p95": 96
+    },
+    "tools.tool_schema": {
+      "mean": 785.0,
+      "p95": 785
+    },
+    "tools.system": {
+      "mean": 1283.0,
+      "p95": 1283
+    },
+    "tools.latest": {
+      "mean": 30.5,
+      "p95": 41
+    }
+  },
+  "truncationCount": {},
+  "estimatedBudgetHitRate": {
+    "route": 0.0,
+    "chat": 0.0,
+    "summary": 0.0,
+    "tools": 0.0
+  },
+  "memoryInjectedByPurpose": {
+    "route": 0.0,
+    "chat": 0.0,
+    "summary": 0.0,
+    "tools": 0.0
+  }
+}

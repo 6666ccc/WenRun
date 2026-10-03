@@ -54,7 +54,7 @@ import java.util.function.Consumer;
 public class aiController {
 
     private static final long STREAM_TIMEOUT_MILLIS = 300_000L;
-    private static final int RECOVERY_MESSAGE_LIMIT = 24;
+    private static final int RECOVERY_MESSAGE_LIMIT = 200;
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final aiService aiService;
@@ -154,10 +154,17 @@ public class aiController {
             return rejectedRequestStream(request, "AI_CONVERSATION_BUSY", "该会话正在处理上一条消息，请稍后再试");
         }
         try {
+            request.setExecutionId(lock.executionId());
             if (!Boolean.FALSE.equals(request.getMemoryEnabled())) {
+                request.setRecoveryUpperId(chatMessageRepository.selectMaxId(request.getConversationId(), request.getUserId()));
+                AiConversation durable = conversationRepository.selectByUserIdAndConversationId(request.getUserId(), request.getConversationId());
+                if (durable != null && durable.getSummaryJson() != null) {
+                    try { request.setRecoverySummary(JSON.readValue(durable.getSummaryJson(), Map.class)); }
+                    catch (IOException ex) { throw new IllegalStateException("会话摘要读取失败，请稍后重试", ex); }
+                }
                 request.setRecoveryMessages(chatMessageRepository.selectRecentByConversationIdAndUserId(
                         request.getConversationId(), request.getUserId(), RECOVERY_MESSAGE_LIMIT));
-                if (request.getPatientId() != null) {
+                if (request.getPatientId() != null && !Boolean.FALSE.equals(request.getPreferencesEnabled())) {
                     request.setLongTermMemories(memoryService.listActive(request.getPatientId(), 20));
                 }
             }
@@ -174,6 +181,9 @@ public class aiController {
                 }
                 throw new IllegalStateException("AI 用户消息保存失败");
             }
+            ChatMessage persistedUser = chatMessageRepository.selectByClientRequestId(
+                    request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user");
+            if (persistedUser != null) request.setCurrentMessageId(persistedUser.getId());
             return stream(
                     consumer -> aiService.streamChat(request, consumer),
                     request.getConversationId(),
@@ -338,11 +348,13 @@ public class aiController {
                         if (event == null || terminal.get()) {
                             return;
                         }
+                        if (lock.executionId() != null && !lock.isValid())
+                            throw new IllegalStateException("会话执行权已失效，请重试");
                         String type = String.valueOf(event.get("type"));
                         if ("token".equals(type) && event.get("content") != null) {
                             accumulatedReply.append(event.get("content"));
                         }
-                        send(emitter, event);
+                        if (!"done".equals(type) && !"confirm".equals(type)) send(emitter, event);
                         if ("done".equals(type)) {
                             log.info("ai_stream_event type=done conversationId={} clientRequestId={}",
                                     conversationId, clientRequestId);
@@ -353,7 +365,9 @@ public class aiController {
                                 chatMessageRepository.completeLatestConfirmation(
                                         conversationId, userId, resumeInterruptId);
                             }
-                            saveMessage(conversationId, userId, clientRequestId, "assistant", reply);
+                            if (!saveMessage(conversationId, userId, clientRequestId, "assistant", reply))
+                                throw new IllegalStateException("AI 回复保存失败，请稍后重试");
+                            send(emitter, event);
                             terminal.set(true);
                             emitter.complete();
                         } else if ("confirm".equals(type)) {
@@ -364,8 +378,9 @@ public class aiController {
                             String prompt = event.get("prompt") instanceof String value && StringUtils.hasText(value)
                                     ? value
                                     : "请确认是否继续办理";
-                            saveMessage(conversationId, userId, clientRequestId, "assistant", prompt,
-                                    confirmationMetadata(event));
+                            if (!saveMessage(conversationId, userId, clientRequestId, "assistant", prompt,
+                                    confirmationMetadata(event))) throw new IllegalStateException("确认状态保存失败，请重试");
+                            send(emitter, event);
                             terminal.set(true);
                             emitter.complete();
                         } else if ("error".equals(type)) {

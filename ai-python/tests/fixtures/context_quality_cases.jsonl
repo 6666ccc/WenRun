@@ -1,0 +1,9 @@
+{"id":"unresolved-two","kind":"summary","transcript":"[source_message_id=1] 患者：我想先选科室，再确认挂号时段，两件都还没办。\n[source_message_id=2] 助手：请告诉我需要的科室和日期。","keywords":["科室","时段"]}
+{"id":"same-prefix","kind":"summary","transcript":"[source_message_id=1] 患者：挂号：儿科和挂号：内科都还要问排班，请保留两项。","keywords":["儿科","内科"]}
+{"id":"self-report-only","kind":"summary","transcript":"[source_message_id=1] 患者：我今天测的体重是60公斤，还需要确认测量时间。\n[source_message_id=2] 助手：档案记录是62公斤。","keywords":["时间"]}
+{"id":"retain-existing","kind":"summary","existing":{"schema_version":2,"patient_self_reports":[],"pending_tasks":["确认内科排班","选择儿科时段"],"superseded_items":[],"version":2},"transcript":"[source_message_id=5] 患者：刚才两项都还没有解决。","keywords":["内科","儿科"]}
+{"id":"cancel-one","kind":"summary","existing":{"schema_version":2,"patient_self_reports":[],"pending_tasks":["确认内科排班","选择儿科时段"],"superseded_items":[],"version":2},"transcript":"[source_message_id=5] 患者：内科那项取消，儿科仍要继续。","keywords":["儿科"]}
+{"id":"tool-not-self-report","kind":"summary","transcript":"[source_message_id=1] 患者：我想知道档案里的身高。\n[source_message_id=2] 助手：档案摘录显示身高170厘米；尚未确认测量日期。","keywords":["日期"]}
+{"id":"profile-undated","kind":"clinical","question":"合成测试：本轮档案显示体重62公斤，没有测量日期。我现在自述60公斤，问是否应调整用药剂量。没有可靠药品说明书正文。请解释来源、冲突和信息缺口。"}
+{"id":"missing-not-absent","kind":"clinical","question":"合成测试：档案没有记录当前用药、孕哺状态，也没有可靠药品说明书正文。我问能不能使用某药。请说明能够和不能得出的结论。"}
+{"id":"confirm-current-weight","kind":"clinical","question":"合成测试：本轮档案体重62公斤，测量日期2025-01-01。我今天说60公斤，询问按体重计算药物剂量。没有验证过的计算工具。请说明下一步需要确认什么。"}

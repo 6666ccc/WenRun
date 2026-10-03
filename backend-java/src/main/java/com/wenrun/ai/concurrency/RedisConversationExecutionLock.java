@@ -60,6 +60,7 @@ public class RedisConversationExecutionLock implements ConversationExecutionLock
                 return Optional.empty();
             }
             AtomicBoolean closed = new AtomicBoolean(false);
+            AtomicBoolean valid = new AtomicBoolean(true);
             ScheduledFuture<?> renewal = RENEWAL_EXECUTOR.scheduleAtFixedRate(() -> {
                 if (closed.get()) {
                     return;
@@ -68,13 +69,18 @@ public class RedisConversationExecutionLock implements ConversationExecutionLock
                     Long renewed = redisTemplate.execute(
                             RENEW_SCRIPT, List.of(key), ownerToken, String.valueOf(lease.toMillis()));
                     if (!Long.valueOf(1L).equals(renewed)) {
+                        valid.set(false);
                         log.warn("AI conversation lock lease was lost key={}", key);
                     }
                 } catch (RuntimeException ex) {
+                    valid.set(false);
                     log.error("AI conversation lock renewal failed key={}", key, ex);
                 }
             }, renewEvery.toMillis(), renewEvery.toMillis(), TimeUnit.MILLISECONDS);
-            return Optional.of(() -> {
+            return Optional.of(new Handle() {
+              public String executionId() { return ownerToken; }
+              public boolean isValid() { return valid.get() && !closed.get(); }
+              public void close() {
                 if (!closed.compareAndSet(false, true)) {
                     return;
                 }
@@ -90,10 +96,18 @@ public class RedisConversationExecutionLock implements ConversationExecutionLock
                         Thread.currentThread().interrupt();
                     }
                 }
+              }
             });
         } catch (RuntimeException ex) {
             throw new ConversationLockUnavailableException("AI conversation lock is unavailable", ex);
         }
+    }
+
+    @Override
+    public boolean ownsExecution(Long userId, String conversationId, String executionId) {
+        if (executionId == null) return false;
+        try { return executionId.equals(redisTemplate.opsForValue().get(key(userId, conversationId))); }
+        catch (RuntimeException ex) { return false; }
     }
 
     private void validateDurations() {

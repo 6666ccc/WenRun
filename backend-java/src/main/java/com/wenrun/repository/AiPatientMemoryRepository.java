@@ -8,6 +8,8 @@ import java.util.List;
 
 @Mapper
 public interface AiPatientMemoryRepository {
+    Long lockPatient(@Param("patientId") Long patientId);
+    List<AiPatientMemory> selectAllActiveByPatientId(@Param("patientId") Long patientId);
     int insert(AiPatientMemory memory);
 
     List<AiPatientMemory> selectActiveByPatientId(@Param("patientId") Long patientId,

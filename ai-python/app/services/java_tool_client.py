@@ -21,23 +21,29 @@ class JavaToolClientError(RuntimeError):
 class JavaToolBusinessError(JavaToolClientError):
     """Java 依据业务规则拒绝了本次请求，message 是可以直接转达给患者的中文文案。"""
 
+    def __init__(self, message: str, code: int | None = None):
+        super().__init__(message)
+        self.code = code
+
 
 # Java PatientClinicalContextService.ALLOWED_SCOPES 的镜像。身份证件、电话、地址不在其中。
-CLINICAL_CONTEXT_SCOPES = frozenset({
-    "demographics",
-    "allergies",
-    "past_history",
-    "family_history",
-    "personal_history",
-    "anthropometrics",
-    "blood_pressure",
-    "blood_glucose",
-    "heart_rate",
-    "spo2",
-    "temperature",
-    "respiratory_rate",
-    "document_catalog",
-})
+CLINICAL_CONTEXT_SCOPES = frozenset(
+    {
+        "demographics",
+        "allergies",
+        "past_history",
+        "family_history",
+        "personal_history",
+        "anthropometrics",
+        "blood_pressure",
+        "blood_glucose",
+        "heart_rate",
+        "spo2",
+        "temperature",
+        "respiratory_rate",
+        "document_catalog",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -96,6 +102,7 @@ class PatientMemory:
     content: str
     status: str
     version: int | None = None
+    expire_time: str | None = None
 
 
 def _required_int(item: dict[str, Any], key: str) -> int:
@@ -168,7 +175,9 @@ class JavaToolClient:
         for item in data:
             name = _optional_str(item, "deptName")
             if name is None:
-                raise JavaToolClientError("Java Tool API returned an incomplete department")
+                raise JavaToolClientError(
+                    "Java Tool API returned an incomplete department"
+                )
             departments.append(
                 Department(
                     id=_required_int(item, "id"),
@@ -196,7 +205,9 @@ class JavaToolClient:
         for item in data:
             name = _optional_str(item, "name")
             if name is None:
-                raise JavaToolClientError("Java Tool API returned an incomplete staff member")
+                raise JavaToolClientError(
+                    "Java Tool API returned an incomplete staff member"
+                )
             staff.append(
                 Staff(
                     id=_required_int(item, "id"),
@@ -289,7 +300,9 @@ class JavaToolClient:
             {"scheduleId": schedule_id, "idempotencyKey": idempotency_key},
         )
         if not isinstance(data, int):
-            raise JavaToolClientError("Java Tool API returned an invalid registration id")
+            raise JavaToolClientError(
+                "Java Tool API returned an invalid registration id"
+            )
         return data
 
     def cancel_registration(
@@ -306,7 +319,61 @@ class JavaToolClient:
             {},
         )
 
-    def list_memories(self, delegated_token: str, request_id: str | None) -> list[PatientMemory]:
+    def recovery_page(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        *,
+        conversation_id: str,
+        after_id: int,
+        upper_id: int,
+    ) -> dict:
+        from urllib.parse import quote
+
+        data = self._get(
+            f"/api/internal/ai-tools/conversation-memory/{quote(conversation_id, safe='')}/messages",
+            delegated_token,
+            request_id,
+            {"afterId": after_id, "upperId": upper_id},
+        )
+        if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+            raise JavaToolClientError("invalid recovery page")
+        return data
+
+    def commit_conversation_summary(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        *,
+        conversation_id: str,
+        execution_id: str,
+        expected_version: int,
+        covered_ids: list[int],
+        summary: dict,
+    ) -> dict:
+        data = self._post(
+            "/api/internal/ai-tools/conversation-memory/summary",
+            delegated_token,
+            request_id,
+            {
+                "conversationId": conversation_id,
+                "executionId": execution_id,
+                "expectedVersion": expected_version,
+                "coveredMessageIds": covered_ids,
+                "summary": summary,
+            },
+        )
+        if (
+            not isinstance(data, dict)
+            or data.get("version") != summary["version"]
+            or data.get("lastMessageId") != summary["last_message_id"]
+        ):
+            raise JavaToolClientError("summary commit was not acknowledged")
+        return data
+
+    def list_memories(
+        self, delegated_token: str, request_id: str | None
+    ) -> list[PatientMemory]:
         data = self._get_list(
             "/api/internal/ai-tools/memories", delegated_token, request_id
         )
@@ -317,13 +384,16 @@ class JavaToolClient:
             content = _optional_str(item, "content")
             if not memory_id or not memory_type or not content:
                 raise JavaToolClientError("Java Tool API returned an incomplete memory")
-            memories.append(PatientMemory(
-                memory_id=memory_id,
-                type=memory_type,
-                content=content,
-                status=_optional_str(item, "status") or "active",
-                version=_optional_int(item, "version"),
-            ))
+            memories.append(
+                PatientMemory(
+                    memory_id=memory_id,
+                    type=memory_type,
+                    content=content,
+                    status=_optional_str(item, "status") or "active",
+                    version=_optional_int(item, "version"),
+                    expire_time=_optional_str(item, "expireTime"),
+                )
+            )
         return memories
 
     def create_memory(
@@ -334,6 +404,7 @@ class JavaToolClient:
         memory_type: str,
         content: str,
         source_conversation_id: str,
+        expire_time: str | None = None,
     ) -> PatientMemory:
         data = self._post(
             "/api/internal/ai-tools/memories",
@@ -343,6 +414,7 @@ class JavaToolClient:
                 "type": memory_type,
                 "content": content,
                 "sourceConversationId": source_conversation_id,
+                "expireTime": expire_time,
             },
         )
         if not isinstance(data, dict):
@@ -358,6 +430,32 @@ class JavaToolClient:
             version=_optional_int(data, "version"),
         )
 
+    def update_memory(
+        self,
+        delegated_token: str,
+        request_id: str | None,
+        *,
+        memory_id: str,
+        memory_type: str,
+        content: str,
+        expected_version: int,
+        expire_time: str | None = None,
+    ) -> Any:
+        from urllib.parse import quote
+
+        return self._post(
+            f"/api/internal/ai-tools/memories/{quote(memory_id, safe='')}",
+            delegated_token,
+            request_id,
+            {
+                "type": memory_type,
+                "content": content,
+                "expectedVersion": expected_version,
+                "expireTime": expire_time,
+            },
+            method="PUT",
+        )
+
     def get_patient_clinical_context(
         self,
         delegated_token: str,
@@ -366,8 +464,14 @@ class JavaToolClient:
     ) -> dict[str, Any]:
         """按白名单范围读取临床摘录。调用方是知识节点，不是模型可选工具。"""
 
-        requested = [scope.strip() for scope in scopes if isinstance(scope, str) and scope.strip()]
-        if not requested or any(scope not in CLINICAL_CONTEXT_SCOPES for scope in requested):
+        requested = [
+            scope.strip()
+            for scope in scopes
+            if isinstance(scope, str) and scope.strip()
+        ]
+        if not requested or any(
+            scope not in CLINICAL_CONTEXT_SCOPES for scope in requested
+        ):
             raise JavaToolClientError("clinical context scopes are not allowed")
         data = self._get(
             "/api/internal/ai-tools/patient-clinical-context",
@@ -376,7 +480,9 @@ class JavaToolClient:
             {"scopes": ",".join(requested)},
         )
         if not isinstance(data, dict):
-            raise JavaToolClientError("Java Tool API returned an invalid clinical context")
+            raise JavaToolClientError(
+                "Java Tool API returned an invalid clinical context"
+            )
         from app.graphs.hospital.sensitive import payload_is_sensitive
 
         if payload_is_sensitive(data):
@@ -399,7 +505,9 @@ class JavaToolClient:
     ) -> list[dict[str, Any]]:
         data = self._get(path, delegated_token, request_id, params)
         if not isinstance(data, list):
-            raise JavaToolClientError("Java Tool API returned an invalid result envelope")
+            raise JavaToolClientError(
+                "Java Tool API returned an invalid result envelope"
+            )
         for item in data:
             if not isinstance(item, dict):
                 raise JavaToolClientError("Java Tool API returned an invalid list item")
@@ -414,7 +522,9 @@ class JavaToolClient:
     ) -> Any:
         """发起带委托身份的 GET 请求，统一处理网络错误和返回格式。"""
         headers = self._headers(delegated_token, request_id)
-        query = {key: value for key, value in (params or {}).items() if value is not None}
+        query = {
+            key: value for key, value in (params or {}).items() if value is not None
+        }
         try:
             with httpx.Client(
                 base_url=self._base_url,
@@ -432,6 +542,7 @@ class JavaToolClient:
         delegated_token: str,
         request_id: str | None,
         payload: dict[str, Any],
+        method: str = "POST",
     ) -> Any:
         """发起业务写入请求；具体能否成功仍由 Java 决定。"""
         headers = self._headers(delegated_token, request_id)
@@ -441,7 +552,7 @@ class JavaToolClient:
                 timeout=self._timeout,
                 transport=self._transport,
             ) as client:
-                response = client.post(path, headers=headers, json=payload)
+                response = client.request(method, path, headers=headers, json=payload)
         except httpx.HTTPError as exc:
             raise JavaToolClientError("Java Tool API is unavailable") from exc
         return self._unwrap(response)
@@ -470,17 +581,21 @@ class JavaToolClient:
 
     def _unwrap(self, response: httpx.Response) -> Any:
         if response.status_code != 200:
-            raise JavaToolClientError(f"Java Tool API returned HTTP {response.status_code}")
+            raise JavaToolClientError(
+                f"Java Tool API returned HTTP {response.status_code}"
+            )
         try:
             body: dict[str, Any] = response.json()
         except (TypeError, ValueError) as exc:
             raise JavaToolClientError("Java Tool API returned invalid JSON") from exc
         if not isinstance(body, dict):
-            raise JavaToolClientError("Java Tool API returned an invalid result envelope")
+            raise JavaToolClientError(
+                "Java Tool API returned an invalid result envelope"
+            )
         # Java 的业务异常同样是 HTTP 200，只在信封里降级 code，必须单独判断。
         # 这里的 message 是给患者看的中文文案，原样保留，不加英文前缀。
         if body.get("code") != 200:
             raise JavaToolBusinessError(
-                str(body.get("message") or body.get("code"))
+                str(body.get("message") or body.get("code")), code=body.get("code")
             )
         return body.get("data")

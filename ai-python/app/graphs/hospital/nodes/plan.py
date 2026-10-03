@@ -19,11 +19,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.graphs.hospital.context_builder import bounded_system_message, build_context
 from app.graphs.hospital.state import AgentName, State
-from app.models.chat import model
+from app.models.chat import model as shared_model
 from app.observability.agent_output import log_agent_output
 
+model = shared_model.model_copy(update={"purpose": "plan"})
+
 # 依赖白名单：(下游, 上游)。除此之外的依赖一律丢弃，保证图里不会出现环或未知路径。
-ALLOWED_DEPENDENCIES: frozenset[tuple[AgentName, AgentName]] = frozenset({("tools", "knowledge")})
+ALLOWED_DEPENDENCIES: frozenset[tuple[AgentName, AgentName]] = frozenset(
+    {("tools", "knowledge")}
+)
 
 PLAN_SYSTEM_PROMPT = """你是温润诊所患者端的任务规划器，不是对患者说话的助手。
 患者一句话里包含多件事，系统已经选出了要启动的内部 Agent。你的工作只有两件：
@@ -81,13 +85,14 @@ def parallel_plan(selected_agents: list[AgentName]) -> dict[str, Any]:
 
     return {
         "tasks": [
-            {"agent": agent, "goal": "", "depends_on": []}
-            for agent in selected_agents
+            {"agent": agent, "goal": "", "depends_on": []} for agent in selected_agents
         ]
     }
 
 
-def normalize_plan(plan: TaskPlan | None, selected_agents: list[AgentName]) -> dict[str, Any]:
+def normalize_plan(
+    plan: TaskPlan | None, selected_agents: list[AgentName]
+) -> dict[str, Any]:
     """把模型输出收敛到图能安全执行的形状。
 
     - 只保留 selected_agents 里的 Agent，去重；
@@ -146,11 +151,15 @@ def build_plan_system_prompt(selected_agents: list[AgentName]) -> str:
     return PLAN_SYSTEM_PROMPT.replace("{selected_agents}", ", ".join(selected_agents))
 
 
-def _plan_with_model(messages: list[BaseMessage], selected_agents: list[AgentName]) -> str | None:
+def _plan_with_model(
+    messages: list[BaseMessage], selected_agents: list[AgentName]
+) -> str | None:
     """请模型把多个意图拆成子任务；模型不可用时返回空。"""
     prompt = build_plan_system_prompt(selected_agents)
     try:
-        output = _response_text(model.invoke([bounded_system_message(prompt), *messages]))
+        output = _response_text(
+            model.invoke([bounded_system_message(prompt), *messages])
+        )
         log_agent_output("task_planner", output, phase="planning")
         return output
     except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
@@ -167,7 +176,9 @@ def _repair_invalid_json(
         invalid_output=invalid_output[:2_000],
     )
     try:
-        output = _response_text(model.invoke([bounded_system_message(repair_prompt), *messages]))
+        output = _response_text(
+            model.invoke([bounded_system_message(repair_prompt), *messages])
+        )
         log_agent_output("task_planner", output, phase="json_repair")
         return output
     except Exception:  # noqa: BLE001 - provider SDKs expose heterogeneous errors
@@ -179,7 +190,9 @@ def plan_node(state: State) -> dict:
     """为多意图回合生成 task_plan；规划无效时让各助手并行处理。"""
 
     selected_agents = [
-        agent for agent in (state.get("selected_agents") or []) if isinstance(agent, str)
+        agent
+        for agent in (state.get("selected_agents") or [])
+        if isinstance(agent, str)
     ]
     if len(selected_agents) < 2:
         return {"task_plan": None}
@@ -192,10 +205,16 @@ def plan_node(state: State) -> dict:
         plan = _parse_plan(_repair_invalid_json(messages, selected_agents, raw) or "")
         repaired = plan is not None
         if plan is None:
-            logger.warning("Task planner returned invalid JSON after one repair attempt")
+            logger.warning(
+                "Task planner returned invalid JSON after one repair attempt"
+            )
 
     task_plan = normalize_plan(plan, selected_agents)
-    agent_labels = {"knowledge": "医疗知识助手", "chat": "闲聊助手", "tools": "医院业务助手"}
+    agent_labels = {
+        "knowledge": "医疗知识助手",
+        "chat": "闲聊助手",
+        "tools": "医院业务助手",
+    }
     readable_tasks = [
         {
             "任务助手": f"{agent_labels.get(task['agent'], task['agent'])}（{task['agent']}）",
@@ -220,12 +239,16 @@ def plan_tasks(state: State) -> list[dict[str, Any]]:
     """从共享状态中读出已校验的子任务列表。"""
     plan = state.get("task_plan")
     tasks = plan.get("tasks") if isinstance(plan, dict) else None
-    return [task for task in (tasks or []) if isinstance(task, dict) and task.get("agent")]
+    return [
+        task for task in (tasks or []) if isinstance(task, dict) and task.get("agent")
+    ]
 
 
 def task_for(state: State, agent: AgentName) -> dict[str, Any] | None:
     """找出分给某个助手的任务。"""
-    return next((task for task in plan_tasks(state) if task.get("agent") == agent), None)
+    return next(
+        (task for task in plan_tasks(state) if task.get("agent") == agent), None
+    )
 
 
 def task_goal(state: State, agent: AgentName) -> str | None:

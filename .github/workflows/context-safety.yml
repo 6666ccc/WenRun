@@ -22,9 +22,34 @@ jobs:
           python -m pytest
           tests/unit/test_context_builder.py
           tests/unit/test_context_metrics.py
-          tests/unit/test_context_eval.py
+          tests/unit/test_summary_commit.py
+          tests/unit/test_budgeted_model.py
+          tests/unit/test_full_recovery.py
+          tests/unit/test_preference_replay.py
+          tests/unit/test_personalization_policy.py
           tests/unit/test_rag_lifecycle.py
           tests/unit/test_rehydration.py
+          tests/test_app.py
           -q
       - name: Deterministic context evaluation
-        run: python scripts/evaluate_context.py
+        run: python scripts/evaluate_context.py --output context-evaluation.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deterministic-context-evaluation
+          path: ai-python/context-evaluation.json
+
+  java-context-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Persistence, ownership and preference conflicts
+        working-directory: backend-java
+        run: >-
+          mvn -q
+          -Dtest=AiConversationMemoryServiceTest,AiPatientMemoryServiceTest,AiToolControllerTest,AiControllerConcurrencyTest,ConversationOwnershipServiceTest
+          test

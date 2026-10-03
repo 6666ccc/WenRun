@@ -93,6 +93,11 @@ const renderMarkdown = (value) => renderAssistantMarkdown(value, {
 })
 
 const CONFIRM_FIELD_LABELS = {
+  patientId: '患者档案编号',
+  content: '偏好内容',
+  oldContent: '旧值',
+  newContent: '新值',
+  expireTime: '有效期',
   deptName: '科室',
   staffName: '医生',
   workDate: '日期',
@@ -259,7 +264,7 @@ onBeforeUnmount(() => {
                     </dl>
                     <div class="chat-confirm__actions">
                       <button type="button" class="chat-confirm__cancel" @click="assistant.rejectPending(message)">再想想</button>
-                      <button type="button" class="chat-confirm__ok" @click="assistant.confirmPending(message)">确认办理</button>
+                      <button type="button" class="chat-confirm__ok" @click="assistant.confirmPending(message)">{{ message.meta.confirm.kind?.startsWith('memory_') ? '确认保存' : '确认办理' }}</button>
                     </div>
                   </div>
                   <CitationList v-if="message.sources?.length" :sources="message.sources" />
@@ -324,6 +329,7 @@ onBeforeUnmount(() => {
               <UiIcon name="record" :size="15" />我的挂号
             </button>
           </div>
+          <button type="button" class="chat-composer__mode" :aria-pressed="assistant.preferencesEnabled.value" @click="assistant.togglePreferences()">使用已保存偏好：{{ assistant.preferencesEnabled.value ? '开' : '关' }}</button>
           <p v-if="fastModeHelp" id="fast-mode-help" class="chat-composer__mode-note">快速模式回答更快，可查询公开资料，但不能查询本院号源、排班或院内规定。</p>
           <button v-if="assistant.replying.value" class="chat-composer__send is-stop" type="button" aria-label="停止生成" @click="assistant.stopReply">
             <UiIcon name="stop" :size="13" />

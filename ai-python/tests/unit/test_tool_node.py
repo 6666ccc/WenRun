@@ -45,9 +45,12 @@ class FakeJavaToolClient:
 
 
 def test_tool_node_skips_when_tools_not_selected():
-    assert tool_node_module.tool_node(
-        {"selected_agents": ["chat"]}, _graph_runtime(CONTEXT)
-    ) == {}
+    assert (
+        tool_node_module.tool_node(
+            {"selected_agents": ["chat"]}, _graph_runtime(CONTEXT)
+        )
+        == {}
+    )
 
 
 def test_list_departments_reads_delegation_from_runtime_context(monkeypatch):
@@ -96,7 +99,9 @@ def test_tool_node_invokes_agent_with_request_scoped_context(monkeypatch):
         def invoke(self, payload, *, context):
             captured["messages"] = payload["messages"]
             captured["context"] = context
-            return {"messages": [HumanMessage(content="当前可查询的科室：内科、儿科。")]}
+            return {
+                "messages": [HumanMessage(content="当前可查询的科室：内科、儿科。")]
+            }
 
     monkeypatch.setattr(tool_node_module, "agent", FakeAgent())
     history = [HumanMessage(content="有哪些科室？")]
@@ -131,10 +136,16 @@ def test_tool_node_injects_subtask_and_upstream_knowledge_when_dependent(monkeyp
             "conversation_id": "conversation-1",
             "messages": history,
             "knowledge_reply": "普通感冒建议看呼吸内科。",
-            "task_plan": {"tasks": [
-                {"agent": "knowledge", "goal": "感冒该看哪科", "depends_on": []},
-                {"agent": "tools", "goal": "挂明天对应科室的号", "depends_on": ["knowledge"]},
-            ]},
+            "task_plan": {
+                "tasks": [
+                    {"agent": "knowledge", "goal": "感冒该看哪科", "depends_on": []},
+                    {
+                        "agent": "tools",
+                        "goal": "挂明天对应科室的号",
+                        "depends_on": ["knowledge"],
+                    },
+                ]
+            },
         },
         _graph_runtime(CONTEXT),
     )
@@ -143,13 +154,15 @@ def test_tool_node_injects_subtask_and_upstream_knowledge_when_dependent(monkeyp
     # 原始对话在前，子任务与上游结论作为不可信数据追加在最后，不会被历史截断吃掉。
     assert messages[0] == history[0]
     labels = [
-        message.additional_kwargs.get("context_source")
-        for message in messages[1:]
+        message.additional_kwargs.get("context_source") for message in messages[1:]
     ]
     assert labels == ["upstream_result", "current_subtask"]
     assert "呼吸内科" in messages[1].content
     assert "挂明天对应科室的号" in messages[2].content
-    assert all(message.additional_kwargs.get("trust") == "untrusted_data" for message in messages[1:])
+    assert all(
+        message.additional_kwargs.get("trust") == "untrusted_data"
+        for message in messages[1:]
+    )
 
 
 def test_tool_node_omits_upstream_knowledge_without_dependency(monkeypatch):
@@ -166,10 +179,12 @@ def test_tool_node_omits_upstream_knowledge_without_dependency(monkeypatch):
             "selected_agents": ["knowledge", "tools"],
             "messages": [HumanMessage(content="感冒吃什么药，顺便查下明天内科的号")],
             "knowledge_reply": "多喝水。",
-            "task_plan": {"tasks": [
-                {"agent": "knowledge", "goal": "感冒吃什么药", "depends_on": []},
-                {"agent": "tools", "goal": "查明天内科的号", "depends_on": []},
-            ]},
+            "task_plan": {
+                "tasks": [
+                    {"agent": "knowledge", "goal": "感冒吃什么药", "depends_on": []},
+                    {"agent": "tools", "goal": "查明天内科的号", "depends_on": []},
+                ]
+            },
         },
         _graph_runtime(CONTEXT),
     )
@@ -180,7 +195,10 @@ def test_tool_node_omits_upstream_knowledge_without_dependency(monkeypatch):
 
 
 def test_tool_prompts_instruct_to_use_upstream_department():
-    for prompt in (tool_node_module.TOOL_SYSTEM_PROMPT, tool_node_module.WRITE_TOOL_SYSTEM_PROMPT):
+    for prompt in (
+        tool_node_module.TOOL_SYSTEM_PROMPT,
+        tool_node_module.WRITE_TOOL_SYSTEM_PROMPT,
+    ):
         assert "upstream_result" in prompt
         assert "不要再追问患者看哪科" in prompt
 
@@ -225,8 +243,9 @@ def test_write_tools_are_only_mounted_on_the_writable_agent():
     writable = {item.name for item in tool_node_module.HOSPITAL_WRITE_TOOLS}
 
     assert writable == {
-        "create_registration", "cancel_registration",
-        "remember_preference", "forget_preference",
+        "create_registration",
+        "cancel_registration",
+        "remember_preference",
     }
     assert not (read_only & writable)
 
@@ -235,8 +254,9 @@ def test_write_prompt_documents_every_write_tool_and_forbids_faking_success():
     prompt = tool_node_module.WRITE_TOOL_SYSTEM_PROMPT
 
     for name in (
-        "create_registration", "cancel_registration",
-        "remember_preference", "forget_preference",
+        "create_registration",
+        "cancel_registration",
+        "remember_preference",
     ):
         assert name in prompt
     # 确认卡片由系统渲染，模型不能自己声称已经办好。

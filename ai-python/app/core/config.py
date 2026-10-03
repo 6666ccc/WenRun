@@ -75,18 +75,47 @@ class Settings(BaseSettings):
     intent_ollama_ambiguity_margin: float = Field(
         0.15, ge=0.0, le=1.0, validation_alias="INTENT_OLLAMA_AMBIGUITY_MARGIN"
     )
-    context_total_tokens: int = Field(8_000, ge=1_000, validation_alias="AI_CONTEXT_TOTAL_TOKENS")
-    context_system_tokens: int = Field(2_000, ge=500, validation_alias="AI_CONTEXT_SYSTEM_TOKENS")
-    context_summary_tokens: int = Field(1_200, ge=200, validation_alias="AI_CONTEXT_SUMMARY_TOKENS")
-    context_recent_tokens: int = Field(2_400, ge=400, validation_alias="AI_CONTEXT_RECENT_TOKENS")
-    context_external_tokens: int = Field(2_400, ge=400, validation_alias="AI_CONTEXT_EXTERNAL_TOKENS")
+    context_total_tokens: int = Field(
+        8_000, ge=1_000, validation_alias="AI_CONTEXT_TOTAL_TOKENS"
+    )
+    context_system_tokens: int = Field(
+        2_000, ge=500, validation_alias="AI_CONTEXT_SYSTEM_TOKENS"
+    )
+    context_summary_tokens: int = Field(
+        1_200, ge=200, validation_alias="AI_CONTEXT_SUMMARY_TOKENS"
+    )
+    context_recent_tokens: int = Field(
+        2_400, ge=400, validation_alias="AI_CONTEXT_RECENT_TOKENS"
+    )
+    context_external_tokens: int = Field(
+        2_400, ge=400, validation_alias="AI_CONTEXT_EXTERNAL_TOKENS"
+    )
     rag_metadata_mysql_host: str = Field("", validation_alias="RAG_METADATA_MYSQL_HOST")
-    rag_metadata_mysql_port: int = Field(3306, ge=1, le=65535, validation_alias="RAG_METADATA_MYSQL_PORT")
-    rag_metadata_mysql_database: str = Field("wenrun", validation_alias="RAG_METADATA_MYSQL_DATABASE")
+    rag_metadata_mysql_port: int = Field(
+        3306, ge=1, le=65535, validation_alias="RAG_METADATA_MYSQL_PORT"
+    )
+    rag_metadata_mysql_database: str = Field(
+        "wenrun", validation_alias="RAG_METADATA_MYSQL_DATABASE"
+    )
     rag_metadata_mysql_user: str = Field("", validation_alias="RAG_METADATA_MYSQL_USER")
-    rag_metadata_mysql_password: str = Field("", validation_alias="RAG_METADATA_MYSQL_PASSWORD")
-    summary_trigger_tokens: int = Field(5_000, ge=500, validation_alias="AI_SUMMARY_TRIGGER_TOKENS")
-    summary_message_limit: int = Field(12, ge=10, validation_alias="AI_SUMMARY_MESSAGE_LIMIT")
+    rag_metadata_mysql_password: str = Field(
+        "", validation_alias="RAG_METADATA_MYSQL_PASSWORD"
+    )
+    summary_trigger_tokens: int = Field(
+        3_000, ge=500, validation_alias="AI_SUMMARY_TRIGGER_TOKENS"
+    )
+    summary_message_limit: int = Field(
+        12, ge=10, validation_alias="AI_SUMMARY_MESSAGE_LIMIT"
+    )
+    summary_keep_messages: int = Field(
+        6, ge=1, validation_alias="AI_SUMMARY_KEEP_MESSAGES"
+    )
+    recovery_max_messages: int = Field(
+        20_000, ge=200, validation_alias="AI_RECOVERY_MAX_MESSAGES"
+    )
+    recovery_timeout_seconds: float = Field(
+        60, gt=0, validation_alias="AI_RECOVERY_TIMEOUT_SECONDS"
+    )
     log_agent_outputs: bool = Field(True, validation_alias="AI_LOG_AGENT_OUTPUTS")
     agent_output_log_max_chars: int = Field(
         2_000,

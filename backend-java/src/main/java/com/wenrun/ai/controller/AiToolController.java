@@ -17,6 +17,8 @@ import com.wenrun.entity.Dept;
 import com.wenrun.entity.AiPatientMemory;
 import com.wenrun.entity.ChatMessage;
 import com.wenrun.repository.ChatMessageRepository;
+import com.wenrun.repository.AiConversationRepository;
+import com.wenrun.entity.AiConversation;
 import com.wenrun.entity.Staff;
 import com.wenrun.service.DeptService;
 import com.wenrun.service.RegistrationService;
@@ -32,6 +34,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -57,6 +60,7 @@ public class AiToolController {
     private final RegistrationService registrationService;
     private final AiPatientMemoryService memoryService;
     private final ChatMessageRepository chatMessageRepository;
+    private final AiConversationRepository conversationRepository;
     private final PatientClinicalContextService clinicalContextService;
 
     @GetMapping("/departments")
@@ -157,6 +161,10 @@ public class AiToolController {
         // Provenance is resolved from the delegated user scope. Never trust a
         // model-supplied database message id, even if one is present in JSON.
         body.setSourceMessageId(null);
+        AiConversation source = conversationRepository.selectByUserIdAndConversationId(
+                principal.userId(), body.getSourceConversationId());
+        if (source == null || !java.util.Objects.equals(source.getPatientId(), patientId))
+            throw new BusinessException(ResultCode.FORBIDDEN, "偏好来源会话不属于当前患者");
         if (body.getSourceConversationId() != null) {
             List<ChatMessage> recent = chatMessageRepository.selectRecentByConversationIdAndUserId(
                     body.getSourceConversationId(), principal.userId(), 10);
@@ -175,6 +183,12 @@ public class AiToolController {
     public Result<Void> deleteMyMemory(@PathVariable String memoryId) {
         memoryService.delete(requireMemoryPatientId(true), memoryId);
         return Result.success();
+    }
+
+    @PutMapping("/memories/{memoryId}")
+    public Result<AiPatientMemory> updateMyMemory(@PathVariable String memoryId,
+                                               @Valid @RequestBody AiMemoryWriteRequest body) {
+        return Result.success(memoryService.update(requireMemoryPatientId(true), memoryId, body));
     }
 
     private void requireScope(String scope) {

@@ -200,14 +200,28 @@ public class KnowledgeGatewayService {
         });
     }
 
-    private <S extends RestClient.RequestHeadersSpec<S>> S authenticated(
-            S request,
+    private RestClient.RequestBodySpec authenticated(
+            RestClient.RequestBodySpec request,
+            KnowledgeAccessService.AccessContext access) {
+        applyKnowledgeHeaders(request, access);
+        return request;
+    }
+
+    /** GET 的 uri() 返回通配符捕获，不能满足 S extends RequestHeadersSpec<S>。 */
+    private RestClient.RequestHeadersSpec<?> authenticated(
+            RestClient.RequestHeadersSpec<?> request,
+            KnowledgeAccessService.AccessContext access) {
+        applyKnowledgeHeaders(request, access);
+        return request;
+    }
+
+    private void applyKnowledgeHeaders(
+            RestClient.RequestHeadersSpec<?> request,
             KnowledgeAccessService.AccessContext access) {
         request.headers(headers -> {
             if (StringUtils.hasText(apiKey)) headers.set("X-Api-Key", apiKey);
             headers.set("X-Delegated-Token", access.delegatedToken());
         });
-        return request;
     }
 
     private void addIfPresent(MultiValueMap<String, Object> map, String key, String value) {

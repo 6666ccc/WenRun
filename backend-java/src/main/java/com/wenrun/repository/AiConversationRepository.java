@@ -7,6 +7,8 @@ import org.apache.ibatis.annotations.Param;
 
 @Mapper
 public interface AiConversationRepository {
+    int commitSummary(@Param("userId") Long userId, @Param("conversationId") String conversationId,
+                      @Param("expectedVersion") long expectedVersion, @Param("summaryJson") String summaryJson);
     int insertIfAbsent(AiConversation conversation);
 
     AiConversation selectByUserIdAndConversationId(@Param("userId") Long userId,

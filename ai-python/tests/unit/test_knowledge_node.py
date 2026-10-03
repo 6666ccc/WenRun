@@ -21,7 +21,9 @@ def test_knowledge_node_returns_deterministic_emergency_reply_without_rag(monkey
     monkeypatch.setattr(
         knowledge_mod,
         "get_hospital_retriever",
-        lambda: (_ for _ in ()).throw(AssertionError("urgent route must not query RAG")),
+        lambda: (_ for _ in ()).throw(
+            AssertionError("urgent route must not query RAG")
+        ),
     )
 
     result = knowledge_node(
@@ -91,12 +93,12 @@ def test_knowledge_node_lets_agent_receive_raw_history(monkeypatch):
             captured["messages"] = payload["messages"]
             return {"messages": [HumanMessage(content="摘要 [1]")]}
 
-    monkeypatch.setattr(knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever())
+    monkeypatch.setattr(
+        knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever()
+    )
     monkeypatch.setattr(knowledge_mod, "agent", FakeAgent())
 
-    reply = knowledge_node(
-        {"selected_agents": ["knowledge"], "messages": history}
-    )
+    reply = knowledge_node({"selected_agents": ["knowledge"], "messages": history})
 
     assert reply == {"knowledge_reply": "摘要 [1]", "rag_sources": []}
     assert captured["messages"] == history
@@ -130,7 +132,9 @@ def test_knowledge_node_streams_answer_when_rag_hits(monkeypatch):
             for piece in ("院内资料显示，", "请多休息。"):
                 yield AIMessageChunk(content=piece)
 
-    monkeypatch.setattr(knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever())
+    monkeypatch.setattr(
+        knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever()
+    )
     monkeypatch.setattr(knowledge_mod, "model", StreamOnlyModel())
 
     reply = knowledge_node(
@@ -141,10 +145,29 @@ def test_knowledge_node_streams_answer_when_rag_hits(monkeypatch):
     )
 
     assert reply["knowledge_reply"] == "院内资料显示，请多休息。"
-    assert reply["rag_sources"] == [
+    assert [
         {
-            "id": "S1", "document_id": None, "title": "院内资料",
-            "version": None, "page": 3, "chunk_id": None, "updated_at": None,
+            key: source[key]
+            for key in (
+                "id",
+                "document_id",
+                "title",
+                "version",
+                "page",
+                "chunk_id",
+                "updated_at",
+            )
+        }
+        for source in reply["rag_sources"]
+    ] == [
+        {
+            "id": "S1",
+            "document_id": None,
+            "title": "院内资料",
+            "version": None,
+            "page": 3,
+            "chunk_id": None,
+            "updated_at": None,
         }
     ]
 
@@ -157,11 +180,16 @@ def test_knowledge_node_reads_record_only_after_a_model_tool_call(monkeypatch):
 
     class FakeRetriever:
         def invoke(self, query):
-            return [Document(page_content="血压知识", metadata={
-                "source_name": "院内资料",
-                "status": "active",
-                "effective_from": "2025-01-01T00:00:00+00:00",
-            })]
+            return [
+                Document(
+                    page_content="血压知识",
+                    metadata={
+                        "source_name": "院内资料",
+                        "status": "active",
+                        "effective_from": "2025-01-01T00:00:00+00:00",
+                    },
+                )
+            ]
 
     class ScriptedModel:
         def __init__(self, turns):
@@ -182,34 +210,50 @@ def test_knowledge_node_reads_record_only_after_a_model_tool_call(monkeypatch):
         calls.append((scopes, context.delegated_token))
         return '【patient_clinical_context】{"value":"145/92"}'
 
-    monkeypatch.setattr(knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever())
+    monkeypatch.setattr(
+        knowledge_mod, "get_hospital_retriever", lambda: FakeRetriever()
+    )
     monkeypatch.setattr(knowledge_mod, "read_my_clinical_context", fake_read)
 
     for question in ("人的正常血压是多少", "我的胸有点闷，帮我查一下正常血压是多少"):
         scripted = ScriptedModel([[AIMessageChunk(content="正常血压的通用说明。")]])
         monkeypatch.setattr(knowledge_mod, "model", scripted)
-        result = knowledge_node({
-            "selected_agents": ["knowledge"],
-            "messages": [HumanMessage(content=question)],
-        })
+        result = knowledge_node(
+            {
+                "selected_agents": ["knowledge"],
+                "messages": [HumanMessage(content=question)],
+            }
+        )
         assert result["knowledge_reply"] == "正常血压的通用说明。"
         assert len(scripted.seen) == 1
     assert calls == []
 
-    scripted = ScriptedModel([
-        [AIMessageChunk(content="", tool_calls=[{
-            "name": "get_my_clinical_context",
-            "args": {"scopes": ["blood_pressure"]},
-            "id": "call-1",
-            "type": "tool_call",
-        }])],
-        [AIMessageChunk(content="这次读数需要结合测量时间看。")],
-    ])
+    scripted = ScriptedModel(
+        [
+            [
+                AIMessageChunk(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "get_my_clinical_context",
+                            "args": {"scopes": ["blood_pressure"]},
+                            "id": "call-1",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            ],
+            [AIMessageChunk(content="这次读数需要结合测量时间看。")],
+        ]
+    )
     monkeypatch.setattr(knowledge_mod, "model", scripted)
-    result = knowledge_node({
-        "selected_agents": ["knowledge"],
-        "messages": [HumanMessage(content="俺上次的血压是多少")],
-    }, Runtime(context=HospitalToolContext("delegated-token", "trace-1")))
+    result = knowledge_node(
+        {
+            "selected_agents": ["knowledge"],
+            "messages": [HumanMessage(content="俺上次的血压是多少")],
+        },
+        Runtime(context=HospitalToolContext("delegated-token", "trace-1")),
+    )
 
     assert calls == [(["blood_pressure"], "delegated-token")]
     assert "145/92" in str(scripted.seen[1][-1].content)

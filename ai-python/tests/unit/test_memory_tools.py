@@ -1,7 +1,10 @@
 from datetime import datetime
+from types import SimpleNamespace
 from typing import ClassVar
 
+import pytest
 from langchain.tools import ToolRuntime
+from langchain_core.messages import HumanMessage
 
 from app.graphs.hospital.tools import memory as memory_tools
 from app.graphs.hospital.tools.context import CLINIC_TZ, HospitalToolContext
@@ -10,9 +13,11 @@ from app.services.java_tool_client import PatientMemory
 
 def _runtime() -> ToolRuntime:
     return ToolRuntime(
-        state={},
+        state={"messages": [HumanMessage(content="请记住这个偏好")]},
         context=HospitalToolContext(
-            "delegated", "trace", patient_id=12,
+            "delegated",
+            "trace",
+            patient_id=12,
             conversation_id="conversation-1",
             writes_enabled=True,
             now=datetime(2026, 9, 13, tzinfo=CLINIC_TZ),
@@ -30,10 +35,16 @@ class FakeClient:
 
     def create_memory(self, token, request_id, **kwargs):
         self.created.append(kwargs)
-        return PatientMemory("memory-1", kwargs["memory_type"], kwargs["content"], "active", 1)
+        return PatientMemory(
+            "memory-1", kwargs["memory_type"], kwargs["content"], "active", 1
+        )
 
     def list_memories(self, token, request_id):
-        return [PatientMemory("memory-1", "communication_preference", "回复简短", "active", 1)]
+        return [
+            PatientMemory(
+                "memory-1", "communication_preference", "回复简短", "active", 1
+            )
+        ]
 
     def delete_memory(self, token, request_id, *, memory_id):
         self.deleted.append(memory_id)
@@ -61,11 +72,14 @@ def test_confirmed_memory_uses_conversation_source(monkeypatch):
         memory_type="appointment_preference", content="偏好上午号源", runtime=_runtime()
     )
 
-    assert FakeClient.created == [{
-        "memory_type": "appointment_preference",
-        "content": "偏好上午号源",
-        "source_conversation_id": "conversation-1",
-    }]
+    assert FakeClient.created == [
+        {
+            "memory_type": "appointment_preference",
+            "content": "偏好上午号源",
+            "source_conversation_id": "conversation-1",
+            "expire_time": None,
+        }
+    ]
 
 
 def test_forget_only_deletes_an_owned_active_memory_after_confirmation(monkeypatch):
@@ -73,7 +87,44 @@ def test_forget_only_deletes_an_owned_active_memory_after_confirmation(monkeypat
     monkeypatch.setattr(memory_tools, "JavaToolClient", FakeClient)
     monkeypatch.setattr(memory_tools, "interrupt", lambda payload: "approve")
 
-    result = memory_tools.forget_preference.func(memory_id="memory-1", runtime=_runtime())
+    result = memory_tools.forget_preference.func(
+        memory_id="memory-1", runtime=_runtime()
+    )
 
     assert "已忘掉" in result
     assert FakeClient.deleted == ["memory-1"]
+
+
+@pytest.fixture(autouse=True)
+def durable_snapshot_stub(monkeypatch):
+    monkeypatch.setattr(
+        memory_tools,
+        "_preference_snapshot",
+        lambda *args: SimpleNamespace(
+            result=lambda: {"target": None, "expireTime": None}
+        ),
+    )
+
+
+def test_ordinary_preference_is_not_saved(monkeypatch):
+    runtime = _runtime()
+    runtime.state["messages"] = [HumanMessage(content="我喜欢简短回复")]
+    monkeypatch.setattr(
+        memory_tools,
+        "interrupt",
+        lambda _: (_ for _ in ()).throw(AssertionError("no card")),
+    )
+    assert "明确" in memory_tools.remember_preference.func(
+        "communication_preference", "简短回复", runtime
+    )
+
+
+def test_body_data_never_enters_l3(monkeypatch):
+    monkeypatch.setattr(
+        memory_tools,
+        "interrupt",
+        lambda _: (_ for _ in ()).throw(AssertionError("no card")),
+    )
+    assert "个人档案" in memory_tools.remember_preference.func(
+        "communication_preference", "体重60kg", _runtime()
+    )
