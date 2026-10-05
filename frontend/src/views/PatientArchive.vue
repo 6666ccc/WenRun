@@ -26,7 +26,6 @@ import ArchiveHealthInfo from '../components/archive/ArchiveHealthInfo.vue'
 import ArchiveRegistrations from '../components/archive/ArchiveRegistrations.vue'
 import ArchiveDocuments from '../components/archive/ArchiveDocuments.vue'
 import ArchiveActivity from '../components/archive/ArchiveActivity.vue'
-import ArchivePreferences from '../components/archive/ArchivePreferences.vue'
 
 const TABS = [
   { id: 'health', label: '健康数据', icon: 'activity' },
@@ -314,7 +313,6 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
               </div>
             </div>
           </div>
-          <ArchivePreferences class="archive__preferences" :patient-id="activePatientId" />
         </div>
       </UiState>
 
@@ -438,7 +436,6 @@ const metricFields = computed(() => metricEditor(editor.value)?.fields || [])
   grid-column: 1 / -1;
 }
 .archive__main { min-width: 0; display: grid; align-content: start; gap: 0; }
-.archive__preferences { margin-top: 24px; }
 .archive-banner {
   margin: 0;
   padding: 10px 14px;

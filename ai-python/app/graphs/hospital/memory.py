@@ -6,7 +6,6 @@ from app.core.config import get_settings
 from app.graphs.hospital.state import State
 from app.graphs.hospital.tokens import estimate_tokens
 
-RECENT_MESSAGE_WINDOW = 6
 TURN_SCOPED_REPLY_FIELDS = (
     "task_plan",
     "knowledge_reply",
@@ -15,7 +14,6 @@ TURN_SCOPED_REPLY_FIELDS = (
     "tools_reply",
     "final_reply",
 )
-SUMMARY_KEEP_MESSAGES = RECENT_MESSAGE_WINDOW
 
 
 def reset_turn_fields() -> dict[str, None]:

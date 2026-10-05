@@ -1,9 +1,5 @@
 import request from '../request'
 
-export function getActivityOptions() {
-  return request.get('/api/activity/options')
-}
-
 export function getActivitySummary(patientId, range = 7) {
   return request.get(`/api/patients/${patientId}/activity/summary`, { params: { range } })
 }

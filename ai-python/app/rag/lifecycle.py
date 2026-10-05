@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Callable
+from time import monotonic
+from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from loguru import logger
@@ -135,6 +137,22 @@ class RagLifecycleService:
 
     def ensure_ready(self) -> None:
         self.repository.initialize()
+        # Production initialize() does not create tables. Verify migrations and
+        # connectivity before accepting traffic, rather than hiding worker errors.
+        with self.repository.connection() as connection:
+            cursor = connection.cursor()
+            for table, column in (
+                ("rag_documents", "document_id"), ("rag_versions", "version"),
+                ("rag_builds", "build_id"), ("rag_jobs", "fence"),
+                ("rag_assets", "asset_id"),
+            ):
+                self.repository._execute(cursor, f"SELECT {column} FROM {table} LIMIT 1")
+
+    def is_ready(self) -> bool:
+        if self._thread is None or not self._thread.is_alive():
+            return False
+        self.ensure_ready()
+        return True
 
     def can_access(self, actor: dict[str, Any], scope: str, action: str) -> bool:
         if scope not in {"public", "staff"}:
@@ -375,6 +393,18 @@ class RagLifecycleService:
         if row is None:
             raise RagNotFoundError(document_id)
         if row["status"] in {"active", "scheduled"}:
+            effective = _parse_instant(row.get("effective_from"))
+            expires = _parse_instant(row.get("expires_at"))
+            now = datetime.now(UTC)
+            if row["status"] == "scheduled" and effective is not None and effective <= now and (expires is None or expires > now):
+                # Make due vectors visible first. Authority lookup still gates
+                # access; failure leaves the scheduled row durable for retry.
+                self.set_status(document_id, "active", version=version)
+                result = self.repository.publish(document_id, version, _actor_id(actor))
+                for previous in document["versions"]:
+                    if previous["status"] == "active" and int(previous["version"]) != version:
+                        self.set_status(document_id, "superseded", version=int(previous["version"]))
+                return {**result, "idempotent": False}
             try:
                 self.set_status(document_id, row["status"], version=version)
             except Exception as exc:  # noqa: BLE001 - heal a publish that committed before the index flip
@@ -466,7 +496,7 @@ class RagLifecycleService:
             if result["status"] == "active":
                 for old_version, _old_status in previous:
                     self.set_status(document_id, "superseded", version=old_version)
-        except Exception as exc:  # noqa: BLE001 - authority is committed; retry can flip the index
+        except Exception as exc:
             logger.warning(
                 "rag_publish_visibility_failed document_id={} error={}",
                 document_id, type(exc).__name__,
@@ -510,8 +540,12 @@ class RagLifecycleService:
             thread.join(timeout=2)
 
     def _run_worker(self) -> None:
+        next_activation = 0.0
         while not self._stop.is_set():
             try:
+                if monotonic() >= next_activation:
+                    self.activate_due_publications()
+                    next_activation = monotonic() + 30
                 worked = self.process_once()
             except Exception:  # noqa: BLE001 - keep the worker alive
                 logger.exception("rag_worker_iteration_failed")
@@ -519,6 +553,20 @@ class RagLifecycleService:
             if not worked:
                 self._wake.wait(2)
                 self._wake.clear()
+
+    def activate_due_publications(self) -> int:
+        """Due scheduled rows survive failures and are retried after restart."""
+        activated = 0
+        actor = {"id": "scheduler", "admin": True, "scopes": ("knowledge:manage",)}
+        for row in self.repository.authority_rows(("public", "staff")):
+            if row["status"] != "scheduled":
+                continue
+            try:
+                self.publish(row["document_id"], int(row["version"]), actor=actor)
+                activated += 1
+            except Exception as exc:  # noqa: BLE001 - retry failed publication next cycle
+                logger.warning("rag_scheduled_activation_failed document_id={} error={}", row["document_id"], type(exc).__name__)
+        return activated
 
 
 @lru_cache

@@ -10,6 +10,7 @@ from typing import Any, Literal
 from langgraph.types import Command
 
 Decision = Literal["approve", "reject"]
+CONFIRMATION_KINDS = frozenset({"registration_create", "registration_cancel"})
 
 # 只收极短、无歧义的口语确认/否决；带条件或追加信息的句子交给旁路聊天，
 # 绝不让“确认一下李医生是男的吗”这类句子误提交挂号。
@@ -114,7 +115,7 @@ def resume_command(
 ) -> tuple[Command | None, str | None, str | None]:
     """构造 LangGraph 续跑命令，并拒绝过期或指向不明的确认。"""
 
-    usable = [item for item in pending if item.get("id")]
+    usable = [item for item in pending if item.get("id") and item.get("kind") in CONFIRMATION_KINDS]
     if not usable:
         return None, "AI_RESUME_STALE", "没有待确认事项，请重新发起办理"
 
@@ -133,22 +134,8 @@ def resume_command(
     if target_id not in ids:
         return None, "AI_RESUME_STALE", "请重新发起挂号"
 
-    target = next(item for item in usable if item["id"] == target_id)
-    preference = target.get("kind") in {"memory_create", "memory_update"}
-    if preference and decision == "approve" and not target.get("_preference_snapshot"):
-        return (
-            None,
-            "AI_RESUME_STALE",
-            "旧偏好卡片缺少确认快照，请重新提出保存请求并确认",
-        )
-
     resume_map = {
         item["id"]: (decision if item["id"] == target_id else "reject")
         for item in usable
     }
-    if preference and decision == "approve":
-        resume_map[target_id] = {
-            "decision": decision,
-            "snapshot": target["_preference_snapshot"],
-        }
     return Command(resume=resume_map), None, None

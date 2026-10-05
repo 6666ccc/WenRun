@@ -37,10 +37,8 @@ test('maskIdCard hides the middle digits', () => {
   assert.equal(maskIdCard('110101200109191234'), '1101 •••••• 1234')
 })
 
-test('archive page marks undesigned modules instead of snapshot APIs', () => {
+test('archive page does not call unavailable snapshot APIs', () => {
   const page = read('../src/views/PatientArchive.vue')
-  const unavailable = read('../src/components/archive/ArchiveUnavailable.vue')
-  assert.match(unavailable, /数据库还未设计/)
   assert.doesNotMatch(page, /listHealthSnapshots|deleteHealthSnapshot|deleteHealthProfile/)
 })
 

@@ -2,8 +2,10 @@ import json
 from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import jwt
+import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import (
     AIMessage,
@@ -1265,6 +1267,99 @@ def test_chat_stream_rehydrates_empty_checkpoint_from_authoritative_history(
     assert isinstance(captured["messages"][1], AIMessage)
 
 
+def test_chat_stream_retires_obsolete_card_and_recovers_database_history(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    captured = {}
+    saver = SimpleNamespace(adelete_thread=AsyncMock())
+
+    class ObsoleteGraph:
+        checkpointer = saver
+
+        async def aget_state(self, config):
+            return SimpleNamespace(
+                values={"patient_id": 12, "messages": [HumanMessage(content="过期缓存")]},
+                interrupts=(SimpleNamespace(id="old", value={"kind": "memory_create"}),),
+            )
+
+        async def astream(self, state, *, context, config, stream_mode, subgraphs, version):
+            saver.adelete_thread.assert_awaited_once_with(config["configurable"]["thread_id"])
+            assert not isinstance(state, Command)
+            captured["messages"] = state["messages"]
+            yield {"type": "values", "data": {"final_reply": "继续聊天", "selected_agents": ["chat"]}}
+
+    monkeypatch.setattr(chat_route, "graph", ObsoleteGraph())
+    response = TestClient(create_app()).post(
+        "/v1/chat/stream",
+        headers=headers,
+        json={
+            "message": "接着说",
+            "conversationId": "obsolete-card",
+            "recoveryMessages": [
+                {"id": 1, "role": "user", "content": "讨论感谢信"},
+                {"id": 2, "role": "assistant", "content": "可以从感谢帮助开始"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    events = _sse_events(response)
+    assert events[-1]["reply"] == "继续聊天"
+    assert not any(event["type"] == "confirm" for event in events)
+    assert [message.content for message in captured["messages"]] == [
+        "讨论感谢信", "可以从感谢帮助开始", "接着说"
+    ]
+
+
+@pytest.mark.parametrize("kind", ["memory_create", "memory_update", "memory_delete"])
+def test_resume_obsolete_preference_card_never_executes_graph(monkeypatch, kind):
+    headers = _chat_auth_headers(monkeypatch)
+    saver = SimpleNamespace(adelete_thread=AsyncMock())
+
+    class ObsoleteGraph:
+        checkpointer = saver
+
+        async def aget_state(self, config):
+            return SimpleNamespace(
+                values={"patient_id": 12},
+                interrupts=(SimpleNamespace(id="old", value={"kind": kind}),),
+            )
+
+        async def astream(self, *args, **kwargs):
+            raise AssertionError("旧偏好写入不能恢复执行")
+            yield  # Make this an async generator, as required by the graph interface.
+
+    monkeypatch.setattr(chat_route, "graph", ObsoleteGraph())
+    response = TestClient(create_app()).post(
+        "/v1/chat/resume",
+        headers=headers,
+        json={"conversationId": "obsolete-card", "decision": "approve", "interruptId": "old"},
+    )
+    assert response.status_code == 200
+    assert _sse_events(response)[-1]["code"] == "AI_RESUME_STALE"
+    saver.adelete_thread.assert_awaited_once()
+
+
+def test_stream_cannot_remove_another_patients_obsolete_checkpoint(monkeypatch):
+    headers = _chat_auth_headers(monkeypatch)
+    saver = SimpleNamespace(adelete_thread=AsyncMock())
+
+    class ForeignGraph:
+        checkpointer = saver
+
+        async def aget_state(self, config):
+            return SimpleNamespace(
+                values={"patient_id": 99},
+                interrupts=(SimpleNamespace(id="old", value={"kind": "memory_create"}),),
+            )
+
+    monkeypatch.setattr(chat_route, "graph", ForeignGraph())
+    response = TestClient(create_app()).post(
+        "/v1/chat/stream", headers=headers,
+        json={"conversationId": "foreign-card", "message": "继续"},
+    )
+    assert response.status_code == 409
+    saver.adelete_thread.assert_not_called()
+
+
 def test_chat_stream_does_not_duplicate_recovery_history_on_checkpoint_hit(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
     captured: dict = {}
@@ -1410,7 +1505,7 @@ def test_resume_different_patient_cannot_approve_pending_card(monkeypatch):
     assert "患者关联不匹配" in response.json()["detail"]
 
 
-def test_chat_stream_places_confirmed_long_term_preferences_in_state(monkeypatch):
+def test_chat_stream_ignores_retired_preference_request_fields(monkeypatch):
     headers = _chat_auth_headers(monkeypatch)
     captured: dict = {}
 
@@ -1431,16 +1526,20 @@ def test_chat_stream_places_confirmed_long_term_preferences_in_state(monkeypatch
         json={
             "message": "你好",
             "conversationId": "new-conversation",
+            "preferencesEnabled": True,
             "longTermMemories": [
                 {
                     "memoryId": "memory-1",
                     "type": "communication_preference",
                     "content": "回复简短",
                     "status": "active",
+                    "updateTime": "2026-10-04T11:45:43",
+                    "expireTime": "2026-12-31T18:00:00",
                 }
             ],
         },
     )
 
     assert response.status_code == 200
-    assert captured["memories"][0]["content"] == "回复简短"
+    assert captured["memories"] is None
+    assert _sse_events(response)[-1]["reply"] == "好的"

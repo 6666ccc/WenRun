@@ -115,3 +115,57 @@ def test_future_source_stays_hidden_from_patients(tmp_path):
         service.read_asset(source_id, actor={"id": 3, "scopes": ("knowledge:public",)})
     body, _, _ = service.read_asset(source_id, actor=actor)
     assert body == content
+
+
+def test_scheduled_publication_activates_only_when_due_and_retries_index_failure(tmp_path):
+    service, _, status_calls = _service(tmp_path)
+    actor = {"id": 7, "admin": True, "scopes": ("knowledge:manage",)}
+    receipt = service.submit(
+        "# 门诊\n\n## 就诊\n\n请按预约时间到院。".encode(), "due.md", actor=actor,
+        effective_from=(datetime.now(UTC) + timedelta(days=1)).isoformat(),
+    )
+    assert service.process_once()
+    service.publish(receipt["document_id"], receipt["version"], actor=actor)
+    assert service.activate_due_publications() == 0
+    # Move the recorded effective time, not the global clock.
+    with service.repository.connection(write=True) as connection:
+        service.repository._execute(connection.cursor(),
+            "UPDATE rag_versions SET effective_from=? WHERE document_id=?",
+            ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(), receipt["document_id"]),
+        )
+    original = service.set_status
+    service.set_status = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("index down"))
+    assert service.activate_due_publications() == 0
+    assert service.get_document(receipt["document_id"], actor=actor)["versions"][0]["status"] == "scheduled"
+    service.set_status = original
+    assert service.activate_due_publications() == 1
+    assert service.activate_due_publications() == 0
+    assert (receipt["document_id"], "active", receipt["version"]) in status_calls
+    assert service.get_document(receipt["document_id"], actor=actor)["versions"][0]["status"] == "active"
+    source_id = service.get_document(receipt["document_id"], actor=actor)["versions"][0]["source_asset_id"]
+    assert service.read_asset(source_id, actor={"id": 3, "scopes": ("knowledge:public",)})[0]
+
+
+def test_due_replacement_supersedes_old_publication(tmp_path):
+    service, _, status_calls = _service(tmp_path)
+    actor = {"id": 7, "admin": True, "scopes": ("knowledge:manage",)}
+    first = service.submit("# 门诊\n\n## 到院\n\n请提前到院。".encode(), "old.md", actor=actor)
+    service.process_once()
+    service.publish(first["document_id"], first["version"], actor=actor)
+    replacement = service.submit(
+        "# 门诊\n\n## 到院\n\n请按新时间到院。".encode(), "new.md", actor=actor,
+        document_id=first["document_id"],
+        effective_from=(datetime.now(UTC) + timedelta(days=1)).isoformat(),
+    )
+    service.process_once()
+    service.publish(replacement["document_id"], replacement["version"], actor=actor)
+    with service.repository.connection(write=True) as connection:
+        service.repository._execute(connection.cursor(),
+            "UPDATE rag_versions SET effective_from=? WHERE document_id=? AND version=?",
+            ((datetime.now(UTC) - timedelta(microseconds=1)).isoformat(), replacement["document_id"], replacement["version"]),
+        )
+    assert service.activate_due_publications() == 1
+    versions = {int(row["version"]): row for row in service.get_document(first["document_id"], actor=actor)["versions"]}
+    assert versions[first["version"]]["status"] == "superseded"
+    assert versions[replacement["version"]]["status"] == "active"
+    assert (first["document_id"], "superseded", first["version"]) in status_calls

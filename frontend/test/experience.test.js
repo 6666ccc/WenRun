@@ -57,7 +57,7 @@ test('server conversations restore messages and pending confirmation metadata', 
         role: 'assistant',
         content: '请确认',
         clientRequestId: 'r1',
-        metadata: { status: 'confirming', confirm: { interruptId: 'i1' } },
+        metadata: { status: 'confirming', confirm: { kind: 'registration_create', interruptId: 'i1' } },
       },
     ] },
   )
@@ -184,4 +184,18 @@ test('bookableToday keeps only bookable schedules with remaining count and caps 
   ]
   assert.deepEqual(bookableToday(schedules, 3, now).map((item) => item.id), [1, 4, 5])
   assert.deepEqual(bookableToday(undefined, 3, now), [])
+})
+
+
+test('historical unsupported confirmation is removed without losing conversation text', () => {
+  const sessions = normalizeServerConversations([{ conversationId: 'c', title: '历史对话' }], {
+    c: [{ role: 'assistant', content: '历史回复保留', metadata: {
+      status: 'confirming', confirm: { kind: 'memory_update', interruptId: 'old' },
+    } }],
+  })
+  const message = sessions[0].messages[0]
+  assert.equal(message.content, '历史回复保留')
+  assert.equal(message.meta.confirm, null)
+  assert.equal(message.meta.status, 'completed')
+  assert.equal(sessionHasPendingConfirm(sessions[0]), false)
 })

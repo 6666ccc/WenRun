@@ -43,9 +43,6 @@ public final class AiToolCallLog {
         if ("GET".equals(verb) && parts.length == 1 && "departments".equals(parts[0])) {
             return "list_departments";
         }
-        if ("GET".equals(verb) && parts.length == 2 && "departments".equals(parts[0])) {
-            return "get_department";
-        }
         if ("GET".equals(verb) && parts.length == 1 && "schedules".equals(parts[0])) {
             return "list_schedules";
         }
@@ -55,15 +52,8 @@ public final class AiToolCallLog {
         if ("GET".equals(verb) && parts.length == 1 && "staff".equals(parts[0])) {
             return "list_doctors";
         }
-        if ("GET".equals(verb) && parts.length == 2 && "staff".equals(parts[0])) {
-            return "get_staff";
-        }
         if ("GET".equals(verb) && parts.length == 1 && "registrations".equals(parts[0])) {
             return "list_my_registrations";
-        }
-        if ("GET".equals(verb) && parts.length == 2 && "registrations".equals(parts[0])
-                && "pending".equals(parts[1])) {
-            return "list_my_pending_registrations";
         }
         if ("POST".equals(verb) && parts.length == 1 && "registrations".equals(parts[0])) {
             return "create_registration";
@@ -71,15 +61,6 @@ public final class AiToolCallLog {
         if ("POST".equals(verb) && parts.length == 3 && "registrations".equals(parts[0])
                 && "cancel".equals(parts[2])) {
             return "cancel_registration";
-        }
-        if ("GET".equals(verb) && parts.length == 1 && "memories".equals(parts[0])) {
-            return "list_memories";
-        }
-        if ("POST".equals(verb) && parts.length == 1 && "memories".equals(parts[0])) {
-            return "remember_preference";
-        }
-        if ("DELETE".equals(verb) && parts.length == 2 && "memories".equals(parts[0])) {
-            return "forget_preference";
         }
         if ("GET".equals(verb) && parts.length == 1 && "patient-clinical-context".equals(parts[0])) {
             return "patient_clinical_context";

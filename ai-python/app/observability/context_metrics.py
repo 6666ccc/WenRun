@@ -23,7 +23,6 @@ _CONTEXT_SAMPLES: dict[tuple[str, str], deque[int]] = {}
 _TRUNCATION_COUNTS: Counter[str] = Counter()
 _PURPOSE_CALLS: Counter[str] = Counter()
 _BUDGET_HITS: Counter[str] = Counter()
-_MEMORY_COUNTS: Counter[str] = Counter()
 _LATENCIES: dict[str, deque[int]] = {}
 
 
@@ -39,7 +38,6 @@ class ContextTrace:
     started_at: float = field(default_factory=perf_counter)
     summary_version: int | None = None
     input_tokens_by_source: dict[str, int] = field(default_factory=dict)
-    memory_count: int = 0
     rag_count: int = 0
     tool_names: set[str] = field(default_factory=set)
     node_names: set[str] = field(default_factory=set)
@@ -75,7 +73,6 @@ class ContextTrace:
             "rehydrated": self.rehydrated,
             "summary_version": self.summary_version,
             "input_tokens_by_source": dict(sorted(self.input_tokens_by_source.items())),
-            "memory_count": self.memory_count,
             "rag_count": self.rag_count,
             "tool_names": sorted(self.tool_names),
             "node_names": sorted(self.node_names),
@@ -192,11 +189,6 @@ def context_metrics_snapshot() -> dict:
                 for purpose, calls in _PURPOSE_CALLS.items()
                 if calls
             },
-            "memoryInjectedByPurpose": {
-                purpose: _MEMORY_COUNTS[purpose] / calls
-                for purpose, calls in _PURPOSE_CALLS.items()
-                if calls
-            },
         }
 
 
@@ -230,13 +222,12 @@ def record_context(
     purpose: str,
     data_tokens: int,
     recent_tokens: int,
-    memory_count: int,
     summary_version: int | None,
     segments: dict[str, int] | None = None,
     truncated_segments=None,
     budget: int | None = None,
 ) -> None:
-    """记录送入模型的摘要、最近消息用量及实际选中的偏好条数。"""
+    """记录送入模型的摘要、最近消息用量。"""
     values = segments or {"memory": data_tokens, "history": recent_tokens}
     purpose = (
         purpose
@@ -246,7 +237,6 @@ def record_context(
     )
     with _METRICS_LOCK:
         _PURPOSE_CALLS[purpose] += 1
-        _MEMORY_COUNTS[purpose] += memory_count
         for segment, count in values.items():
             _CONTEXT_SAMPLES.setdefault((purpose, segment), deque(maxlen=500)).append(
                 count
@@ -263,7 +253,6 @@ def record_context(
         trace.input_tokens_by_source[f"{purpose}.{segment}"] = (
             trace.input_tokens_by_source.get(f"{purpose}.{segment}", 0) + count
         )
-    trace.memory_count = max(trace.memory_count, memory_count)
     if summary_version is not None:
         trace.summary_version = summary_version
 

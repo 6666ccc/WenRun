@@ -1,11 +1,11 @@
-{"id":"projection-route","kind":"projection","purpose":"route","clinical":false,"preference":false}
-{"id":"projection-plan","kind":"projection","purpose":"plan","clinical":false,"preference":false}
-{"id":"projection-chat","kind":"projection","purpose":"chat","clinical":false,"preference":true}
-{"id":"projection-tools","kind":"projection","purpose":"tools","clinical":false,"preference":true}
-{"id":"projection-knowledge","kind":"projection","purpose":"knowledge","clinical":true,"preference":true}
-{"id":"projection-fast","kind":"projection","purpose":"fast","clinical":false,"preference":true}
-{"id":"projection-summary","kind":"projection","purpose":"summary","clinical":false,"preference":false}
-{"id":"projection-final","kind":"projection","purpose":"final","clinical":false,"preference":false}
+{"id":"projection-route","kind":"projection","purpose":"route","clinical":false}
+{"id":"projection-plan","kind":"projection","purpose":"plan","clinical":false}
+{"id":"projection-chat","kind":"projection","purpose":"chat","clinical":false}
+{"id":"projection-tools","kind":"projection","purpose":"tools","clinical":false}
+{"id":"projection-knowledge","kind":"projection","purpose":"knowledge","clinical":true}
+{"id":"projection-fast","kind":"projection","purpose":"fast","clinical":false}
+{"id":"projection-summary","kind":"projection","purpose":"summary","clinical":false}
+{"id":"projection-final","kind":"projection","purpose":"final","clinical":false}
 {"id":"schema-preferences","kind":"schema","field":"preferences"}
 {"id":"schema-verified","kind":"schema","field":"verified_business_facts"}
 {"id":"schema-diagnosis","kind":"schema","field":"diagnosis"}
@@ -28,6 +28,3 @@
 {"id":"scopes-drug","kind":"scopes","query":"我能吃这种药吗","expected":["demographics","allergies"]}
 {"id":"scopes-dose","kind":"scopes","query":"根据我的体重计算药物剂量","expected":["demographics","allergies","anthropometrics"]}
 {"id":"scopes-general","kind":"scopes","query":"我胸闷，正常血压是多少","expected":[]}
-{"id":"expired-local","kind":"expiry","expiry":"2000-01-01T12:00:00"}
-{"id":"expired-utc","kind":"expiry","expiry":"2000-01-01T00:00:00Z"}
-{"id":"expiry-invalid","kind":"expiry","expiry":"invalid"}

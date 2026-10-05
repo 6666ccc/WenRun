@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pymysql
 
@@ -187,7 +188,7 @@ class LifecycleRepository:
                  source_asset["content_type"], source_asset["file_size"], source_asset["checksum"],
                  document_id, version, build_id, "source", scope, actor_id, now))
             if self.backend == "mysql":
-                self._execute(cursor, "INSERT IGNORE INTO rag_documents(document_id,latest_version,created_by,created_at) VALUES(?,?,?,?)", (document_id, version if version > 0 else 0, actor_id, now))
+                self._execute(cursor, "INSERT IGNORE INTO rag_documents(document_id,latest_version,created_by,created_at) VALUES(?,?,?,?)", (document_id, max(0, version), actor_id, now))
                 self._execute(cursor, "SELECT latest_version FROM rag_documents WHERE document_id=? FOR UPDATE", (document_id,))
                 doc = cursor.fetchone()
                 if doc is None:
@@ -239,11 +240,6 @@ class LifecycleRepository:
             self._execute(cursor, sql, params)
             return self._dict(cursor.fetchone())
 
-    def get_version_by_checksum(self, document_id: str, checksum: str) -> dict | None:
-        with self.connection() as connection:
-            cursor = connection.cursor()
-            self._execute(cursor, "SELECT * FROM rag_versions WHERE document_id=? AND checksum=? ORDER BY version DESC LIMIT 1", (document_id, checksum))
-            return self._dict(cursor.fetchone())
 
     def get_latest(self, document_id: str) -> dict | None:
         with self.connection() as connection:
@@ -350,12 +346,6 @@ class LifecycleRepository:
             job["source"] = self._dict(cursor.fetchone())
             return job
 
-    def renew_lease(self, job_id: str, worker_id: str, fence: int, lease_seconds: int) -> bool:
-        now = datetime.now(UTC)
-        with self.connection(write=True) as connection:
-            cursor = connection.cursor()
-            self._execute(cursor, "UPDATE rag_jobs SET lease_until=?,updated_at=? WHERE job_id=? AND status='running' AND lease_owner=? AND fence=?", ((now + timedelta(seconds=lease_seconds)).isoformat(), now.isoformat(), job_id, worker_id, fence))
-            return cursor.rowcount == 1
 
     def get_job(self, job_id: str) -> dict | None:
         with self.connection() as connection:
@@ -461,8 +451,10 @@ class LifecycleRepository:
             row = self._dict(cursor.fetchone())
             if not row:
                 raise KeyError(document_id)
-            if row["status"] not in {"approved", "built"}:
+            if row["status"] not in {"approved", "built", "scheduled"}:
                 raise ValueError("only approved builds can be published")
+            if row["status"] == "scheduled" and row["effective_from"] > now.isoformat():
+                raise ValueError("scheduled revision is not effective yet")
             if self.backend == "mysql":
                 self._execute(cursor, "SELECT version,effective_from,status FROM rag_versions WHERE document_id=? AND active_build_id IS NOT NULL AND status='scheduled' FOR UPDATE", (document_id,))
             else:
@@ -495,10 +487,9 @@ class LifecycleRepository:
         if not scopes:
             return []
         current = (now or datetime.now(UTC)).astimezone(UTC).isoformat()
-        placeholders = ",".join("?" for _ in scopes)
         with self.connection() as connection:
             cursor = connection.cursor()
-            sql = f"""SELECT v.document_id,v.version,v.scope,v.effective_from,v.expires_at,v.status,
+            sql = """SELECT v.document_id,v.version,v.scope,v.effective_from,v.expires_at,v.status,
                       b.build_id,b.status AS build_status
                    FROM rag_versions v JOIN rag_builds b ON b.build_id=v.active_build_id
                    WHERE v.status IN ('active','scheduled','inactive','superseded')
@@ -524,16 +515,3 @@ class LifecycleRepository:
                 continue
             result.append(row)
         return result
-
-    def reconcileable_builds(self) -> list[dict]:
-        """Return authority records useful for repairing index state after interruption."""
-        with self.connection() as connection:
-            cursor = connection.cursor()
-            self._execute(cursor, "SELECT b.*,v.scope,v.effective_from,v.expires_at FROM rag_builds b JOIN rag_versions v USING(document_id,version) WHERE b.status IN ('active','scheduled','built','approved')", ())
-            return [self._dict(row) for row in cursor.fetchall()]
-
-    def versions_for_list(self) -> list[dict]:
-        with self.connection() as connection:
-            cursor = connection.cursor()
-            self._execute(cursor, "SELECT document_id,version,scope,status,source_name,checksum,file_size,effective_from,expires_at,created_at,created_by,active_build_id FROM rag_versions ORDER BY created_at DESC", ())
-            return [self._dict(row) for row in cursor.fetchall()]

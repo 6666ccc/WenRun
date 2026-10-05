@@ -3,7 +3,6 @@ package com.wenrun.ai.controller;
 import com.wenrun.ai.concurrency.ConversationExecutionLock;
 import com.wenrun.ai.security.DelegationTokenService;
 import com.wenrun.ai.service.ConversationOwnershipService;
-import com.wenrun.ai.service.AiPatientMemoryService;
 import com.wenrun.ai.service.aiService;
 import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.common.context.UserContext;
@@ -46,11 +45,10 @@ class AiControllerConcurrencyTest {
     private final DelegationTokenService tokenService = mock(DelegationTokenService.class);
     private final ConversationExecutionLock lock = mock(ConversationExecutionLock.class);
     private final AsyncTaskExecutor executor = mock(AsyncTaskExecutor.class);
-    private final AiPatientMemoryService memoryService = mock(AiPatientMemoryService.class);
     private final AiConversationRepository conversationRepository = mock(AiConversationRepository.class);
     private final aiController controller = new aiController(
             aiGateway, patientAccess, messageRepository, ownershipService,
-            executor, tokenService, lock, memoryService, conversationRepository);
+            executor, tokenService, lock, conversationRepository);
 
     @BeforeEach
     void stubPatientAccess() {
@@ -121,7 +119,7 @@ class AiControllerConcurrencyTest {
         try {
             aiController asyncController = new aiController(
                     aiGateway, patientAccess, messageRepository, ownershipService,
-                    asyncExecutor(pool), tokenService, lock, memoryService, conversationRepository);
+                    asyncExecutor(pool), tokenService, lock, conversationRepository);
 
             asyncController.chatStream(request("conversation-1", "request-1"));
             assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();

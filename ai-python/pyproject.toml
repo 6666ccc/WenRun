@@ -2,7 +2,7 @@
 name = "wenrun-ai"
 version = "0.1.0"
 description = "WenRun FastAPI and LangGraph AI service"
-readme = "README.md"
+readme = {text = "WenRun FastAPI and LangGraph AI service. See the repository README for setup and deployment.", content-type = "text/plain"}
 requires-python = ">=3.11"
 dependencies = [
   "python-dotenv",
@@ -25,10 +25,11 @@ dependencies = [
   "PyJWT",
   "httpx",
   "pymysql>=1.1,<2",
+  "transformers>=4.45,<6",
 ]
 
 [project.optional-dependencies]
-ingest = ["docling", "transformers"]
+ingest = ["docling"]
 test = ["pytest", "pytest-asyncio", "ruff"]
 
 [build-system]

@@ -1,15 +1,12 @@
+import { isSupportedConfirmation } from '../../features/assistant/confirmation.js'
+
 const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 function apiUrl(path) {
   return `${API_BASE_URL}${path}`
 }
 
-export function normalizeChatEvent(event) {
-  return event
-}
-
-function applyChatEvent(raw, acc, handlers) {
-  const event = normalizeChatEvent(raw)
+function applyChatEvent(event, acc, handlers) {
   if (event.type === 'status') {
     handlers.onStatus?.(event.step || event.content)
     return null
@@ -28,6 +25,7 @@ function applyChatEvent(raw, acc, handlers) {
     return null
   }
   if (event.type === 'confirm') {
+    if (!isSupportedConfirmation(event)) return null
     const confirming = {
       kind: event.kind,
       prompt: event.prompt || '请确认是否继续办理',

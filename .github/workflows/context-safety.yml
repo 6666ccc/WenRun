@@ -16,21 +16,11 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -e ".[test]"
+      - run: pip install -r requirements.lock && pip install -e ".[test]"
       - name: Isolation and context safety tests
-        run: >-
-          python -m pytest
-          tests/unit/test_context_builder.py
-          tests/unit/test_context_metrics.py
-          tests/unit/test_summary_commit.py
-          tests/unit/test_budgeted_model.py
-          tests/unit/test_full_recovery.py
-          tests/unit/test_preference_replay.py
-          tests/unit/test_personalization_policy.py
-          tests/unit/test_rag_lifecycle.py
-          tests/unit/test_rehydration.py
-          tests/test_app.py
-          -q
+        run: python -m pytest tests -q
+      - name: Python package build
+        run: pip wheel --no-deps . --wheel-dir dist
       - name: Deterministic context evaluation
         run: python scripts/evaluate_context.py --output context-evaluation.json
       - uses: actions/upload-artifact@v4
@@ -47,9 +37,49 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Persistence, ownership and preference conflicts
+      - name: Persistence, ownership and conversation isolation
         working-directory: backend-java
-        run: >-
-          mvn -q
-          -Dtest=AiConversationMemoryServiceTest,AiPatientMemoryServiceTest,AiToolControllerTest,AiControllerConcurrencyTest,ConversationOwnershipServiceTest
-          test
+        run: mvn -B clean verify
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test && npm run lint && npm run build
+
+  deployment:
+    runs-on: ubuntu-latest
+    env:
+      DASHSCOPE_API_KEY: ci-not-a-real-key
+      DASHSCOPE_CHAT_MODEL: ci-model
+      EMBEDDING_MODEL: ci-embedding
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest discover -s deploy/tests -q
+      - run: sh -n deploy/backup.sh
+      - name: Private deployment inputs
+        run: |
+          python deploy/configure.py --origin http://localhost:18080
+          docker network create 1panel-network
+          python deploy/preflight.py
+      - name: Build and start the real container stack without model calls
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - run: python deploy/smoke.py
+      - name: Container status
+        if: always()
+        run: docker compose ps
+      - name: Cleanup
+        if: always()
+        run: docker compose down

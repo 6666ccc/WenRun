@@ -25,7 +25,6 @@ def test_context_trace_records_counts_without_raw_thread_or_patient_text():
             purpose="chat",
             data_tokens=20,
             recent_tokens=40,
-            memory_count=2,
             summary_version=3,
         )
         record_retrieval(count=2, tokens=100, rejected=1)
@@ -39,6 +38,5 @@ def test_context_trace_records_counts_without_raw_thread_or_patient_text():
     output = "".join(str(item) for item in captured)
     assert "patient-secret" not in output
     assert "list_schedules" in output
-    assert '"memory_count": 2' in output
     assert '"rag_count": 2' in output
     assert current_context_trace() is None

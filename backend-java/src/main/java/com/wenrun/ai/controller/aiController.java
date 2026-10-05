@@ -5,7 +5,6 @@ import com.wenrun.ai.concurrency.ConversationExecutionLock;
 import com.wenrun.ai.concurrency.ConversationLockUnavailableException;
 import com.wenrun.ai.security.DelegationTokenService;
 import com.wenrun.ai.service.ConversationOwnershipService;
-import com.wenrun.ai.service.AiPatientMemoryService;
 import com.wenrun.ai.service.aiService;
 import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.ai.vo.aiResumeRequest;
@@ -64,7 +63,6 @@ public class aiController {
     private final AsyncTaskExecutor streamExecutor;
     private final DelegationTokenService delegationTokenService;
     private final ConversationExecutionLock conversationExecutionLock;
-    private final AiPatientMemoryService memoryService;
     private final com.wenrun.repository.AiConversationRepository conversationRepository;
 
     public aiController(
@@ -75,7 +73,6 @@ public class aiController {
             @Qualifier("aiStreamExecutor") AsyncTaskExecutor streamExecutor,
             DelegationTokenService delegationTokenService,
             ConversationExecutionLock conversationExecutionLock,
-            AiPatientMemoryService memoryService,
             com.wenrun.repository.AiConversationRepository conversationRepository) {
         this.aiService = aiService;
         this.patientAccess = patientAccess;
@@ -84,7 +81,6 @@ public class aiController {
         this.streamExecutor = streamExecutor;
         this.delegationTokenService = delegationTokenService;
         this.conversationExecutionLock = conversationExecutionLock;
-        this.memoryService = memoryService;
         this.conversationRepository = conversationRepository;
     }
 
@@ -164,9 +160,6 @@ public class aiController {
                 }
                 request.setRecoveryMessages(chatMessageRepository.selectRecentByConversationIdAndUserId(
                         request.getConversationId(), request.getUserId(), RECOVERY_MESSAGE_LIMIT));
-                if (request.getPatientId() != null && !Boolean.FALSE.equals(request.getPreferencesEnabled())) {
-                    request.setLongTermMemories(memoryService.listActive(request.getPatientId(), 20));
-                }
             }
             if (!saveMessage(request.getConversationId(), request.getUserId(), request.getClientRequestId(), "user",
                     request.getMessage())) {

@@ -92,10 +92,6 @@ _REALTIME_BUSINESS = re.compile(
     r"(?:号源|余号|有没有号|还有号吗|排班|出诊|坐诊|我的预约|我的挂号|"
     r"挂号记录|预约记录)"
 )
-_MEMORY_ACTION = re.compile(
-    r"(?:请|帮我|以后)?(?:记住|记一下|保存这个偏好)|"
-    r"(?:忘掉|忘记|删除|清除).{0,20}(?:偏好|记忆|习惯|称呼)"
-)
 _EXPLICIT_MEDICAL = re.compile(
     r"(?:吃|服|用).{0,5}(?:什么药|药量|剂量)|药.{0,5}(?:副作用|禁忌|能不能吃)|"
     r"(?:症状|病情|发烧|咳嗽|头痛|腹痛|肚子痛|胸痛|恶心|呕吐|腹泻).{0,10}"
@@ -153,8 +149,6 @@ def match_rules(text: str) -> RuleMatch | None:
         select("tools", "appointment_action")
     if _REALTIME_BUSINESS.search(normalized):
         select("tools", "realtime_business")
-    if _MEMORY_ACTION.search(normalized):
-        select("tools", "memory_action")
     if _EXPLICIT_MEDICAL.search(normalized):
         select("knowledge", "explicit_medical_question")
     if _DEPARTMENT_RECOMMENDATION.search(normalized):
@@ -196,9 +190,7 @@ def _rule_match_is_incomplete(normalized: str, selected: list[AgentName]) -> boo
         return True
     if "knowledge" not in selected and _RESIDUAL_KNOWLEDGE.search(normalized):
         return True
-    if len(set(selected)) == 1 and _has_multiple_requests(normalized):
-        return True
-    return False
+    return len(set(selected)) == 1 and _has_multiple_requests(normalized)
 
 
 def _has_multiple_requests(normalized: str) -> bool:

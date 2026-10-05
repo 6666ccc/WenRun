@@ -56,19 +56,6 @@ class RecoveryMessage(ApiModel):
     metadata_json: str | None = Field(default=None, alias="metadataJson")
 
 
-class LongTermMemory(ApiModel):
-    """Java 提供的、允许用于本轮回答的长期偏好记录。"""
-
-    memory_id: str = Field(alias="memoryId", max_length=64)
-    type: Literal[
-        "communication_preference", "appointment_preference", "accessibility_need"
-    ]
-    content: str = Field(min_length=1, max_length=500)
-    status: Literal["active"] = "active"
-    update_time: datetime | None = Field(default=None, alias="updateTime")
-    expire_time: datetime | None = Field(default=None, alias="expireTime")
-
-
 class ChatRequest(ApiModel):
     """/stream 的请求体：用户消息、模式开关，以及可选的恢复资料。"""
 
@@ -88,7 +75,6 @@ class ChatRequest(ApiModel):
     memory_enabled: bool = Field(
         default=True, alias="memoryEnabled"
     )  # 是否尝试使用带检查点的图
-    preferences_enabled: bool = Field(default=True, alias="preferencesEnabled")
     client_request_id: str | None = Field(
         default=None, alias="clientRequestId", max_length=64
     )
@@ -103,9 +89,6 @@ class ChatRequest(ApiModel):
         default_factory=list,
         alias="recoveryMessages",
         max_length=200,
-    )
-    long_term_memories: list[LongTermMemory] = Field(
-        default_factory=list, alias="longTermMemories", max_length=20
     )
 
 

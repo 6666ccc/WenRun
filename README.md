@@ -1,66 +1,85 @@
 # 温润在线医院
 
-项目由 Vue 前端、Spring Boot 业务网关、FastAPI/LangGraph AI 服务和 MySQL 组成。浏览器只访问 `/api/**`，Java 负责登录鉴权、会话归属、消息落库及 AI SSE 转发。
+Vue 患者工作台、Spring Boot 业务网关、FastAPI/LangGraph AI 服务及 MySQL/Redis/Chroma。浏览器通过 Java `/api/**` 使用业务与 AI 功能，Java 决定患者权限、执行业务事务并保存消息；Python 负责编排和生成。
 
-## Docker Compose 启动
+## 1Panel 部署
 
-1. 将根目录 `.env.example` 复制为 `.env`。
-2. 将 `ai-python/.env.example` 复制为 `ai-python/.env`，填写模型与 Chroma 配置。
-3. 保证根目录 `AI_SERVICE_API_KEY` 与 AI 目录 `AI_INTERNAL_API_KEY` 完全一致。
-4. 运行 `docker compose up --build`，然后访问 `http://localhost:5173`。
+完整步骤见 [1Panel 部署与运行手册](docs/1Panel部署与运行手册.md)。根目录 `compose.yaml` 管理前端 Nginx、Java、Python、MySQL 8.4、Redis 8 五个服务，1Panel OpenResty 接入前端共享网络提供 HTTPS。
 
-新数据库会由 `docs/SQL/schema.sql` 初始化。已有数据库升级到本轮身份与上下文架构时，应在备份后按日期顺序执行 `docs/SQL/migrations/` 中尚未执行的脚本；账号—患者模型至少需要 `2026-09-19-user-patient-subject.sql`，随后执行 `2026-09-22-patient-access-integrity.sql`，以保证每个账号至多一个有效默认患者和一个有效 SELF 患者，并强制 AI 会话绑定 `patient_id`。这些迁移不会因已有 MySQL volume 而自动重跑。
+先备份已有开发 `.env`，采用 `deploy/.env.example` 配置部署环境。可运行以下命令生成私有配置，填写模型参数并核对面板网络后再放到根目录 `.env`：
 
-开发 Compose 会启动 Redis 8。Java 登录 Session 使用 db1，Python Agent checkpoint 与会话锁使用 db0（`AI_REDIS_URL`，RediSearch 只能建在 db0）。未配置 `AI_REDIS_URL` 时不保存跨轮 checkpoint，但当前请求仍可使用 Java 从 MySQL 提供的有限消息窗口恢复上下文。
+```sh
+python3 deploy/configure.py --origin https://你的域名 --env .env.deploy
+python3 deploy/preflight.py
+# preflight 默认读取根 .env；也可 --env .env.deploy 先检查候选配置。
+docker compose up -d --build --wait --wait-timeout 300
+python3 deploy/smoke.py
+```
 
-健康助手支持「快速模式」开关。开启后跳过意图路由与回复汇总，由单个挂载了联网检索的 Agent 直接流式作答，并沿用同一会话记忆。快速模式没有院内 RAG，也查不了号源、排班、本人预约和本院楼层/就诊须知；问这些请关闭快速模式。症状和用药可以查公开网页，不能代替面诊。
+内部 Java、Python、数据库与 Redis 不发布端口；前端仅发布回环端口 18080，并通过共享网络供 OpenResty 代理。镜像不包含本地 `.env` 或 Java `application.yml`，默认关闭 Agent 正文日志。首次空数据库只导入 `docs/SQL/schema.sql`，不自动装载演示账号。已有数据库按已执行迁移记录升级。
 
-正常模式采用级联意图路由：高精度规则 → Jev 多标签决策（或本地 Ollama）→ 不确定时升级云端 LLM。`ai-python/.env` 默认 `INTENT_BACKEND=jev`，填入 `TOKENDANCE_API_KEY` 后重启生效；设为 `ollama` 可随时切回保留的本地模型。sklearn 模式及其校验依赖已移除，急症安全规则和路由指标继续生效。Jev key 留空时先回退到 Ollama；本地服务不可用或判断不确定时，再升级到既有云端路由。详见 [意图识别流程图](docs/意图识别流程图.md)。
+本机未安装 Docker，容器与域名验证应在服务器执行；CI 已加入容器构建、依赖健康等待和只读烟测。Python wheel、Java 打包与源码回归已在本地验证。
 
-## 本地分别启动
+## 本地开发
+
+1. 准备 MySQL 和具备 JSON/Search 的 Redis 8。新库导入 `docs/SQL/schema.sql`；已有库先备份，再按日期执行尚未执行的迁移。
+2. 将 `ai-python/.env.example` 复制为 `ai-python/.env`，填写模型、Embedding、Redis 及内部调用配置。
+3. 将 Java `application.yml.example` 复制为 `application.yml`，填写本地数据库与 Redis；通过启动环境设置服务间共享密钥与 Base64 委托签名密钥，Java/Python 必须一致。
+4. 分别在三个终端启动：
 
 ```powershell
 # AI（8000）
 cd ai-python
+python -m pip install -e ".[test]"
 python -m uvicorn app.main:app --reload
 
-# Java（8080，先设置与 AI 相同的服务间密钥）
+# Java（8080）
 cd backend-java
 $env:AI_SERVICE_BASE_URL='http://localhost:8000'
-$env:AI_SERVICE_API_KEY='你的服务间密钥'
+$env:AI_SERVICE_API_KEY='与 Python AI_INTERNAL_API_KEY 相同的密钥'
+$env:AI_DELEGATION_SIGNING_SECRET='与 Python 完全一致的 Base64 密钥'
 mvn spring-boot:run
 
 # 前端（5173）
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
+
+开发态 Redis 未配置时可降级为只读问答，关闭需确认的业务写工具。生产部署要求 Redis checkpoint 与权威知识库可用，初始化失败会阻止 Python 启动。
 
 ## 验证
 
 ```powershell
-cd frontend; npm test; npm run build; npm run lint
-cd ../backend-java; mvn test
-cd ../ai-python; python -m pytest
-python scripts/evaluate_intent_router.py
+cd frontend
+npm test
+npm run lint
+npm run build
+
+cd ../backend-java
+mvn clean verify
+
+cd ../ai-python
+python -m pytest tests -q
 python scripts/evaluate_context.py
+python -m pip wheel --no-deps . --wheel-dir dist
 ```
 
-主要联调入口为 `POST /api/ai/chat/stream`、`GET /api/ai/conversations` 和 `DELETE /api/ai/conversations/{conversationId}`。删除会话时 Java 会级联清理 Python checkpoint。知识库管理接口支持幂等发布、版本替换、停用、删除和带文件重建。
+Linux x86_64/Python 3.13 容器使用 `ai-python/requirements.lock`；前端使用 `package-lock.json`。部署脚本测试：`python -m unittest discover -s deploy/tests -q`。
 
-## 上下文权威边界
+## 当前能力与边界
 
-- MySQL：会话归属、聊天消息、确认卡片元数据、患者长期偏好与知识文档审计记录的权威存储。
-- Redis db0：带 TTL 的 LangGraph checkpoint 与按用户/会话的执行锁；可丢失，不是历史事实源。
-- Redis db1：Java 登录 Session；生产配置使用 AOF，不能与 checkpoint 混用数据库编号。
-- Chroma：院内资料的可重建向量索引（进程内目录，类似 SQLite）；检索只接受 `active` 且在有效期内的版本。
-- Context Builder：按 token 预算选择结构化摘要、近期消息、最多 5 条长期偏好及外部资料；患者文本、记忆和检索片段均按不可信数据处理。
+- 普通模式：级联意图路由、依赖规划、院内 RAG、公开搜索和业务工具；挂号/退号经人工确认，Java 执行事务。
+- 快速模式：单个公开搜索 Agent，不使用院内 RAG 和挂号业务工具。
+- MySQL 保存会话、消息、结构化摘要及生产 RAG 元数据；Redis 是可丢失的 checkpoint 与 Session/锁存储，Chroma 是可重建索引。
+- 摘要收到数据库提交 ACK 后才压缩 checkpoint；恢复使用摘要覆盖位置之后的分页消息。checkpoint 丢失不能恢复历史业务确认。
+- 长期偏好功能已删除，健康档案读取、会话摘要和恢复继续保留。
+- 定时知识版本的 Worker 激活与失败重试已有回归；真实服务器场景待部署验收。
+- 确定性评测不代表真实模型质量；实际 PDF 解析与检索效果仍需代表性资料核对与标注集验证。
 
-生产 Redis 使用 `appendonly yes` + `appendfsync everysec`，同时保留周期 RDB，数据目录固定为 `/data/wenrun-redis`。这只解决进程/容器重启恢复，不等同于备份：运维应定期执行 `BGSAVE` 后把该目录快照复制到异机或对象存储，并做恢复演练。checkpoint 本身仍允许丢失；MySQL 才是消息、长期偏好和文档元数据的灾备核心。
+## 项目文档
 
-## 已知限制
-
-- **长期记忆不是病历。** 仅允许患者明确确认的沟通、预约和无障碍偏好；症状、诊断、药物、剂量和过敏等内容会被服务端拒绝。
-- **checkpoint 可丢失。** 默认 TTL 24 小时；超期后从 MySQL 最近消息恢复，恢复窗口以外的信息只能依赖结构化摘要或长期偏好。
-- **RAG 安全过滤不是医学事实核验。** 版本、有效期、引用和提示注入扫描能降低风险，但不能证明回答医学正确，仍不能替代面诊。
-- **确定性评测不等于真实线上质量。** `context_cases.jsonl` 用于阻断隔离、泄漏和恢复回归；概率型回答质量仍需人工抽检和线上指标。
+- [技术参考](book/readme.md)
+- [项目流程图](docs/流程图.md)
+- [1Panel 部署与运行手册](docs/1Panel部署与运行手册.md)
+- [简历三大亮点与 Agent 面试准备](docs/简历亮点与Agent面试准备.md)

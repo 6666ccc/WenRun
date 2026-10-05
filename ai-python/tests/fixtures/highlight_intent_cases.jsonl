@@ -1,0 +1,60 @@
+{"id": "I001", "text": "你好", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I002", "text": "谢谢你", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I003", "text": "你是谁", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I004", "text": "你能做什么", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I005", "text": "现在几点", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I006", "text": "今天星期几", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I007", "text": "医院在哪里", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I008", "text": "门诊几点开门", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I009", "text": "医院停车怎么走", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I010", "text": "内科在几楼", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I011", "text": "我有点害怕能陪我聊聊吗", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I012", "text": "今天心情不好", "labels": ["chat"], "mustEscalate": false, "group": "chat"}
+{"id": "I013", "text": "感冒有哪些症状", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I014", "text": "咳嗽怎么办", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I015", "text": "发烧要不要就医", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I016", "text": "头痛吃什么药", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I017", "text": "胃痛如何护理", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I018", "text": "药有什么副作用", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I019", "text": "失眠怎么改善", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I020", "text": "糖尿病是什么", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I021", "text": "高血压如何预防", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I022", "text": "心脏在人体哪里", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I023", "text": "扭伤之后要怎么处理", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I024", "text": "突然胸痛而且呼吸困难", "labels": ["knowledge"], "mustEscalate": false, "group": "knowledge"}
+{"id": "I025", "text": "帮我挂明天内科", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I026", "text": "我要挂号", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I027", "text": "请取消预约", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I028", "text": "查我的挂号记录", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I029", "text": "还有号吗", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I030", "text": "查看医生排班", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I031", "text": "医院有哪些科室", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I032", "text": "预约记录在哪里", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I033", "text": "今天张医生出诊吗", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I034", "text": "帮我找一位内科医生", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I035", "text": "请办理退号", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I036", "text": "给我预约一下", "labels": ["tools"], "mustEscalate": false, "group": "tools"}
+{"id": "I037", "text": "咳嗽怎么办帮我挂号", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I038", "text": "头痛该看哪科", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I039", "text": "胃痛挂什么科", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I040", "text": "感冒有哪些症状帮我查号源", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I041", "text": "发烧怎么办我要预约", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I042", "text": "胸痛呼吸困难帮我挂号", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I043", "text": "过敏要看哪个科", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I044", "text": "先介绍感冒症状再查内科号源", "labels": ["knowledge", "tools"], "mustEscalate": false, "group": "knowledge,tools"}
+{"id": "I045", "text": "我很害怕帮我挂号", "labels": ["chat", "tools"], "mustEscalate": false, "group": "chat,tools"}
+{"id": "I046", "text": "现在几点还有号吗", "labels": ["chat", "tools"], "mustEscalate": false, "group": "chat,tools"}
+{"id": "I047", "text": "你是谁帮我预约", "labels": ["chat", "tools"], "mustEscalate": false, "group": "chat,tools"}
+{"id": "I048", "text": "门诊几点开门帮我查排班", "labels": ["chat", "tools"], "mustEscalate": false, "group": "chat,tools"}
+{"id": "I049", "text": "你是谁感冒有哪些症状", "labels": ["chat", "knowledge"], "mustEscalate": false, "group": "chat,knowledge"}
+{"id": "I050", "text": "咳嗽怎么办我很害怕", "labels": ["chat", "knowledge"], "mustEscalate": false, "group": "chat,knowledge"}
+{"id": "I051", "text": "我有点恐慌头痛怎么办", "labels": ["chat", "knowledge"], "mustEscalate": false, "group": "chat,knowledge"}
+{"id": "I052", "text": "你能做什么胃痛如何护理", "labels": ["chat", "knowledge"], "mustEscalate": false, "group": "chat,knowledge"}
+{"id": "I053", "text": "如果内科没号就查外科", "labels": ["tools"], "mustEscalate": true, "group": "escalation"}
+{"id": "I054", "text": "假如发烧严重先告诉我怎么办再挂号", "labels": ["knowledge", "tools"], "mustEscalate": true, "group": "escalation"}
+{"id": "I055", "text": "帮我取消那个", "labels": ["tools"], "mustEscalate": true, "group": "escalation"}
+{"id": "I056", "text": "就选上次那个医生", "labels": ["tools"], "mustEscalate": true, "group": "escalation"}
+{"id": "I057", "text": "帮我写Python代码", "labels": [], "mustEscalate": true, "group": "escalation"}
+{"id": "I058", "text": "推荐一只股票", "labels": [], "mustEscalate": true, "group": "escalation"}
+{"id": "I059", "text": "把这幅画挂在墙上", "labels": [], "mustEscalate": true, "group": "escalation"}
+{"id": "I060", "text": "不是的话换一个", "labels": [], "mustEscalate": true, "group": "escalation"}

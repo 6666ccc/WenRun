@@ -1,13 +1,12 @@
 """给不同 Agent 准备它“需要且允许看到”的上下文。
 
-上下文包括最近对话、会话摘要、经确认的偏好和当前子任务。模型输入有长度上限，
+上下文包括最近对话、会话摘要和当前子任务。模型输入有长度上限，
 因此会按用途筛选并截短旧内容。外部资料和历史文本只作为数据传入，不能冒充系统指令；
 患者临床档案不在此处自动读取，而由知识工具按需查询。
 """
 
 import json
 from collections.abc import Iterable
-from datetime import UTC, datetime
 from typing import Literal
 
 from langchain_core.messages import (
@@ -104,126 +103,6 @@ def _bounded_tail(messages: Iterable[BaseMessage], budget: int) -> list[BaseMess
     return kept
 
 
-# 不同助手只拿与职责有关的偏好；意图路由不需要任何长期偏好。
-_MEMORY_TYPES: dict[ContextPurpose, frozenset[str]] = {
-    "route": frozenset(),
-    "plan": frozenset(),
-    "summary": frozenset(),
-    "final": frozenset(),
-    "chat": frozenset({"communication_preference", "accessibility_need"}),
-    "knowledge": frozenset({"communication_preference"}),
-    "tools": frozenset(
-        {
-            "communication_preference",
-            "appointment_preference",
-            "accessibility_need",
-        }
-    ),
-    "fast": frozenset({"communication_preference"}),
-}
-_APPOINTMENT_WORDS = ("挂号", "预约", "医生", "科室", "号源", "退号", "上午", "下午")
-_VISIT_ACCESS_WORDS = ("到院", "就诊", "行动", "协助", "轮椅", "看不清", "听不清")
-_CHAT_ACCESS_WORDS = ("看不清", "听不清", "大字", "语音", "读屏", "字太小")
-
-
-def _latest_user_text(state: State) -> str:
-    """长期偏好筛选只参考患者最新这句话。"""
-    return next(
-        (
-            str(getattr(message, "content", ""))
-            for message in reversed(state.get("messages") or [])
-            if getattr(message, "type", "") in {"human", "user"}
-        ),
-        "",
-    )
-
-
-def _memory_allowed(
-    purpose: ContextPurpose, memory_type: str, content: str, latest: str
-) -> bool:
-    """判断一项偏好与当前助手和最新问题是否有关。"""
-    if memory_type not in _MEMORY_TYPES[purpose]:
-        return False
-    if purpose == "tools" and memory_type == "appointment_preference":
-        return any(word in latest for word in _APPOINTMENT_WORDS)
-    if purpose == "tools" and memory_type == "accessibility_need":
-        return any(word in latest for word in _VISIT_ACCESS_WORDS)
-    if purpose == "chat" and memory_type == "accessibility_need":
-        return any(word in content or word in latest for word in _CHAT_ACCESS_WORDS)
-    return True
-
-
-def _active_memories(state: State, purpose: ContextPurpose) -> list[dict]:
-    """从 Java 给出的偏好中筛选少量与当前问题相关的有效条目。"""
-    latest = _latest_user_text(state)
-    ranked: list[tuple[int, dict]] = []
-    for item in state.get("long_term_memories") or []:
-        if not isinstance(item, dict) or item.get("status", "active") != "active":
-            continue
-        expiry = item.get("expireTime") or item.get("expire_time")
-        if expiry:
-            from app.graphs.hospital.tools.context import CLINIC_TZ
-
-            try:
-                date = datetime.fromisoformat(str(expiry))
-                if date.replace(tzinfo=date.tzinfo or CLINIC_TZ).astimezone(
-                    UTC
-                ) <= datetime.now(UTC):
-                    continue
-            except ValueError:
-                continue
-        memory_type = item.get("type")
-        content = item.get("content")
-        if (
-            not isinstance(memory_type, str)
-            or not isinstance(content, str)
-            or not content.strip()
-        ):
-            continue
-        from app.graphs.hospital.tools.memory import CLINICAL
-
-        if CLINICAL.search(content):
-            continue
-        if not _memory_allowed(purpose, memory_type, content, latest):
-            continue
-        score = 1
-        if memory_type == "communication_preference":
-            score += 2
-        if memory_type == "appointment_preference":
-            score += 4
-        if memory_type == "accessibility_need" and any(
-            word in latest for word in _VISIT_ACCESS_WORDS
-        ):
-            score += 4
-        ranked.append(
-            (
-                score,
-                {
-                    "type": memory_type,
-                    "content": content.strip(),
-                    "source": "confirmed_patient_memory",
-                    "trust": "preference_not_medical_fact",
-                    "updatedAt": item.get("updateTime"),
-                },
-            )
-        )
-    ranked.sort(
-        key=lambda item: (item[0], str(item[1].get("updatedAt") or "")), reverse=True
-    )
-    limit = 5 if purpose == "tools" else 2
-    selected: list[dict] = []
-    communication_count = 0
-    for _, item in ranked:
-        if len(selected) >= limit:
-            break
-        if item["type"] == "communication_preference":
-            if communication_count >= 2:
-                continue
-            communication_count += 1
-        selected.append(item)
-    return selected
-
-
 def _project_summary(
     summary: ConversationSummary, purpose: ContextPurpose
 ) -> dict | None:
@@ -261,7 +140,7 @@ def task_focus_messages(
     """Turn-scoped planner output, delivered as data rather than policy.
 
     The goal is derived by an LLM from patient text and upstream results are other
-    agents' replies, so both stay in the untrusted allocation like RAG and memories.
+    agents' replies, so both stay in the untrusted allocation like RAG and history.
     """
 
     messages: list[BaseMessage] = []
@@ -304,8 +183,8 @@ def build_context(
 ) -> list[BaseMessage]:
     """按本次用途，从对话里挑出该看的资料和最近聊天，裁到长度上限内，交给大模型当输入。它不负责回答患者。
     五个参数分别是：
-    当前对话记录：最近几轮聊天、压缩摘要、患者已确认的偏好。
-    用途：这次是在判断意图、闲聊、医学问答、挂号办事，还是快速回复。用途决定摘要和偏好里哪些字段可以带上。
+    当前对话记录：最近几轮聊天和压缩摘要。
+    用途：这次是在判断意图、闲聊、医学问答、挂号办事，还是快速回复。用途决定摘要里哪些字段可以带上。
     本轮子任务：一句话里有多件事时，当前这位助手只该完成的那一件。判断意图时不传。
     上游结论：同一轮里其他助手已经给出的答复，给后面的助手接着用。判断意图时不传。
     本轮额外资料：例如检索到的说明。只在这一轮参考，不写回对话记录。判断意图时不传。
@@ -314,11 +193,6 @@ def build_context(
     settings = get_settings()
     data_messages: list[BaseMessage] = []
     summary = coerce_summary(state.get("summary"))
-    memories = _active_memories(state, purpose)
-    if memories:
-        memory_message = untrusted_context_message("long_term_preferences", memories)
-        memory_message.additional_kwargs["memory_count"] = len(memories)
-        data_messages.append(memory_message)
     projected = _project_summary(summary, purpose) if summary is not None else None
     if projected is not None:
         data_messages.append(
@@ -360,12 +234,11 @@ def build_context(
         "summary": "会话摘要",
     }
     logger.info(
-        "对话上下文已准备 用途={} 总 token 数={} 附加资料 token 数={} 最近消息 token 数={} 记忆条数={} | context_built",
+        "对话上下文已准备 用途={} 总 token 数={} 附加资料 token 数={} 最近消息 token 数={} | context_built",
         purpose_labels.get(purpose, purpose),
         total,
         estimate_tokens(bounded_data),
         estimate_tokens(recent),
-        len(memories),
     )
     # Only the actual provider-call boundary records input use. Building context
     # for routing, summarization or an Agent is not itself a model call.
@@ -424,7 +297,6 @@ def assemble_messages(
         "authoritative_medical_source": 4,
         "patient_clinical_context": 4,
         "conversation_summary": 3,
-        "long_term_preferences": 3,
     }
     optional = sorted(
         (index for index in range(len(messages)) if index not in selected),
@@ -455,7 +327,7 @@ def assemble_messages(
             else "focus"
             if label in {"current_subtask", "upstream_result"}
             else "memory"
-            if label in {"conversation_summary", "long_term_preferences"}
+            if label == "conversation_summary"
             else "external"
             if label
             else "history"
@@ -470,9 +342,6 @@ def assemble_messages(
         truncated_segments=truncated,
         data_tokens=segments.get("memory", 0),
         recent_tokens=segments.get("history", 0),
-        memory_count=sum(
-            message.additional_kwargs.get("memory_count", 0) for message in result
-        ),
         summary_version=None,
         budget=budget,
     )

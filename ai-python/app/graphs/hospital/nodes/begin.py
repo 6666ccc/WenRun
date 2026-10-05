@@ -33,7 +33,7 @@ model = shared_model.model_copy(update={"purpose": "route"})
 
 def begin_node(state: State) -> dict:
     """按「规则 → Jev/Ollama 分类器 → 云端大模型」识别意图。"""
-    # 按「判断意图」这个用途，从当前对话里抽出最近几轮和还没办完的事，打包成L3可以看懂的上文。
+    # 按「判断意图」这个用途，从当前对话里抽出最近几轮和还没办完的事，打包成意图分类器可以看懂的上下文。
     messages = build_context(state, purpose="route")
     user_text = _latest_user_text(state)
     # 调用意图路由
@@ -100,14 +100,10 @@ def begin_node(state: State) -> dict:
     if local.safety_flags and "knowledge" not in selected_agents:
         selected_agents.insert(0, "knowledge")
 
-    # Clinical profile reads belong to knowledge, even if a generic classifier
-    # confuses "查询档案" with hospital administration. Explicit memory writes
-    # remain on the confirmation tool path so clinical content can be rejected.
+    # Clinical requests remain on knowledge even when the patient says “记住”.
     from app.graphs.hospital.nodes.knowledge import necessary_clinical_scopes
 
-    if not re.search(
-        r"记住|记下|保存.*偏好|更新.*偏好", user_text
-    ) and necessary_clinical_scopes(user_text):
+    if necessary_clinical_scopes(user_text):
         if re.search(r"挂号|预约|号源|排班|退号|科室|医生", user_text):
             if "knowledge" not in selected_agents:
                 selected_agents.insert(0, "knowledge")
@@ -196,7 +192,6 @@ _RULE_LABELS = {
     "exact_identity": "助手身份问题",
     "exact_clock_question": "当前时间问题",
     "identity_with_other_intents": "身份问题与其他意图并存",
-    "memory_action": "记忆偏好操作",
 }
 _SAFETY_LABELS = {
     "breathing_difficulty": "呼吸困难",
@@ -260,7 +255,6 @@ BEGIN_SYSTEM_PROMPT = """你是温润诊所患者端的意图路由器，不是�
 - tools：需要本院实时业务数据，或患者要办挂号、退号这类院内业务。
   包括：本院当前开设了哪些科室、查号源、查某位医生或某天排班、查我的预约，
   以及“帮我挂号”“我要退号”这类办理请求（由业务 Agent 查清号源并引导患者完成）。
-  也包括患者明确要求“记住/忘掉”沟通偏好、挂号偏好或无障碍需求。
 - chat：独立的寒暄、闲聊、感谢、情绪倾诉，或不要求专业知识的简短日常对话。
   也包括：本院楼层、营业时间、就诊须知等非医疗院务（礼貌引导到院咨询，不要编造）。
   也包括：问现在几点、今天几号、星期几——这是当前时间，不是本院营业时间，不要标域外。

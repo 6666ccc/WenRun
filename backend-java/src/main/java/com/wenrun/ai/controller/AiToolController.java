@@ -3,8 +3,6 @@ package com.wenrun.ai.controller;
 import com.wenrun.ai.security.DelegatedToolContext;
 import com.wenrun.ai.security.DelegatedToolPrincipal;
 import com.wenrun.ai.vo.AiRegistrationCreateRequest;
-import com.wenrun.ai.vo.AiMemoryWriteRequest;
-import com.wenrun.ai.service.AiPatientMemoryService;
 import com.wenrun.ai.service.PatientClinicalContextService;
 import com.wenrun.ai.vo.PatientClinicalContextVO;
 import com.wenrun.common.Result;
@@ -14,12 +12,6 @@ import com.wenrun.common.constant.BizStatus;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.dto.RegistrationCreateDTO;
 import com.wenrun.entity.Dept;
-import com.wenrun.entity.AiPatientMemory;
-import com.wenrun.entity.ChatMessage;
-import com.wenrun.repository.ChatMessageRepository;
-import com.wenrun.repository.AiConversationRepository;
-import com.wenrun.entity.AiConversation;
-import com.wenrun.entity.Staff;
 import com.wenrun.service.DeptService;
 import com.wenrun.service.RegistrationService;
 import com.wenrun.service.ScheduleService;
@@ -31,10 +23,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -58,21 +48,12 @@ public class AiToolController {
     private final ScheduleService scheduleService;
     private final StaffService staffService;
     private final RegistrationService registrationService;
-    private final AiPatientMemoryService memoryService;
-    private final ChatMessageRepository chatMessageRepository;
-    private final AiConversationRepository conversationRepository;
     private final PatientClinicalContextService clinicalContextService;
 
     @GetMapping("/departments")
     public Result<List<Dept>> listDepartments(@RequestParam(required = false) Integer status) {
         requireScope("departments:read");
         return Result.success(deptService.list(status));
-    }
-
-    @GetMapping("/departments/{id}")
-    public Result<Dept> getDepartment(@PathVariable Long id) {
-        requireScope("departments:read");
-        return Result.success(deptService.getById(id));
     }
 
     @GetMapping("/schedules")
@@ -98,24 +79,11 @@ public class AiToolController {
         return Result.success(staffService.list(deptId, status));
     }
 
-    @GetMapping("/staff/{id}")
-    public Result<Staff> getStaff(@PathVariable Long id) {
-        requireScope("staff:read");
-        return Result.success(staffService.getById(id));
-    }
-
     /** 只返回令牌所属患者本人的挂号记录，不接受调用方指定 patientId。 */
     @GetMapping("/registrations")
     public Result<List<RegistrationVO>> listMyRegistrations(@RequestParam(required = false) Integer status) {
         return Result.success(registrationService.list(
                 requirePatientId(), null, null, status));
-    }
-
-    /** 对齐 {@code /api/registrations/pending}，只看本人待就诊的号。 */
-    @GetMapping("/registrations/pending")
-    public Result<List<RegistrationVO>> listMyPendingRegistrations() {
-        return Result.success(registrationService.list(
-                requirePatientId(), null, null, BizStatus.REG_REGISTERED));
     }
 
     /** 为令牌所属患者挂号。真正的过期、号源、重复校验与幂等都在 RegistrationServiceImpl 里。 */
@@ -145,50 +113,6 @@ public class AiToolController {
     public Result<PatientClinicalContextVO> patientClinicalContext(@RequestParam String scopes) {
         requireScope("clinical:read");
         return Result.success(clinicalContextService.load(requireClinicalPatientId(), scopes));
-    }
-
-    @GetMapping("/memories")
-    public Result<List<AiPatientMemory>> listMyMemories() {
-        requireScope("memories:read");
-        return Result.success(memoryService.listActive(requireMemoryPatientId(false), 20));
-    }
-
-    /** Python 只能在 LangGraph interrupt 已获患者确认后调用此接口。 */
-    @PostMapping("/memories")
-    public Result<AiPatientMemory> createMyMemory(@Valid @RequestBody AiMemoryWriteRequest body) {
-        Long patientId = requireMemoryPatientId(true);
-        DelegatedToolPrincipal principal = DelegatedToolContext.getRequired();
-        // Provenance is resolved from the delegated user scope. Never trust a
-        // model-supplied database message id, even if one is present in JSON.
-        body.setSourceMessageId(null);
-        AiConversation source = conversationRepository.selectByUserIdAndConversationId(
-                principal.userId(), body.getSourceConversationId());
-        if (source == null || !java.util.Objects.equals(source.getPatientId(), patientId))
-            throw new BusinessException(ResultCode.FORBIDDEN, "偏好来源会话不属于当前患者");
-        if (body.getSourceConversationId() != null) {
-            List<ChatMessage> recent = chatMessageRepository.selectRecentByConversationIdAndUserId(
-                    body.getSourceConversationId(), principal.userId(), 10);
-            for (int index = recent.size() - 1; index >= 0; index--) {
-                ChatMessage message = recent.get(index);
-                if ("user".equals(message.getRole())) {
-                    body.setSourceMessageId(message.getId());
-                    break;
-                }
-            }
-        }
-        return Result.success(memoryService.createConfirmed(patientId, body));
-    }
-
-    @DeleteMapping("/memories/{memoryId}")
-    public Result<Void> deleteMyMemory(@PathVariable String memoryId) {
-        memoryService.delete(requireMemoryPatientId(true), memoryId);
-        return Result.success();
-    }
-
-    @PutMapping("/memories/{memoryId}")
-    public Result<AiPatientMemory> updateMyMemory(@PathVariable String memoryId,
-                                               @Valid @RequestBody AiMemoryWriteRequest body) {
-        return Result.success(memoryService.update(requireMemoryPatientId(true), memoryId, body));
     }
 
     private void requireScope(String scope) {
@@ -234,18 +158,4 @@ public class AiToolController {
         return principal.patientId();
     }
 
-    private Long requireMemoryPatientId(boolean write) {
-        DelegatedToolPrincipal principal = DelegatedToolContext.getRequired();
-        String scope = write ? "memories:write" : "memories:read";
-        if (!principal.hasScope(scope)) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "AI 委托令牌没有所需权限");
-        }
-        if (write && !AccountType.PATIENT.equals(principal.accountType())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "只有患者本人可以管理长期记忆");
-        }
-        if (principal.patientId() == null) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "当前账号还没有绑定患者档案");
-        }
-        return principal.patientId();
-    }
 }

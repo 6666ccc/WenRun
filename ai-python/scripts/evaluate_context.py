@@ -43,14 +43,10 @@ def deterministic_cases():
                             "patient_self_reports": ["咳嗽自述"],
                             "pending_tasks": ["选择科室"],
                         },
-                        "long_term_memories": [
-                            {"type": "communication_preference", "content": "短句偏好"}
-                        ],
                     },
                     purpose=case["purpose"],
                 )
                 assert ("咳嗽自述" in str(result)) == case["clinical"]
-                assert ("短句偏好" in str(result)) == case["preference"]
             elif kind == "schema":
                 try:
                     ConversationSummary.model_validate(
@@ -97,21 +93,6 @@ def deterministic_cases():
                 assert is_authoritative_url(case["url"]) == case["allowed"]
             elif kind == "scopes":
                 assert necessary_clinical_scopes(case["query"]) == case["expected"]
-            elif kind == "expiry":
-                result = build_context(
-                    {
-                        "messages": [HumanMessage(content="你好")],
-                        "long_term_memories": [
-                            {
-                                "type": "communication_preference",
-                                "content": "失效偏好",
-                                "expireTime": case["expiry"],
-                            }
-                        ],
-                    },
-                    purpose="chat",
-                )
-                assert "失效偏好" not in str(result)
             else:
                 raise ValueError("unknown fixture kind")
             results.append({"id": case["id"], "passed": True})
@@ -208,7 +189,7 @@ def main():
                 "tests/unit/test_summary_commit.py",
                 "tests/unit/test_budgeted_model.py",
                 "tests/unit/test_full_recovery.py",
-                "tests/unit/test_preference_replay.py",
+                "tests/unit/test_confirmation_kinds.py",
                 "tests/unit/test_turn_isolation.py",
                 "tests/unit/test_graph_topology.py",
             ],

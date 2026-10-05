@@ -35,7 +35,7 @@ SUMMARY_SYSTEM_PROMPT = """你是温润诊所患者端对话的历史压缩器�
 患者描述的症状、用药、过敏等只能进入 patient_self_reports，不能当作已验证事实。
 不要写入身份证号、手机号、住址、网址或对象存储签名链接，也不要把数据库里的健康档案抄进摘要。
 patient_self_reports 的 text 必须摘录患者原文片段，source_message_id 必须来自对应患者消息标注的数据库 ID。
-不要摘录助手提及的临床档案数值，也不要把工具结果当作患者自述。不能生成已验证事实或长期偏好。
+不要摘录助手提及的临床档案数值，也不要把工具结果当作患者自述。不能生成已验证事实。
 pending_tasks 表示会话未解决事项，只帮助后续追问，不是事务台账，不能触发业务操作。
 逐项提取仍需追问、核对、选择、查询排班等请求；“还要”“尚未”“还需要确认”必须保留对应事项。
 一句中的多项请求分别保留；例如“儿科和内科都还要问排班”应产生“查询儿科排班”和“查询内科排班”两项。
@@ -79,11 +79,6 @@ def _transcript(messages: list) -> str:
             db_id = message.additional_kwargs.get("db_id")
             lines.append(f"[source_message_id={db_id}] {speaker}：{content.strip()}")
     return "\n".join(lines)
-
-
-def _item_key(value: str) -> str:
-    """取条目的字段名前缀，用于判断新旧事实是否描述同一件事。"""
-    return re.split(r"[:：=]", value, maxsplit=1)[0].strip().lower()
 
 
 def _merge_items(old: list[str], new: list[str], superseded: list[str]) -> list[str]:

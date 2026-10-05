@@ -202,7 +202,6 @@ public class aiService {
         payload.put("memoryEnabled", request.getMemoryEnabled() == null
                 ? Boolean.TRUE : request.getMemoryEnabled());
         payload.put("fastMode", request.getFastMode() != null && request.getFastMode());
-        payload.put("preferencesEnabled", !Boolean.FALSE.equals(request.getPreferencesEnabled()));
         payload.put("clientRequestId", request.getClientRequestId());
         payload.put("currentMessageId", request.getCurrentMessageId());
         payload.put("executionId", request.getExecutionId());
@@ -226,22 +225,6 @@ public class aiService {
             if (!recoveryMessages.isEmpty()) {
                 payload.put("recoveryMessages", recoveryMessages);
             }
-        }
-        if (!Boolean.FALSE.equals(request.getPreferencesEnabled()) && request.getLongTermMemories() != null && !request.getLongTermMemories().isEmpty()) {
-            List<Map<String, Object>> memories = request.getLongTermMemories().stream()
-                    .limit(20)
-                    .map(memory -> {
-                        Map<String, Object> item = new LinkedHashMap<>();
-                        item.put("memoryId", memory.getMemoryId());
-                        item.put("type", memory.getType());
-                        item.put("content", memory.getContent());
-                        item.put("status", memory.getStatus());
-                        item.put("updateTime", memory.getUpdateTime());
-                        item.put("expireTime", memory.getExpireTime());
-                        return item;
-                    })
-                    .toList();
-            payload.put("longTermMemories", memories);
         }
         addUserContext(payload, request.getUserId(), request.getPatientId());
         return payload;

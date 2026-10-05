@@ -29,28 +29,18 @@ class AiToolCallLogTest {
     void mapsPythonToolNamesFromInternalPaths() {
         assertEquals("list_departments",
                 AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/departments"));
-        assertEquals("get_department",
-                AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/departments/3"));
         assertEquals("list_schedules",
                 AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/schedules"));
         assertEquals("get_schedule",
                 AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/schedules/9"));
         assertEquals("list_doctors",
                 AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/staff"));
-        assertEquals("get_staff",
-                AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/staff/8"));
         assertEquals("list_my_registrations",
                 AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/registrations"));
-        assertEquals("list_my_pending_registrations",
-                AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/registrations/pending"));
         assertEquals("create_registration",
                 AiToolCallLog.resolveTool("POST", "/api/internal/ai-tools/registrations"));
         assertEquals("cancel_registration",
                 AiToolCallLog.resolveTool("POST", "/api/internal/ai-tools/registrations/55/cancel"));
-        assertEquals("remember_preference",
-                AiToolCallLog.resolveTool("POST", "/api/internal/ai-tools/memories"));
-        assertEquals("forget_preference",
-                AiToolCallLog.resolveTool("DELETE", "/api/internal/ai-tools/memories/mem-1"));
         assertEquals("patient_clinical_context",
                 AiToolCallLog.resolveTool("GET", "/api/internal/ai-tools/patient-clinical-context"));
     }

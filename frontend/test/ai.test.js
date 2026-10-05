@@ -1,17 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { consumeChatEvents, normalizeChatEvent } from '../src/api/modules/ai.js'
-
-test('normalizeChatEvent returns the event unchanged', () => {
-  const event = {
-    type: 'done',
-    conversationId: 'conversation-1',
-    reply: 'hello',
-  }
-
-  assert.deepEqual(normalizeChatEvent(event), event)
-})
+import { consumeChatEvents } from '../src/api/modules/ai.js'
 
 test('structured progress reaches the UI without becoming answer text', async () => {
   const steps = []
@@ -121,4 +111,15 @@ test('confirm event after tokens still ends as a pending confirmation', async ()
   assert.equal(result.status, 'confirming')
   assert.equal(result.interruptId, 'int-2')
   assert.equal(seen[0].prompt, '请确认是否为您挂 2026-09-05 下午 儿科 赵敏 的号')
+})
+
+
+test('unsupported confirmation events never render a card', async () => {
+  const seen = []
+  const result = await consumeChatEvents([
+    { type: 'confirm', kind: 'memory_create', prompt: '确认保存' },
+    { type: 'done', reply: '继续本次对话' },
+  ], { onConfirm: value => seen.push(value) })
+  assert.deepEqual(seen, [])
+  assert.equal(result.status, 'completed')
 })

@@ -1,0 +1,126 @@
+name: wenrun
+
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  mysql:
+    <<: *runtime
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: wenrun
+      MYSQL_USER: wenrun
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docs/SQL/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql -h 127.0.0.1 -u wenrun wenrun -e 'SELECT 1' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  redis:
+    <<: *runtime
+    image: redis:8-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis-data:/data
+      - ./deploy/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ai-python:
+    <<: *runtime
+    stop_grace_period: 40s
+    image: wenrun-ai:${RELEASE_TAG:-local}
+    build: {context: ., dockerfile: ai-python/Dockerfile}
+    environment:
+      TZ: Asia/Shanghai
+      RAG_ENVIRONMENT: production
+      RAG_DATABASE_BACKEND: mysql
+      RAG_METADATA_MYSQL_HOST: mysql
+      RAG_METADATA_MYSQL_DATABASE: wenrun
+      RAG_METADATA_MYSQL_USER: wenrun
+      RAG_METADATA_MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD}
+      RAG_STORAGE_DIR: /app/data/rag-assets
+      CHROMA_PERSIST_DIR: /app/data/chroma
+      AI_INTERNAL_API_KEY: ${AI_SERVICE_API_KEY:?Set AI_SERVICE_API_KEY}
+      AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:?Set delegation secret}
+      AI_REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379/0
+      JAVA_TOOL_BASE_URL: http://backend-java:8080
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?Set model API key}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:?Set chat model}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:?Set embedding model}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      INTENT_BACKEND: ${INTENT_BACKEND:-jev}
+      TOKENDANCE_API_KEY: ${TOKENDANCE_API_KEY:-}
+      INTENT_OLLAMA_BASE_URL: ${INTENT_OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      AI_LOG_AGENT_OUTPUTS: "false"
+    volumes:
+      - ai-data:/app/data
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  backend-java:
+    <<: *runtime
+    image: wenrun-java:${RELEASE_TAG:-local}
+    build: {context: ., dockerfile: backend-java/Dockerfile}
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65 -Dfile.encoding=UTF-8
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/wenrun?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: wenrun
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_DATABASE: "1"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      WENRUN_AUTH_SESSION_STORE: redis
+      WENRUN_CORS_ALLOWED_ORIGINS: ${APP_ORIGIN:?Set APP_ORIGIN}
+      AI_SERVICE_BASE_URL: http://ai-python:8000
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?Set AI_SERVICE_API_KEY}
+      AI_DELEGATION_SIGNING_SECRET: ${AI_DELEGATION_SIGNING_SECRET:?Set delegation secret}
+      SERVER_SHUTDOWN: graceful
+      SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 30s
+    stop_grace_period: 40s
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      ai-python: {condition: service_healthy}
+
+  frontend:
+    <<: *runtime
+    image: wenrun-web:${RELEASE_TAG:-local}
+    build: {context: ., dockerfile: frontend/Dockerfile}
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-18080}:80"
+    networks:
+      default:
+      panel:
+        aliases: [wenrun-web]
+    depends_on:
+      backend-java: {condition: service_healthy}
+
+networks:
+  panel:
+    external: true
+    name: ${PANEL_NETWORK:-1panel-network}
+
+volumes:
+  mysql-data:
+  redis-data:
+  ai-data:

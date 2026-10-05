@@ -37,7 +37,7 @@ from app.graphs.hospital.checkpointing import (
     get_fast_memory_graph,
     get_memory_graph,
 )
-from app.graphs.hospital.confirmation import decision_from_text
+from app.graphs.hospital.confirmation import CONFIRMATION_KINDS, decision_from_text
 from app.graphs.hospital.confirmation import resume_command as _resume_command
 from app.graphs.hospital.context_builder import ContextBudgetError, coerce_summary
 from app.graphs.hospital.graphs import fast_graph, graph
@@ -103,6 +103,8 @@ async def chat_stream(
         raise HTTPException(
             status_code=409, detail="会话患者与当前档案不一致，请新建会话"
         )
+    if has_checkpointer and await _discard_unsupported_checkpoint(graph_instance, config, snapshot):
+        snapshot = None
     checkpoint_hit = _checkpoint_has_messages(snapshot)
     if has_checkpointer:
         pending = _confirmations_from_snapshot(snapshot)
@@ -284,7 +286,7 @@ def _confirmations_from_snapshot(snapshot: Any | None) -> list[dict[str, Any]]:
     for pending in getattr(snapshot, "interrupts", ()) or ():
         value = getattr(pending, "value", None)
         interrupt_id = getattr(pending, "id", None)
-        if not interrupt_id or not isinstance(value, dict) or not value.get("kind"):
+        if not interrupt_id or not isinstance(value, dict) or value.get("kind") not in CONFIRMATION_KINDS:
             continue
         found.append(
             {
@@ -292,10 +294,26 @@ def _confirmations_from_snapshot(snapshot: Any | None) -> list[dict[str, Any]]:
                 "kind": value.get("kind"),
                 "prompt": value.get("prompt"),
                 "detail": value.get("detail") or {},
-                "_preference_snapshot": value.get("_preference_snapshot"),
             }
         )
     return found
+
+
+async def _discard_unsupported_checkpoint(graph_instance, config: dict, snapshot: Any | None) -> bool:
+    """Retire obsolete graph executions; authoritative database history is recovered next turn."""
+    interrupts = getattr(snapshot, "interrupts", ()) or ()
+    unsupported = any(
+        not isinstance(getattr(item, "value", None), dict)
+        or item.value.get("kind") not in CONFIRMATION_KINDS
+        for item in interrupts
+    )
+    if not unsupported:
+        return False
+    try:
+        await graph_instance.checkpointer.adelete_thread(config["configurable"]["thread_id"])
+    except Exception:  # noqa: BLE001 - saver backends expose heterogeneous failures
+        raise HTTPException(status_code=503, detail="旧会话状态清理失败，请稍后重试") from None
+    return True
 
 
 def _initial_state(
@@ -325,11 +343,6 @@ def _initial_state(
         "requires_recovery": False,
         "conversation_id": request.conversation_id,
         "patient_id": delegation.identity.patient_id,
-        "long_term_memories": [
-            item.model_dump(by_alias=True) for item in request.long_term_memories
-        ]
-        if request.preferences_enabled
-        else [],
     }
 
 
@@ -351,11 +364,6 @@ def _recovery_state(
         ),
         "conversation_id": request.conversation_id,
         "patient_id": delegation.identity.patient_id,
-        "long_term_memories": [
-            item.model_dump(by_alias=True) for item in request.long_term_memories
-        ]
-        if request.preferences_enabled
-        else [],
     }
 
 
@@ -932,15 +940,17 @@ async def chat_resume(
         raise HTTPException(
             status_code=503, detail="确认状态暂时不可用，请稍后重试"
         ) from exc
-    pending = _confirmations_from_snapshot(snapshot)
     if (
-        pending
+        getattr(snapshot, "interrupts", ())
         and (getattr(snapshot, "values", None) or {}).get("patient_id")
         != delegation.identity.patient_id
     ):
         raise HTTPException(
             status_code=409, detail="确认卡片的患者关联不匹配，请重新发起并确认"
         )
+    if await _discard_unsupported_checkpoint(graph_instance, config, snapshot):
+        snapshot = None
+    pending = _confirmations_from_snapshot(snapshot)
     logger.info(
         "chat_resume_pending conversation_id={} pending_count={} ids={} kinds={} interrupt_id={}",
         request.conversation_id,

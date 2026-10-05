@@ -2,19 +2,14 @@ package com.wenrun.ai.controller;
 
 import com.wenrun.ai.security.DelegatedToolContext;
 import com.wenrun.ai.security.DelegatedToolPrincipal;
-import com.wenrun.ai.service.AiPatientMemoryService;
 import com.wenrun.ai.service.PatientClinicalContextService;
 import com.wenrun.ai.vo.PatientClinicalContextVO;
-import com.wenrun.ai.vo.AiMemoryWriteRequest;
 import com.wenrun.ai.vo.AiRegistrationCreateRequest;
 import com.wenrun.common.constant.AccountType;
 import com.wenrun.common.constant.BizStatus;
 import com.wenrun.common.exception.BusinessException;
 import com.wenrun.dto.RegistrationCreateDTO;
-import com.wenrun.entity.ChatMessage;
 import com.wenrun.entity.Dept;
-import com.wenrun.entity.Staff;
-import com.wenrun.repository.ChatMessageRepository;
 import com.wenrun.service.DeptService;
 import com.wenrun.service.RegistrationService;
 import com.wenrun.service.ScheduleService;
@@ -44,14 +39,10 @@ class AiToolControllerTest {
     private final ScheduleService scheduleService = mock(ScheduleService.class);
     private final StaffService staffService = mock(StaffService.class);
     private final RegistrationService registrationService = mock(RegistrationService.class);
-    private final AiPatientMemoryService memoryService = mock(AiPatientMemoryService.class);
-    private final ChatMessageRepository chatMessageRepository = mock(ChatMessageRepository.class);
-    private final com.wenrun.repository.AiConversationRepository conversationRepository =
-            mock(com.wenrun.repository.AiConversationRepository.class);
     private final PatientClinicalContextService clinicalContextService = mock(PatientClinicalContextService.class);
     private final AiToolController controller =
             new AiToolController(deptService, scheduleService, staffService, registrationService,
-                    memoryService, chatMessageRepository, conversationRepository, clinicalContextService);
+                    clinicalContextService);
 
     @AfterEach
     void clearContext() {
@@ -73,27 +64,12 @@ class AiToolControllerTest {
         verify(deptService).list(1);
     }
 
-    @Test
-    void departmentDetailToolUsesJavaServiceAfterScopeCheck() {
-        Dept dept = new Dept();
-        dept.setId(3L);
-        dept.setDeptName("儿科");
-        when(deptService.getById(3L)).thenReturn(dept);
-        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, "patient",
-                Set.of("departments:read"), "token-1"));
-
-        Dept found = controller.getDepartment(3L).getData();
-
-        assertEquals("儿科", found.getDeptName());
-        verify(deptService).getById(3L);
-    }
 
     @Test
     void departmentsToolRejectsMissingScope() {
         DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, "patient", Set.of(), "token-1"));
 
         assertThrows(BusinessException.class, () -> controller.listDepartments(1));
-        assertThrows(BusinessException.class, () -> controller.getDepartment(3L));
         verifyNoInteractions(deptService);
     }
 
@@ -155,18 +131,6 @@ class AiToolControllerTest {
         verify(staffService).list(1L, 1);
     }
 
-    @Test
-    void staffDetailToolUsesJavaServiceAfterScopeCheck() {
-        Staff staff = new Staff();
-        staff.setId(8L);
-        staff.setName("张医生");
-        when(staffService.getById(8L)).thenReturn(staff);
-        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, "patient",
-                Set.of("staff:read"), "token-1"));
-
-        assertEquals("张医生", controller.getStaff(8L).getData().getName());
-        verify(staffService).getById(8L);
-    }
 
     @Test
     void staffToolRejectsMissingScope() {
@@ -174,7 +138,6 @@ class AiToolControllerTest {
                 Set.of("departments:read"), "token-1"));
 
         assertThrows(BusinessException.class, () -> controller.listStaff(1L, 1));
-        assertThrows(BusinessException.class, () -> controller.getStaff(8L));
         verifyNoInteractions(staffService);
     }
 
@@ -195,17 +158,6 @@ class AiToolControllerTest {
         verify(registrationService).list(11L, null, null, BizStatus.REG_REGISTERED);
     }
 
-    @Test
-    void pendingRegistrationsToolFiltersByRegisteredStatus() {
-        when(registrationService.list(11L, null, null, BizStatus.REG_REGISTERED))
-                .thenReturn(List.of());
-        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, "patient",
-                Set.of("registrations:read"), "token-1"));
-
-        controller.listMyPendingRegistrations();
-
-        verify(registrationService).list(11L, null, null, BizStatus.REG_REGISTERED);
-    }
 
     @Test
     void registrationsToolRejectsTokenWithoutPatientProfile() {
@@ -213,7 +165,6 @@ class AiToolControllerTest {
                 Set.of("registrations:read"), "token-1"));
 
         assertThrows(BusinessException.class, () -> controller.listMyRegistrations(null));
-        assertThrows(BusinessException.class, controller::listMyPendingRegistrations);
         verifyNoInteractions(registrationService);
     }
 
@@ -223,7 +174,6 @@ class AiToolControllerTest {
                 Set.of("departments:read"), "token-1"));
 
         assertThrows(BusinessException.class, () -> controller.listMyRegistrations(null));
-        assertThrows(BusinessException.class, controller::listMyPendingRegistrations);
         verifyNoInteractions(registrationService);
     }
 
@@ -304,29 +254,14 @@ class AiToolControllerTest {
     }
 
     @Test
-    void memoryCreateResolvesSourceMessageInsideDelegatedUserScope() {
-        DelegatedToolContext.set(new DelegatedToolPrincipal(7L, 11L, AccountType.PATIENT,
-                Set.of("memories:write"), "token-1"));
-        ChatMessage userMessage = new ChatMessage();
-        userMessage.setId(42L);
-        userMessage.setRole("user");
-        when(chatMessageRepository.selectRecentByConversationIdAndUserId(
-                "conversation-1", 7L, 10)).thenReturn(List.of(userMessage));
-        AiMemoryWriteRequest body = new AiMemoryWriteRequest();
-        body.setType("communication_preference");
-        body.setContent("请用简短中文");
-        body.setSourceConversationId("conversation-1");
-        body.setSourceMessageId(999L);
-
-        com.wenrun.entity.AiConversation conversation = new com.wenrun.entity.AiConversation();
-        conversation.setPatientId(11L);
-        when(conversationRepository.selectByUserIdAndConversationId(7L, body.getSourceConversationId())).thenReturn(conversation);
-        controller.createMyMemory(body);
-
-        assertEquals(42L, body.getSourceMessageId());
-        verify(chatMessageRepository).selectRecentByConversationIdAndUserId(
-                "conversation-1", 7L, 10);
-        verify(memoryService).createConfirmed(11L, body);
+    void preferenceEndpointsAreNoLongerExposedToAiTools() throws Exception {
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        for (String method : java.util.List.of("GET", "POST", "PUT", "DELETE")) {
+            String path = "/api/internal/ai-tools/memories" + (method.equals("PUT") || method.equals("DELETE") ? "/m" : "");
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                    .request(org.springframework.http.HttpMethod.valueOf(method), path))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        }
     }
 
     @Test

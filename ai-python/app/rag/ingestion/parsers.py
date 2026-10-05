@@ -253,11 +253,6 @@ class NativeDocumentParser(DocumentParser):
         }
         return elements, coverage
 
-    @staticmethod
-    def _pdf_elements(data: bytes) -> list[ParsedElement]:
-        """Compatibility wrapper retained for existing direct parser tests."""
-
-        return NativeDocumentParser._parse_pdf(data, "document")[0]
 
     @classmethod
     def _parse_docx(
@@ -739,10 +734,10 @@ def _docling_provenance(item: Any, pages: Any) -> tuple[SourceProvenance, ...]:
         if bbox_obj is not None:
             try:
                 bbox = (
-                    float(getattr(bbox_obj, "l")),
-                    float(getattr(bbox_obj, "t")),
-                    float(getattr(bbox_obj, "r")),
-                    float(getattr(bbox_obj, "b")),
+                    float(bbox_obj.l),
+                    float(bbox_obj.t),
+                    float(bbox_obj.r),
+                    float(bbox_obj.b),
                 )
             except (TypeError, ValueError, AttributeError):
                 bbox = None

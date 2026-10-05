@@ -1,3 +1,5 @@
+import { isSupportedConfirmation } from './confirmation.js'
+
 export const DEFAULT_SESSION_TITLE = '新的问诊'
 const SESSION_STORAGE_KEY = 'wenrun_ai_sessions'
 const SESSION_OWNER_KEY = 'wenrun_ai_sessions_owner'
@@ -21,13 +23,15 @@ const MESSAGE_STATUSES = new Set(['pending', 'streaming', 'completed', 'error', 
 
 function normalizeMessage(message, index) {
   const rawMeta = message.meta && typeof message.meta === 'object' ? message.meta : {}
-  const status = MESSAGE_STATUSES.has(rawMeta.status) ? rawMeta.status : 'completed'
+  const confirm = isSupportedConfirmation(rawMeta.confirm) ? rawMeta.confirm : null
+  const status = MESSAGE_STATUSES.has(rawMeta.status) && (rawMeta.status !== 'confirming' || confirm)
+    ? rawMeta.status : 'completed'
   return {
     id: typeof message.id === 'string' && message.id ? message.id : `legacy_${index}_${message.role}`,
     role: message.role,
     content: message.content,
     sources: Array.isArray(message.sources) ? message.sources : [],
-    meta: { ...rawMeta, status },
+    meta: { ...rawMeta, status, confirm },
   }
 }
 
@@ -114,7 +118,7 @@ export function normalizeServerConversations(conversations, messagesById = {}) {
 
 export function sessionHasPendingConfirm(session) {
   return Boolean(session?.messages?.some((message) => (
-    message?.role === 'assistant' && message?.meta?.confirm
+    message?.role === 'assistant' && isSupportedConfirmation(message?.meta?.confirm)
   )))
 }
 

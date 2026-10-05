@@ -350,3 +350,12 @@ def test_begin_node_trusts_rules_even_during_followup(monkeypatch):
 def test_begin_prompt_explains_followup_continuation():
     assert "追问接续" in begin.BEGIN_SYSTEM_PROMPT
     assert "患者：“明天下午” → tools" in begin.BEGIN_SYSTEM_PROMPT
+
+
+def test_obesity_self_report_never_becomes_preference_write_route(monkeypatch):
+    monkeypatch.setattr(begin, "_route_locally", lambda text: LocalRouteResult(
+        accepted=True, selected_agents=["tools"], stage="rules"))
+    for text in ["我最近有些肥胖，你推荐食物的时候要注意一下。", "请记住我最近有些肥胖，推荐食物时注意一下。"]:
+        result = begin.begin_node({"messages": [HumanMessage(content=text)]})
+        assert result["selected_agents"] == ["knowledge"]
+        assert result["intent_route"]["clinical_profile_route_guard"] is True

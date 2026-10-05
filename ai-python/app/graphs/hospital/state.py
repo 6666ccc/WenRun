@@ -127,4 +127,3 @@ class State(MessagesState):
     tools_reply: str | None  # 工具节点写入，用户选择工具
     final_reply: str | None  # 汇总节点写入，最终回复
     summary: ConversationSummary | dict | str | None  # 兼容旧 checkpoint 的字符串摘要
-    long_term_memories: list[dict]  # Java 权威存储候选；Context Builder 最多选择 5 条

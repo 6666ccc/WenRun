@@ -245,7 +245,6 @@ def test_write_tools_are_only_mounted_on_the_writable_agent():
     assert writable == {
         "create_registration",
         "cancel_registration",
-        "remember_preference",
     }
     assert not (read_only & writable)
 
@@ -256,7 +255,6 @@ def test_write_prompt_documents_every_write_tool_and_forbids_faking_success():
     for name in (
         "create_registration",
         "cancel_registration",
-        "remember_preference",
     ):
         assert name in prompt
     # 确认卡片由系统渲染，模型不能自己声称已经办好。

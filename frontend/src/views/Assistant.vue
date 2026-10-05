@@ -58,6 +58,7 @@ function send(text = input.value) {
   nextTick(resetComposerHeight)
 }
 
+
 function promptForMessage(message) {
   const requestId = message?.meta?.requestId
   return assistant.activeSession.value?.messages.find((item) => (
@@ -93,11 +94,6 @@ const renderMarkdown = (value) => renderAssistantMarkdown(value, {
 })
 
 const CONFIRM_FIELD_LABELS = {
-  patientId: '患者档案编号',
-  content: '偏好内容',
-  oldContent: '旧值',
-  newContent: '新值',
-  expireTime: '有效期',
   deptName: '科室',
   staffName: '医生',
   workDate: '日期',
@@ -264,7 +260,7 @@ onBeforeUnmount(() => {
                     </dl>
                     <div class="chat-confirm__actions">
                       <button type="button" class="chat-confirm__cancel" @click="assistant.rejectPending(message)">再想想</button>
-                      <button type="button" class="chat-confirm__ok" @click="assistant.confirmPending(message)">{{ message.meta.confirm.kind?.startsWith('memory_') ? '确认保存' : '确认办理' }}</button>
+                      <button type="button" class="chat-confirm__ok" @click="assistant.confirmPending(message)">确认办理</button>
                     </div>
                   </div>
                   <CitationList v-if="message.sources?.length" :sources="message.sources" />
@@ -322,14 +318,7 @@ onBeforeUnmount(() => {
               </button>
               <button class="chat-composer__mode-help" type="button" aria-controls="fast-mode-help" :aria-expanded="fastModeHelp" @click="fastModeHelp = !fastModeHelp">说明</button>
             </span>
-            <button class="chat-composer__chip" type="button" @click="openTask({ type: 'registration', title: '预约挂号' })">
-              <UiIcon name="calendar" :size="15" />挂号
-            </button>
-            <button class="chat-composer__chip" type="button" @click="openTask({ type: 'records', title: '挂号记录' })">
-              <UiIcon name="record" :size="15" />我的挂号
-            </button>
           </div>
-          <button type="button" class="chat-composer__mode" :aria-pressed="assistant.preferencesEnabled.value" @click="assistant.togglePreferences()">使用已保存偏好：{{ assistant.preferencesEnabled.value ? '开' : '关' }}</button>
           <p v-if="fastModeHelp" id="fast-mode-help" class="chat-composer__mode-note">快速模式回答更快，可查询公开资料，但不能查询本院号源、排班或院内规定。</p>
           <button v-if="assistant.replying.value" class="chat-composer__send is-stop" type="button" aria-label="停止生成" @click="assistant.stopReply">
             <UiIcon name="stop" :size="13" />
@@ -731,10 +720,10 @@ onBeforeUnmount(() => {
 .chat-composer__tools {
   grid-area: tools;
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  align-items: center;
 }
 
 .chat-composer__mode { display: inline-flex; align-items: stretch; flex: 0 0 auto; }
@@ -748,8 +737,6 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary); font-size: 12px; line-height: 1.5;
 }
 .chat-composer__active-text { margin-left: 2px; font-size: 11px; }
-
-.chat-composer__tools::-webkit-scrollbar { display: none; }
 
 .chat-composer__chip {
   display: inline-flex;
@@ -989,6 +976,8 @@ onBeforeUnmount(() => {
 @media (max-width: 767px) {
   .chat-main__inner { padding: 4px 16px 8px; }
   .chat-composer-wrap { padding-left: 12px; padding-right: 12px; }
+  .chat-composer { grid-template-areas: "input send" "tools tools" "help help"; }
+  .chat-composer__active-text { display: none; }
   .chat-message__user-content { max-width: 86%; }
   .chat-message__copy { opacity: 1; }
   .chat-message__assistant-content :deep(.chat-slot) {
@@ -1018,7 +1007,6 @@ onBeforeUnmount(() => {
   }
   .chat-composer textarea, .chat-composer textarea:focus, .chat-composer textarea:focus-visible { max-height: 52px; padding-block: 7px; }
   .chat-composer__tools { align-items: center; }
-  .chat-composer__tools > .chat-composer__chip:last-child { display: none; }
   .chat-composer__active-text { display: none; }
   .chat-disclaimer { margin-top: 4px; font-size: 11px; }
 }

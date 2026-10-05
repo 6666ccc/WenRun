@@ -1,3 +1,4 @@
+
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
@@ -80,45 +81,13 @@ def test_untrusted_history_never_becomes_a_system_message():
     )
 
 
-def test_context_builder_injects_at_most_five_relevant_allowed_memories():
-    result = build_context(
-        {
-            "messages": [HumanMessage(content="帮我预约上午的号")],
-            "long_term_memories": [
-                {
-                    "type": "appointment_preference",
-                    "content": f"预约偏好 {index}",
-                    "status": "active",
-                }
-                for index in range(8)
-            ]
-            + [
-                {
-                    "type": "diagnosis",
-                    "content": "不允许注入的医学结论",
-                    "status": "active",
-                }
-            ],
-        },
-        purpose="tools",
-    )
-
-    memory_message = next(
-        message
-        for message in result
-        if message.additional_kwargs.get("context_source") == "long_term_preferences"
-    )
-    assert memory_message.content.count('"source":"confirmed_patient_memory"') == 5
-    assert "不允许注入的医学结论" not in memory_message.content
-
-
 def _rendered(purpose: str, **state) -> str:
     return "\n".join(
         str(message.content) for message in build_context(state, purpose=purpose)
     )
 
 
-def test_context_builder_filters_summary_and_preferences_by_purpose():
+def test_context_builder_filters_summary_and_ignores_retired_preferences():
     state = {
         "messages": [HumanMessage(content="你好")],
         "summary": {
@@ -152,7 +121,7 @@ def test_context_builder_filters_summary_and_preferences_by_purpose():
     assert "请用短句" not in route
 
     chat = _rendered("chat", **state)
-    assert "请用短句" in chat
+    assert "请用短句" not in chat
     assert "咳嗽三天" not in chat
     assert "偏好上午" not in chat
     assert "轮椅" not in chat
@@ -161,7 +130,7 @@ def test_context_builder_filters_summary_and_preferences_by_purpose():
     assert "咳嗽三天" in knowledge
     assert "user_statement" in knowledge
     assert "unverified" in knowledge
-    assert "请用短句" in knowledge
+    assert "请用短句" not in knowledge
     assert "偏好上午" not in knowledge
     assert "已挂内科" not in knowledge
 
@@ -172,7 +141,7 @@ def test_context_builder_filters_summary_and_preferences_by_purpose():
     assert "偏好上午" not in tools
 
     fast = _rendered("fast", **state)
-    assert "请用短句" in fast
+    assert "请用短句" not in fast
     assert "咳嗽三天" not in fast
     assert "偏好上午" not in fast
 

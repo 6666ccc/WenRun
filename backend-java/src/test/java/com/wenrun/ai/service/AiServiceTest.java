@@ -4,7 +4,6 @@ import com.wenrun.ai.vo.aiRequest;
 import com.wenrun.ai.vo.aiResumeRequest;
 import com.wenrun.common.ResultCode;
 import com.wenrun.common.exception.BusinessException;
-import com.wenrun.entity.AiPatientMemory;
 import com.wenrun.entity.ChatMessage;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -42,9 +41,8 @@ class AiServiceTest {
                 .andExpect(jsonPath("$.recoveryMessages[0].id").value(91))
                 .andExpect(jsonPath("$.recoveryMessages[0].role").value("user"))
                 .andExpect(jsonPath("$.recoveryMessages[0].content").value("上一轮问题"))
-                .andExpect(jsonPath("$.longTermMemories[0].memoryId").value("memory-1"))
-                .andExpect(jsonPath("$.longTermMemories[0].type").value("communication_preference"))
-                .andExpect(jsonPath("$.longTermMemories[0].content").value("请用简短中文"))
+                .andExpect(jsonPath("$.longTermMemories").doesNotExist())
+                .andExpect(jsonPath("$.preferencesEnabled").doesNotExist())
                 .andRespond(withSuccess("""
                         data: {"type":"status","content":"正在分析"}
 
@@ -66,12 +64,6 @@ class AiServiceTest {
         recoveryMessage.setRole("user");
         recoveryMessage.setContent("上一轮问题");
         request.setRecoveryMessages(List.of(recoveryMessage));
-        AiPatientMemory memory = new AiPatientMemory();
-        memory.setMemoryId("memory-1");
-        memory.setType("communication_preference");
-        memory.setContent("请用简短中文");
-        memory.setStatus("active");
-        request.setLongTermMemories(List.of(memory));
         List<Map<String, Object>> events = new ArrayList<>();
 
         service.streamChat(request, events::add);

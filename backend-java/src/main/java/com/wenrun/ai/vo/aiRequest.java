@@ -2,7 +2,6 @@ package com.wenrun.ai.vo;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.wenrun.entity.ChatMessage;
-import com.wenrun.entity.AiPatientMemory;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -29,8 +28,6 @@ public class aiRequest {
      * 是否允许 Python AI 服务使用会话记忆；未传时由 Python 服务使用默认值。
      */
     private Boolean memoryEnabled;
-    /** Only controls L3 retrieval/injection, never checkpoints or HITL. */
-    private Boolean preferencesEnabled = true;
 
     @JsonIgnore
     private Long currentMessageId;
@@ -65,7 +62,4 @@ public class aiRequest {
     @JsonIgnore
     private List<ChatMessage> recoveryMessages = List.of();
 
-    /** Java 按 delegated patient 读取的 active 偏好；浏览器不能注入。 */
-    @JsonIgnore
-    private List<AiPatientMemory> longTermMemories = List.of();
 }

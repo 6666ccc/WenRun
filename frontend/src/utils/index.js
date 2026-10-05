@@ -39,12 +39,6 @@ export function formatDateTime(v) {
   return `${date} ${hh}:${mm}`
 }
 
-/* ---------- 文本截断 ---------- */
-export function truncate(text, maxLen = 20) {
-  if (!text) return ''
-  return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
-}
-
 /* ---------- 获取 today 的 ISO 日期字符串 ---------- */
 export function todayISO() {
   return formatDate(new Date())

@@ -35,8 +35,6 @@ public class DelegationTokenService {
             "staff:read",
             "registrations:read",
             "registrations:write",
-            "memories:read",
-            "memories:write",
             "conversations:read",
             "conversations:write",
             "clinical:read");

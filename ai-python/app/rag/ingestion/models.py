@@ -140,26 +140,6 @@ class ParsedElement:
                 None,
             )
 
-    def with_text(self, text: str) -> ParsedElement:
-        """Compatibility helper: update the retrieval view, never the raw source."""
-
-        return ParsedElement(
-            element_id=self.element_id,
-            element_type=self.element_type,
-            text=text,
-            page_number=self.page_number,
-            heading_level=self.heading_level,
-            section_path=self.section_path,
-            metadata=dict(self.metadata),
-            raw_text=self.raw_text,
-            search_text=text,
-            reading_order=self.reading_order,
-            provenance=self.provenance,
-            confidence=self.confidence,
-            structured_table=self.structured_table,
-            asset_refs=self.asset_refs,
-        )
-
 
 @dataclass(slots=True)
 class ParsedDocument:

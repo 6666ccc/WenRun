@@ -190,12 +190,3 @@ def restore_document_statuses(document_id: str, records: list[dict]) -> None:
                     if isinstance(record.get("version"), int)
                 ],
             )
-
-
-def registry_status() -> dict:
-    """报告当前是否启用 MySQL 登记表，供运维了解版本状态来源。"""
-    return {
-        "enabled": enabled(),
-        "checkedAt": datetime.now(UTC).isoformat(),
-        "authority": "mysql" if enabled() else "chroma_only_development",
-    }

@@ -1,6 +1,6 @@
 """Python 调用 Java 内部医院业务接口的统一出口。
 
-Python 负责理解问题和选择工具，Java 负责科室、号源、挂号、偏好等权威数据。
+Python 负责理解问题和选择工具，Java 负责科室、号源、挂号等权威数据。
 每次调用都把 Java 签发的委托 JWT 放入 Authorization 请求头；Java 再校验
 用户权限和业务规则。这里把 Java 的 JSON 响应转换为 Python 可用的数据对象。
 """
@@ -91,18 +91,6 @@ class Registration:
     time_period: str | None = None
     status: int | None = None
     reg_fee: str | None = None
-
-
-@dataclass(frozen=True)
-class PatientMemory:
-    """Java 持久化的患者偏好记录。"""
-
-    memory_id: str
-    type: str
-    content: str
-    status: str
-    version: int | None = None
-    expire_time: str | None = None
 
 
 def _required_int(item: dict[str, Any], key: str) -> int:
@@ -371,90 +359,6 @@ class JavaToolClient:
             raise JavaToolClientError("summary commit was not acknowledged")
         return data
 
-    def list_memories(
-        self, delegated_token: str, request_id: str | None
-    ) -> list[PatientMemory]:
-        data = self._get_list(
-            "/api/internal/ai-tools/memories", delegated_token, request_id
-        )
-        memories: list[PatientMemory] = []
-        for item in data:
-            memory_id = _optional_str(item, "memoryId")
-            memory_type = _optional_str(item, "type")
-            content = _optional_str(item, "content")
-            if not memory_id or not memory_type or not content:
-                raise JavaToolClientError("Java Tool API returned an incomplete memory")
-            memories.append(
-                PatientMemory(
-                    memory_id=memory_id,
-                    type=memory_type,
-                    content=content,
-                    status=_optional_str(item, "status") or "active",
-                    version=_optional_int(item, "version"),
-                    expire_time=_optional_str(item, "expireTime"),
-                )
-            )
-        return memories
-
-    def create_memory(
-        self,
-        delegated_token: str,
-        request_id: str | None,
-        *,
-        memory_type: str,
-        content: str,
-        source_conversation_id: str,
-        expire_time: str | None = None,
-    ) -> PatientMemory:
-        data = self._post(
-            "/api/internal/ai-tools/memories",
-            delegated_token,
-            request_id,
-            {
-                "type": memory_type,
-                "content": content,
-                "sourceConversationId": source_conversation_id,
-                "expireTime": expire_time,
-            },
-        )
-        if not isinstance(data, dict):
-            raise JavaToolClientError("Java Tool API returned an invalid memory")
-        memory_id = _optional_str(data, "memoryId")
-        if not memory_id:
-            raise JavaToolClientError("Java Tool API returned an incomplete memory")
-        return PatientMemory(
-            memory_id=memory_id,
-            type=_optional_str(data, "type") or memory_type,
-            content=_optional_str(data, "content") or content,
-            status=_optional_str(data, "status") or "active",
-            version=_optional_int(data, "version"),
-        )
-
-    def update_memory(
-        self,
-        delegated_token: str,
-        request_id: str | None,
-        *,
-        memory_id: str,
-        memory_type: str,
-        content: str,
-        expected_version: int,
-        expire_time: str | None = None,
-    ) -> Any:
-        from urllib.parse import quote
-
-        return self._post(
-            f"/api/internal/ai-tools/memories/{quote(memory_id, safe='')}",
-            delegated_token,
-            request_id,
-            {
-                "type": memory_type,
-                "content": content,
-                "expectedVersion": expected_version,
-                "expireTime": expire_time,
-            },
-            method="PUT",
-        )
 
     def get_patient_clinical_context(
         self,
@@ -489,12 +393,6 @@ class JavaToolClient:
             raise JavaToolClientError("clinical context contained a forbidden field")
         return data
 
-    def delete_memory(
-        self, delegated_token: str, request_id: str | None, *, memory_id: str
-    ) -> None:
-        self._delete(
-            f"/api/internal/ai-tools/memories/{memory_id}", delegated_token, request_id
-        )
 
     def _get_list(
         self,
@@ -542,7 +440,6 @@ class JavaToolClient:
         delegated_token: str,
         request_id: str | None,
         payload: dict[str, Any],
-        method: str = "POST",
     ) -> Any:
         """发起业务写入请求；具体能否成功仍由 Java 决定。"""
         headers = self._headers(delegated_token, request_id)
@@ -552,23 +449,11 @@ class JavaToolClient:
                 timeout=self._timeout,
                 transport=self._transport,
             ) as client:
-                response = client.request(method, path, headers=headers, json=payload)
+                response = client.post(path, headers=headers, json=payload)
         except httpx.HTTPError as exc:
             raise JavaToolClientError("Java Tool API is unavailable") from exc
         return self._unwrap(response)
 
-    def _delete(self, path: str, delegated_token: str, request_id: str | None) -> Any:
-        headers = self._headers(delegated_token, request_id)
-        try:
-            with httpx.Client(
-                base_url=self._base_url,
-                timeout=self._timeout,
-                transport=self._transport,
-            ) as client:
-                response = client.delete(path, headers=headers)
-        except httpx.HTTPError as exc:
-            raise JavaToolClientError("Java Tool API is unavailable") from exc
-        return self._unwrap(response)
 
     def _headers(self, delegated_token: str, request_id: str | None) -> dict[str, str]:
         """回调 Java 时复用本次委托令牌和追踪号。"""

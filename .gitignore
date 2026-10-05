@@ -40,6 +40,10 @@ lerna-debug.log*
 
 # ===== Environment & Secrets =====
 .env
+.env.*
+!.env.example
+!**/.env.example
+*.env
 backend-java/src/main/resources/application.yml
 application-local.yml
 **/application-local.yml

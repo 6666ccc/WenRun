@@ -52,6 +52,10 @@ def configure_logging() -> None:
     logger.add(
         sys.stderr,
         level="INFO",
+        # Exception diagnostics must not dump local variables containing tokens,
+        # connection passwords, uploaded documents, or patient messages.
+        backtrace=False,
+        diagnose=False,
         # 不指定 format 和 colorize，使用 Loguru 默认格式，并根据终端自动判断是否着色。
         filter=_sanitize_record,
     )
